@@ -14,6 +14,9 @@ struct MovieDetailView: View {
     @State private var movie: Movie?
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @State private var isResolvingStream = false
+    @State private var streamError: String?
+    @State private var playableContent: PlayableContent?
 
     var body: some View {
         Group {
@@ -46,10 +49,25 @@ struct MovieDetailView: View {
                                     Label(String(format: "%.1f/10", rating), systemImage: "star.fill")
                                         .font(.title3)
                                 }
+
+                                Button {
+                                    Task { await resolveStream() }
+                                } label: {
+                                    Label("Watch", systemImage: "play.fill")
+                                }
+                                .disabled(isResolvingStream)
+                                .padding(.top, 8)
                             }
                             Spacer()
                         }
                         .padding()
+
+                        if let streamErr = streamError {
+                            Text(streamErr)
+                                .foregroundStyle(.red)
+                                .font(.subheadline)
+                                .padding(.horizontal)
+                        }
 
                         if let overview = movie.overview, !overview.isEmpty {
                             Text(overview)
@@ -61,8 +79,28 @@ struct MovieDetailView: View {
             }
         }
         .navigationTitle(movie?.title ?? "Movie")
+        .fullScreenCover(item: $playableContent) { content in
+            VideoPlayerView(url: content.url, title: content.title)
+        }
         .task {
             await loadMovie()
+        }
+    }
+
+    private func resolveStream() async {
+        guard !isResolvingStream else { return }
+        isResolvingStream = true
+        streamError = nil
+        defer { isResolvingStream = false }
+
+        do {
+            guard let url = try await appState.streamingService.playableURLForMovie(tmdbId: movieId) else {
+                streamError = "No playable source available"
+                return
+            }
+            playableContent = PlayableContent(url: url, title: movie?.title ?? "Movie")
+        } catch {
+            streamError = error.localizedDescription
         }
     }
 

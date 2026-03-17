@@ -54,6 +54,15 @@ actor TMDbService {
         try await client.tvSeries.details(forTVSeries: seriesId)
     }
 
+    /// Get full season details including episodes
+    func tvSeasonDetails(seriesId: Int, seasonNumber: Int) async throws -> TVSeason {
+        try await client.tvSeasons.details(
+            forSeason: seasonNumber,
+            inTVSeries: seriesId,
+            language: nil
+        )
+    }
+
     /// Get API configuration for image URL generation
     func apiConfiguration() async throws -> APIConfiguration {
         try await client.configurations.apiConfiguration()

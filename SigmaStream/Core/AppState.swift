@@ -12,10 +12,12 @@ import TMDb
 @Observable
 final class AppState {
     let tmdbService: TMDbService
+    let streamingService: StreamingService
     private(set) var apiConfiguration: APIConfiguration?
 
-    init(apiKey: String = Secrets.tmdbApiKey) {
+    init(apiKey: String = Secrets.tmdbApiKey, streamingBaseURL: String = Secrets.streamingServerBaseURL) {
         self.tmdbService = TMDbService(apiKey: apiKey)
+        self.streamingService = StreamingService(baseURL: streamingBaseURL)
     }
 
     func loadConfiguration() async {

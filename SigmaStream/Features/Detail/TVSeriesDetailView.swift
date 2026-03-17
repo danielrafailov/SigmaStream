@@ -14,6 +14,23 @@ struct TVSeriesDetailView: View {
     @State private var series: TVSeries?
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @State private var selectedSeason = 1
+    @State private var loadedSeason: TVSeason?
+    @State private var isLoadingSeason = false
+    @State private var playableContent: PlayableContent?
+    @State private var isResolvingStream = false
+    @State private var streamError: String?
+
+    private var seasonNumbers: [Int] {
+        guard let s = series else { return [1] }
+        if let seasons = s.seasons, !seasons.isEmpty {
+            return seasons.map(\.seasonNumber).sorted()
+        }
+        if let n = s.numberOfSeasons, n > 0 {
+            return Array(1...n)
+        }
+        return [1]
+    }
 
     var body: some View {
         Group {
@@ -56,13 +73,29 @@ struct TVSeriesDetailView: View {
                                 .font(.body)
                                 .padding(.horizontal)
                         }
+
+                        if let streamErr = streamError {
+                            Text(streamErr)
+                                .foregroundStyle(.red)
+                                .font(.subheadline)
+                                .padding(.horizontal)
+                        }
+
+                        seasonsSection
+                        episodesSection
                     }
                 }
             }
         }
         .navigationTitle(series?.name ?? "TV Series")
+        .fullScreenCover(item: $playableContent) { content in
+            VideoPlayerView(url: content.url, title: content.title)
+        }
         .task {
             await loadSeries()
+        }
+        .onChange(of: selectedSeason) { _, newValue in
+            Task { await loadSeason(newValue) }
         }
     }
 
@@ -97,17 +130,134 @@ struct TVSeriesDetailView: View {
             }
     }
 
+    @ViewBuilder
+    private var seasonsSection: some View {
+        if !seasonNumbers.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Season")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(seasonNumbers, id: \.self) { num in
+                            Button {
+                                selectedSeason = num
+                            } label: {
+                                Text("Season \(num)")
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 8)
+                                    .background(selectedSeason == num ? Color.accentColor : Color.clear)
+                                    .foregroundStyle(selectedSeason == num ? .white : .primary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal)
+                }
+            }
+            .padding()
+        }
+    }
+
+    @ViewBuilder
+    private var episodesSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Episodes")
+                .font(.title2)
+                .fontWeight(.semibold)
+                .padding(.horizontal)
+
+            if isLoadingSeason {
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 24)
+            } else if let season = loadedSeason, let episodes = season.episodes, !episodes.isEmpty {
+                ForEach(episodes, id: \.id) { episode in
+                    Button {
+                        Task { await resolveStream(season: selectedSeason, episode: episode.episodeNumber, title: episode.name) }
+                    } label: {
+                        HStack(spacing: 16) {
+                            Text("\(episode.episodeNumber)")
+                                .font(.headline)
+                                .foregroundStyle(.secondary)
+                                .frame(width: 36, alignment: .leading)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(episode.name)
+                                    .font(.headline)
+                                    .lineLimit(2)
+                                if let date = episode.airDate {
+                                    Text(formatYear(date))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            Spacer()
+                            Image(systemName: "play.circle.fill")
+                                .font(.title2)
+                        }
+                        .padding()
+                        .background(.ultraThinMaterial.opacity(0.5))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isResolvingStream)
+                }
+                .padding(.horizontal)
+            } else {
+                Text("No episodes available")
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 24)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .padding(.vertical)
+    }
+
     private func formatYear(_ date: Date) -> String {
         Calendar.current.component(.year, from: date).description
     }
 
     private func loadSeries() async {
         do {
-            series = try await appState.tmdbService.tvSeriesDetails(forSeriesId: seriesId)
+            let result = try await appState.tmdbService.tvSeriesDetails(forSeriesId: seriesId)
+            series = result
+            let seasons = (result.seasons ?? []).map(\.seasonNumber).sorted()
+            selectedSeason = seasons.first ?? (result.numberOfSeasons ?? 1)
+            await loadSeason(selectedSeason)
         } catch {
             errorMessage = error.localizedDescription
         }
         isLoading = false
+    }
+
+    private func loadSeason(_ seasonNumber: Int) async {
+        isLoadingSeason = true
+        defer { isLoadingSeason = false }
+
+        do {
+            loadedSeason = try await appState.tmdbService.tvSeasonDetails(seriesId: seriesId, seasonNumber: seasonNumber)
+        } catch {
+            streamError = error.localizedDescription
+        }
+    }
+
+    private func resolveStream(season: Int, episode: Int, title: String) async {
+        guard !isResolvingStream else { return }
+        isResolvingStream = true
+        streamError = nil
+        defer { isResolvingStream = false }
+
+        do {
+            guard let url = try await appState.streamingService.playableURLForEpisode(seriesId: seriesId, season: season, episode: episode) else {
+                streamError = "No playable source available"
+                return
+            }
+            playableContent = PlayableContent(url: url, title: "\(series?.name ?? "Episode") - \(title)")
+        } catch {
+            streamError = error.localizedDescription
+        }
     }
 }
 

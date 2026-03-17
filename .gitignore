@@ -1,0 +1,11 @@
+# API Keys & Secrets (never commit)
+SigmaStream/Core/Secrets.swift
+
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+
+# macOS
+.DS_Store

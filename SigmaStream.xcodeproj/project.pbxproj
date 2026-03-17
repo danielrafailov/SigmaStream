@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		4B64EBC22F68F95300884849 /* TMDb in Frameworks */ = {isa = PBXBuildFile; productRef = 4B64EB6B2F68EAE700884849 /* TMDb */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		4B64EB5A2F68EAE600884849 /* SigmaStream.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SigmaStream.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -23,6 +27,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4B64EBC22F68F95300884849 /* TMDb in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -65,6 +70,7 @@
 			);
 			name = SigmaStream;
 			packageProductDependencies = (
+				4B64EB6B2F68EAE700884849 /* TMDb */,
 			);
 			productName = SigmaStream;
 			productReference = 4B64EB5A2F68EAE600884849 /* SigmaStream.app */;
@@ -94,6 +100,9 @@
 			);
 			mainGroup = 4B64EB512F68EAE600884849;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				4B64EB6A2F68EAE700884849 /* XCRemoteSwiftPackageReference "TMDb" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 4B64EB5B2F68EAE600884849 /* Products */;
 			projectDirPath = "";
@@ -326,6 +335,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		4B64EB6A2F68EAE700884849 /* XCRemoteSwiftPackageReference "TMDb" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/adamayoung/TMDb.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 14.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		4B64EB6B2F68EAE700884849 /* TMDb */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4B64EB6A2F68EAE700884849 /* XCRemoteSwiftPackageReference "TMDb" */;
+			productName = TMDb;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 4B64EB522F68EAE600884849 /* Project object */;
 }

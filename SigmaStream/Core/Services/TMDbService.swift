@@ -174,6 +174,11 @@ actor TMDbService {
 
     /// Load movies for a category (used by See All). Returns (items, hasMore) for pagination.
     func moviesPaginated(for category: MovieCategory, page: Int) async throws -> (items: [MovieListItem], hasMore: Bool) {
+        if let genreId = category.genreId {
+            let filter = DiscoverMovieFilter(genres: [genreId])
+            let response = try await client.discover.movies(filter: filter, sortedBy: .popularity(descending: true), page: page, language: nil)
+            return (response.results, page < (response.totalPages ?? page))
+        }
         switch category {
         case .trendingToday:
             let items = try await trendingMovies()
@@ -190,15 +195,18 @@ actor TMDbService {
         case .upcoming:
             let response = try await client.movies.upcoming(page: page, language: nil)
             return (response.results, page < (response.totalPages ?? page))
-        case .documentaries:
-            let filter = DiscoverMovieFilter(genres: [99])
-            let response = try await client.discover.movies(filter: filter, sortedBy: .popularity(descending: true), page: page, language: nil)
-            return (response.results, page < (response.totalPages ?? page))
+        case .documentaries, .action, .comedy, .drama, .horror, .romance, .sciFi, .thriller:
+            fatalError("Genre categories handled above")
         }
     }
 
     /// Load TV series for a category (used by See All). Returns (items, hasMore) for pagination.
     func tvSeriesPaginated(for category: TVCategory, page: Int) async throws -> (items: [TVSeriesListItem], hasMore: Bool) {
+        if let genreId = category.genreId {
+            let filter = DiscoverTVSeriesFilter(genres: [genreId])
+            let response = try await client.discover.tvSeries(filter: filter, sortedBy: .popularity(descending: true), page: page, language: nil)
+            return (response.results, page < (response.totalPages ?? page))
+        }
         switch category {
         case .trendingToday:
             let items = try await trendingTVSeries()
@@ -209,10 +217,8 @@ actor TMDbService {
         case .topRated:
             let response = try await client.discover.tvSeries(filter: nil, sortedBy: .voteAverage(descending: true), page: page, language: nil)
             return (response.results, page < (response.totalPages ?? page))
-        case .documentaries:
-            let filter = DiscoverTVSeriesFilter(genres: [99])
-            let response = try await client.discover.tvSeries(filter: filter, sortedBy: .popularity(descending: true), page: page, language: nil)
-            return (response.results, page < (response.totalPages ?? page))
+        case .documentaries, .actionAdventure, .comedy, .drama, .horror, .romance, .sciFiFantasy, .thriller:
+            fatalError("Genre categories handled above")
         }
     }
 }

@@ -112,14 +112,14 @@ struct MovieDetailView: View {
 
         do {
             guard let url = try await appState.streamingService.playableURLForMovie(tmdbId: movieId) else {
-                streamError = "No playable source available"
+                streamError = "No stream was found"
                 return
             }
             let content = PlayableContent(url: url, title: movie?.title ?? "Movie", movieId: movieId)
             playableContent = content
             appState.watchProgressManager.recordMovie(movieId)
         } catch {
-            streamError = error.localizedDescription
+            streamError = "No stream was found"
         }
     }
 

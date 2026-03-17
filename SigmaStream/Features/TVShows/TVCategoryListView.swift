@@ -13,10 +13,6 @@ struct TVCategoryListView: View {
     @Environment(AppState.self) private var appState
     @State private var tvSeries: [TVSeriesListItem] = []
     @State private var currentPage = 1
-    @State private var filter = MediaFilter.default
-    @State private var genres: [Genre] = []
-    @State private var showFilter = false
-    @State private var isFilterActive = false
     @State private var hasMore = true
     @State private var isLoading = true
     @State private var isLoadingMore = false
@@ -78,46 +74,11 @@ struct TVCategoryListView: View {
             }
         }
         .navigationTitle(category.rawValue)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    Task { await loadGenres() }
-                    showFilter = true
-                } label: {
-                    Label("Filter", systemImage: "line.3.horizontal.decrease.circle")
-                }
-            }
-        }
-        .sheet(isPresented: $showFilter) {
-            TVSeriesFilterSheet(
-                filter: $filter,
-                genres: genres,
-                onApply: {
-                    isFilterActive = true
-                    Task { await loadInitial() }
-                    showFilter = false
-                },
-                onClear: {
-                    filter = MediaFilter.default
-                    isFilterActive = false
-                    Task { await loadInitial() }
-                    showFilter = false
-                }
-            )
-        }
         .navigationDestination(item: $selectedSeries) { selection in
             TVSeriesDetailView(seriesId: selection.id)
         }
         .task {
             await loadInitial()
-        }
-    }
-
-    private func loadGenres() async {
-        do {
-            genres = try await appState.tmdbService.tvSeriesGenres()
-        } catch {
-            errorMessage = error.localizedDescription
         }
     }
 
@@ -127,19 +88,9 @@ struct TVCategoryListView: View {
         currentPage = 1
         hasMore = true
         do {
-            if isFilterActive {
-                let items = try await appState.tmdbService.discoverTVSeries(
-                    filter: filter.toDiscoverTVSeriesFilter(),
-                    sortedBy: filter.sortOption.tvSort,
-                    page: 1
-                )
-                tvSeries = items
-                hasMore = items.count >= 20
-            } else {
-                let result = try await appState.tmdbService.tvSeriesPaginated(for: category, page: 1)
-                tvSeries = result.items
-                hasMore = result.hasMore
-            }
+            let result = try await appState.tmdbService.tvSeriesPaginated(for: category, page: 1)
+            tvSeries = result.items
+            hasMore = result.hasMore
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -151,21 +102,10 @@ struct TVCategoryListView: View {
         isLoadingMore = true
         let nextPage = currentPage + 1
         do {
-            if isFilterActive {
-                let items = try await appState.tmdbService.discoverTVSeries(
-                    filter: filter.toDiscoverTVSeriesFilter(),
-                    sortedBy: filter.sortOption.tvSort,
-                    page: nextPage
-                )
-                tvSeries.append(contentsOf: items)
-                hasMore = items.count >= 20
-                currentPage = nextPage
-            } else {
-                let result = try await appState.tmdbService.tvSeriesPaginated(for: category, page: nextPage)
-                tvSeries.append(contentsOf: result.items)
-                hasMore = result.hasMore
-                currentPage = nextPage
-            }
+            let result = try await appState.tmdbService.tvSeriesPaginated(for: category, page: nextPage)
+            tvSeries.append(contentsOf: result.items)
+            hasMore = result.hasMore
+            currentPage = nextPage
         } catch {
             errorMessage = error.localizedDescription
         }

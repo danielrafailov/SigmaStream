@@ -34,6 +34,13 @@ struct TVShowsView: View {
     @State private var popular: [TVSeriesListItem] = []
     @State private var topRated: [TVSeriesListItem] = []
     @State private var documentaries: [TVSeriesListItem] = []
+    @State private var actionAdventure: [TVSeriesListItem] = []
+    @State private var comedy: [TVSeriesListItem] = []
+    @State private var drama: [TVSeriesListItem] = []
+    @State private var horror: [TVSeriesListItem] = []
+    @State private var romance: [TVSeriesListItem] = []
+    @State private var sciFiFantasy: [TVSeriesListItem] = []
+    @State private var thriller: [TVSeriesListItem] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var selectedSeries: TVSeriesSelection?
@@ -88,6 +95,56 @@ struct TVShowsView: View {
                             config: appState.apiConfiguration,
                             onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
                             onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .documentaries) }
+                        )
+
+                        TVSeriesMediaRow(
+                            title: "Action & Adventure",
+                            tvSeries: actionAdventure,
+                            config: appState.apiConfiguration,
+                            onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
+                            onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .actionAdventure) }
+                        )
+                        TVSeriesMediaRow(
+                            title: "Comedy",
+                            tvSeries: comedy,
+                            config: appState.apiConfiguration,
+                            onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
+                            onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .comedy) }
+                        )
+                        TVSeriesMediaRow(
+                            title: "Drama",
+                            tvSeries: drama,
+                            config: appState.apiConfiguration,
+                            onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
+                            onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .drama) }
+                        )
+                        TVSeriesMediaRow(
+                            title: "Horror",
+                            tvSeries: horror,
+                            config: appState.apiConfiguration,
+                            onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
+                            onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .horror) }
+                        )
+                        TVSeriesMediaRow(
+                            title: "Romance",
+                            tvSeries: romance,
+                            config: appState.apiConfiguration,
+                            onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
+                            onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .romance) }
+                        )
+                        TVSeriesMediaRow(
+                            title: "Sci-Fi & Fantasy",
+                            tvSeries: sciFiFantasy,
+                            config: appState.apiConfiguration,
+                            onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
+                            onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .sciFiFantasy) }
+                        )
+                        TVSeriesMediaRow(
+                            title: "Thriller",
+                            tvSeries: thriller,
+                            config: appState.apiConfiguration,
+                            onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
+                            onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .thriller) }
                         )
                     }
                 }
@@ -176,11 +233,25 @@ struct TVShowsView: View {
             async let popularTask = appState.tmdbService.popularTVSeries()
             async let topRatedTask = appState.tmdbService.topRatedTVSeries()
             async let documentariesTask = appState.tmdbService.documentaryTVSeries()
+            async let actionAdventureTask = appState.tmdbService.tvSeriesPaginated(for: .actionAdventure, page: 1)
+            async let comedyTask = appState.tmdbService.tvSeriesPaginated(for: .comedy, page: 1)
+            async let dramaTask = appState.tmdbService.tvSeriesPaginated(for: .drama, page: 1)
+            async let horrorTask = appState.tmdbService.tvSeriesPaginated(for: .horror, page: 1)
+            async let romanceTask = appState.tmdbService.tvSeriesPaginated(for: .romance, page: 1)
+            async let sciFiFantasyTask = appState.tmdbService.tvSeriesPaginated(for: .sciFiFantasy, page: 1)
+            async let thrillerTask = appState.tmdbService.tvSeriesPaginated(for: .thriller, page: 1)
 
             trending = try await trendingTask
             popular = try await popularTask
             topRated = try await topRatedTask
             documentaries = try await documentariesTask
+            actionAdventure = try await actionAdventureTask.items
+            comedy = try await comedyTask.items
+            drama = try await dramaTask.items
+            horror = try await horrorTask.items
+            romance = try await romanceTask.items
+            sciFiFantasy = try await sciFiFantasyTask.items
+            thriller = try await thrillerTask.items
         } catch {
             errorMessage = error.localizedDescription
         }

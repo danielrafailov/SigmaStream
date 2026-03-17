@@ -74,8 +74,7 @@ struct VideoPlayerView: View {
             guard let item = newPlayer.currentItem else { continue }
             switch item.status {
             case .failed:
-                let msg = item.error?.localizedDescription ?? "Stream failed to load"
-                await MainActor.run { loadError = msg }
+                await MainActor.run { loadError = "No stream was found" }
                 return
             case .readyToPlay:
                 selectEnglishAudioIfAvailable(for: item)
@@ -92,7 +91,7 @@ struct VideoPlayerView: View {
             }
         }
         await MainActor.run {
-            loadError = "Use your Mac's IP (e.g. http://192.168.1.5:3000) in Secrets. Required for tvOS Simulator and Apple TV."
+            loadError = "No stream was found"
         }
     }
 
@@ -105,14 +104,9 @@ struct VideoPlayerView: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 48))
                         .foregroundStyle(.yellow)
-                    Text("Failed to load stream")
+                    Text("No stream was found")
                         .font(.title2)
                         .fontWeight(.semibold)
-                    Text(message)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: 400)
                     HStack(spacing: 16) {
                         Button("Retry") {
                             retryTrigger += 1

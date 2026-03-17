@@ -270,13 +270,13 @@ struct TVSeriesDetailView: View {
 
         do {
             guard let url = try await appState.streamingService.playableURLForEpisode(seriesId: seriesId, season: season, episode: episode) else {
-                streamError = "No playable source available"
+                streamError = "No stream was found"
                 return
             }
             playableContent = PlayableContent(url: url, title: "\(series?.name ?? "Episode") - \(title)", tvSeriesId: seriesId, season: season, episode: episode)
             appState.watchProgressManager.recordEpisode(seriesId: seriesId, season: season, episode: episode)
         } catch {
-            streamError = error.localizedDescription
+            streamError = "No stream was found"
         }
     }
 }

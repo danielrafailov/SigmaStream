@@ -33,6 +33,13 @@ struct MoviesView: View {
     @State private var nowPlaying: [MovieListItem] = []
     @State private var upcoming: [MovieListItem] = []
     @State private var documentaries: [MovieListItem] = []
+    @State private var action: [MovieListItem] = []
+    @State private var comedy: [MovieListItem] = []
+    @State private var drama: [MovieListItem] = []
+    @State private var horror: [MovieListItem] = []
+    @State private var romance: [MovieListItem] = []
+    @State private var sciFi: [MovieListItem] = []
+    @State private var thriller: [MovieListItem] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var selectedMovie: MovieSelection?
@@ -103,6 +110,56 @@ struct MoviesView: View {
                             config: appState.apiConfiguration,
                             onSelect: { movie in selectedMovie = MovieSelection(id: movie.id) },
                             onSeeAll: { categoryForSeeAll = MovieCategorySeeAll(category: .documentaries) }
+                        )
+
+                        MovieMediaRow(
+                            title: "Action",
+                            movies: action,
+                            config: appState.apiConfiguration,
+                            onSelect: { movie in selectedMovie = MovieSelection(id: movie.id) },
+                            onSeeAll: { categoryForSeeAll = MovieCategorySeeAll(category: .action) }
+                        )
+                        MovieMediaRow(
+                            title: "Comedy",
+                            movies: comedy,
+                            config: appState.apiConfiguration,
+                            onSelect: { movie in selectedMovie = MovieSelection(id: movie.id) },
+                            onSeeAll: { categoryForSeeAll = MovieCategorySeeAll(category: .comedy) }
+                        )
+                        MovieMediaRow(
+                            title: "Drama",
+                            movies: drama,
+                            config: appState.apiConfiguration,
+                            onSelect: { movie in selectedMovie = MovieSelection(id: movie.id) },
+                            onSeeAll: { categoryForSeeAll = MovieCategorySeeAll(category: .drama) }
+                        )
+                        MovieMediaRow(
+                            title: "Horror",
+                            movies: horror,
+                            config: appState.apiConfiguration,
+                            onSelect: { movie in selectedMovie = MovieSelection(id: movie.id) },
+                            onSeeAll: { categoryForSeeAll = MovieCategorySeeAll(category: .horror) }
+                        )
+                        MovieMediaRow(
+                            title: "Romance",
+                            movies: romance,
+                            config: appState.apiConfiguration,
+                            onSelect: { movie in selectedMovie = MovieSelection(id: movie.id) },
+                            onSeeAll: { categoryForSeeAll = MovieCategorySeeAll(category: .romance) }
+                        )
+                        MovieMediaRow(
+                            title: "Sci-Fi",
+                            movies: sciFi,
+                            config: appState.apiConfiguration,
+                            onSelect: { movie in selectedMovie = MovieSelection(id: movie.id) },
+                            onSeeAll: { categoryForSeeAll = MovieCategorySeeAll(category: .sciFi) }
+                        )
+                        MovieMediaRow(
+                            title: "Thriller",
+                            movies: thriller,
+                            config: appState.apiConfiguration,
+                            onSelect: { movie in selectedMovie = MovieSelection(id: movie.id) },
+                            onSeeAll: { categoryForSeeAll = MovieCategorySeeAll(category: .thriller) }
                         )
                     }
                 }
@@ -191,6 +248,13 @@ struct MoviesView: View {
             async let nowPlayingTask = appState.tmdbService.nowPlayingMovies()
             async let upcomingTask = appState.tmdbService.upcomingMovies()
             async let documentariesTask = appState.tmdbService.documentaryMovies()
+            async let actionTask = appState.tmdbService.moviesPaginated(for: .action, page: 1)
+            async let comedyTask = appState.tmdbService.moviesPaginated(for: .comedy, page: 1)
+            async let dramaTask = appState.tmdbService.moviesPaginated(for: .drama, page: 1)
+            async let horrorTask = appState.tmdbService.moviesPaginated(for: .horror, page: 1)
+            async let romanceTask = appState.tmdbService.moviesPaginated(for: .romance, page: 1)
+            async let sciFiTask = appState.tmdbService.moviesPaginated(for: .sciFi, page: 1)
+            async let thrillerTask = appState.tmdbService.moviesPaginated(for: .thriller, page: 1)
 
             trending = try await trendingTask
             popular = try await popularTask
@@ -198,6 +262,13 @@ struct MoviesView: View {
             nowPlaying = try await nowPlayingTask
             upcoming = try await upcomingTask
             documentaries = try await documentariesTask
+            action = try await actionTask.items
+            comedy = try await comedyTask.items
+            drama = try await dramaTask.items
+            horror = try await horrorTask.items
+            romance = try await romanceTask.items
+            sciFi = try await sciFiTask.items
+            thriller = try await thrillerTask.items
         } catch {
             errorMessage = error.localizedDescription
         }

@@ -18,10 +18,6 @@ struct MovieCategoryListView: View {
     @State private var isLoadingMore = false
     @State private var errorMessage: String?
     @State private var selectedMovie: MovieSelection?
-    @State private var filter = MediaFilter.default
-    @State private var genres: [Genre] = []
-    @State private var showFilter = false
-    @State private var isFilterActive = false
 
     private func formatYear(_ date: Date) -> String {
         Calendar.current.component(.year, from: date).description
@@ -78,46 +74,11 @@ struct MovieCategoryListView: View {
             }
         }
         .navigationTitle(category.rawValue)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    Task { await loadGenres() }
-                    showFilter = true
-                } label: {
-                    Label("Filter", systemImage: "line.3.horizontal.decrease.circle")
-                }
-            }
-        }
-        .sheet(isPresented: $showFilter) {
-            MovieFilterSheet(
-                filter: $filter,
-                genres: genres,
-                onApply: {
-                    isFilterActive = true
-                    Task { await loadInitial() }
-                    showFilter = false
-                },
-                onClear: {
-                    filter = MediaFilter.default
-                    isFilterActive = false
-                    Task { await loadInitial() }
-                    showFilter = false
-                }
-            )
-        }
         .navigationDestination(item: $selectedMovie) { selection in
             MovieDetailView(movieId: selection.id)
         }
         .task {
             await loadInitial()
-        }
-    }
-
-    private func loadGenres() async {
-        do {
-            genres = try await appState.tmdbService.movieGenres()
-        } catch {
-            errorMessage = error.localizedDescription
         }
     }
 
@@ -127,19 +88,9 @@ struct MovieCategoryListView: View {
         currentPage = 1
         hasMore = true
         do {
-            if isFilterActive {
-                let items = try await appState.tmdbService.discoverMovies(
-                    filter: filter.toDiscoverMovieFilter(),
-                    sortedBy: filter.sortOption.movieSort,
-                    page: 1
-                )
-                movies = items
-                hasMore = items.count >= 20
-            } else {
-                let result = try await appState.tmdbService.moviesPaginated(for: category, page: 1)
-                movies = result.items
-                hasMore = result.hasMore
-            }
+            let result = try await appState.tmdbService.moviesPaginated(for: category, page: 1)
+            movies = result.items
+            hasMore = result.hasMore
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -151,21 +102,10 @@ struct MovieCategoryListView: View {
         isLoadingMore = true
         let nextPage = currentPage + 1
         do {
-            if isFilterActive {
-                let items = try await appState.tmdbService.discoverMovies(
-                    filter: filter.toDiscoverMovieFilter(),
-                    sortedBy: filter.sortOption.movieSort,
-                    page: nextPage
-                )
-                movies.append(contentsOf: items)
-                hasMore = items.count >= 20
-                currentPage = nextPage
-            } else {
-                let result = try await appState.tmdbService.moviesPaginated(for: category, page: nextPage)
-                movies.append(contentsOf: result.items)
-                hasMore = result.hasMore
-                currentPage = nextPage
-            }
+            let result = try await appState.tmdbService.moviesPaginated(for: category, page: nextPage)
+            movies.append(contentsOf: result.items)
+            hasMore = result.hasMore
+            currentPage = nextPage
         } catch {
             errorMessage = error.localizedDescription
         }

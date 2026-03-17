@@ -88,8 +88,27 @@ struct TVSeriesDetailView: View {
             }
         }
         .navigationTitle(series?.name ?? "TV Series")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    appState.myListManager.toggleSeries(seriesId)
+                } label: {
+                    Image(systemName: appState.myListManager.isSeriesInList(seriesId) ? "plus.circle.fill" : "plus.circle")
+                }
+            }
+        }
         .fullScreenCover(item: $playableContent) { content in
-            VideoPlayerView(url: content.url, title: content.title)
+            VideoPlayerView(
+                url: content.url,
+                title: content.title,
+                onPlaybackEnded: {
+                    if let sid = content.tvSeriesId,
+                       let s = content.season,
+                       let e = content.episode {
+                        appState.watchProgressManager.removeEpisode(seriesId: sid, season: s, episode: e)
+                    }
+                }
+            )
         }
         .task {
             await loadSeries()
@@ -254,7 +273,8 @@ struct TVSeriesDetailView: View {
                 streamError = "No playable source available"
                 return
             }
-            playableContent = PlayableContent(url: url, title: "\(series?.name ?? "Episode") - \(title)")
+            playableContent = PlayableContent(url: url, title: "\(series?.name ?? "Episode") - \(title)", tvSeriesId: seriesId, season: season, episode: episode)
+            appState.watchProgressManager.recordEpisode(seriesId: seriesId, season: season, episode: episode)
         } catch {
             streamError = error.localizedDescription
         }

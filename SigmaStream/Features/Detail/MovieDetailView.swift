@@ -79,8 +79,25 @@ struct MovieDetailView: View {
             }
         }
         .navigationTitle(movie?.title ?? "Movie")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    appState.myListManager.toggleMovie(movieId)
+                } label: {
+                    Image(systemName: appState.myListManager.isMovieInList(movieId) ? "plus.circle.fill" : "plus.circle")
+                }
+            }
+        }
         .fullScreenCover(item: $playableContent) { content in
-            VideoPlayerView(url: content.url, title: content.title)
+            VideoPlayerView(
+                url: content.url,
+                title: content.title,
+                onPlaybackEnded: {
+                    if let mid = content.movieId {
+                        appState.watchProgressManager.removeMovie(mid)
+                    }
+                }
+            )
         }
         .task {
             await loadMovie()
@@ -98,7 +115,9 @@ struct MovieDetailView: View {
                 streamError = "No playable source available"
                 return
             }
-            playableContent = PlayableContent(url: url, title: movie?.title ?? "Movie")
+            let content = PlayableContent(url: url, title: movie?.title ?? "Movie", movieId: movieId)
+            playableContent = content
+            appState.watchProgressManager.recordMovie(movieId)
         } catch {
             streamError = error.localizedDescription
         }

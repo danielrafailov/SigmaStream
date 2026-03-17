@@ -103,4 +103,15 @@ extension OMSSSource {
         let t = type.lowercased()
         return t == "hls" || t == "mp4"
     }
+
+    /// True if any audio track is English (prefer for playback)
+    var hasEnglishAudio: Bool {
+        guard let tracks = audioTracks, !tracks.isEmpty else { return false }
+        let englishCodes = ["eng", "en", "english"]
+        return tracks.contains { track in
+            let lang = (track.language ?? "").lowercased()
+            let label = (track.label ?? "").lowercased()
+            return englishCodes.contains(lang) || label.contains("english")
+        }
+    }
 }

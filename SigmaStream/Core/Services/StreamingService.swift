@@ -91,7 +91,10 @@ actor StreamingService {
             if a.qualityRank != b.qualityRank {
                 return a.qualityRank > b.qualityRank
             }
-            return a.isHLS && !b.isHLS
+            if a.isHLS != b.isHLS {
+                return a.isHLS
+            }
+            return a.hasEnglishAudio && !b.hasEnglishAudio
         }
         guard let best = sorted.first else { return nil }
 

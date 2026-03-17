@@ -24,6 +24,10 @@ struct ContentView: View {
                 .tabItem {
                     Label("Search", systemImage: "magnifyingglass")
                 }
+            MyListView()
+                .tabItem {
+                    Label("My List", systemImage: "plus.circle.fill")
+                }
         }
     }
 }

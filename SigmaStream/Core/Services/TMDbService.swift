@@ -13,15 +13,20 @@ import TMDb
 actor TMDbService {
 
     private let client: TMDbClient
+    private var movieCache: [Int: Movie] = [:]
+    private var tvSeriesCache: [Int: TVSeries] = [:]
 
     init(apiKey: String) {
         self.client = TMDbClient(apiKey: apiKey)
     }
 
     /// Fetch popular movies
-    func popularMovies() async throws -> [MovieListItem] {
+    func popularMovies(page: Int? = nil) async throws -> [MovieListItem] {
         let response = try await client.discover.movies(
-            sortedBy: .popularity(descending: true)
+            filter: nil,
+            sortedBy: .popularity(descending: true),
+            page: page,
+            language: nil
         )
         return response.results
     }
@@ -44,14 +49,20 @@ actor TMDbService {
         return response.results
     }
 
-    /// Get movie details
+    /// Get movie details (cached)
     func movieDetails(forMovieId movieId: Int) async throws -> Movie {
-        try await client.movies.details(forMovie: movieId)
+        if let cached = movieCache[movieId] { return cached }
+        let movie = try await client.movies.details(forMovie: movieId)
+        movieCache[movieId] = movie
+        return movie
     }
 
-    /// Get TV series details
+    /// Get TV series details (cached)
     func tvSeriesDetails(forSeriesId seriesId: Int) async throws -> TVSeries {
-        try await client.tvSeries.details(forTVSeries: seriesId)
+        if let cached = tvSeriesCache[seriesId] { return cached }
+        let series = try await client.tvSeries.details(forTVSeries: seriesId)
+        tvSeriesCache[seriesId] = series
+        return series
     }
 
     /// Get full season details including episodes
@@ -135,5 +146,73 @@ actor TMDbService {
             language: nil
         )
         return response.results
+    }
+
+    /// Fetch now playing movies (currently in theatres)
+    func nowPlayingMovies(page: Int? = nil) async throws -> [MovieListItem] {
+        let response = try await client.movies.nowPlaying(page: page, language: nil)
+        return response.results
+    }
+
+    /// Fetch upcoming movies
+    func upcomingMovies(page: Int? = nil) async throws -> [MovieListItem] {
+        let response = try await client.movies.upcoming(page: page, language: nil)
+        return response.results
+    }
+
+    /// Fetch documentary movies (TMDb genre ID 99)
+    func documentaryMovies(page: Int? = nil) async throws -> [MovieListItem] {
+        let filter = DiscoverMovieFilter(genres: [99])
+        return try await discoverMovies(filter: filter, sortedBy: .popularity(descending: true), page: page)
+    }
+
+    /// Fetch documentary TV series (TMDb genre ID 99)
+    func documentaryTVSeries(page: Int? = nil) async throws -> [TVSeriesListItem] {
+        let filter = DiscoverTVSeriesFilter(genres: [99])
+        return try await discoverTVSeries(filter: filter, sortedBy: .popularity(descending: true), page: page)
+    }
+
+    /// Load movies for a category (used by See All). Returns (items, hasMore) for pagination.
+    func moviesPaginated(for category: MovieCategory, page: Int) async throws -> (items: [MovieListItem], hasMore: Bool) {
+        switch category {
+        case .trendingToday:
+            let items = try await trendingMovies()
+            return (items, false)
+        case .popular:
+            let response = try await client.discover.movies(filter: nil, sortedBy: .popularity(descending: true), page: page, language: nil)
+            return (response.results, page < (response.totalPages ?? page))
+        case .topRated:
+            let response = try await client.movies.topRated(page: page, country: nil, language: nil)
+            return (response.results, page < (response.totalPages ?? page))
+        case .nowPlaying:
+            let response = try await client.movies.nowPlaying(page: page, language: nil)
+            return (response.results, page < (response.totalPages ?? page))
+        case .upcoming:
+            let response = try await client.movies.upcoming(page: page, language: nil)
+            return (response.results, page < (response.totalPages ?? page))
+        case .documentaries:
+            let filter = DiscoverMovieFilter(genres: [99])
+            let response = try await client.discover.movies(filter: filter, sortedBy: .popularity(descending: true), page: page, language: nil)
+            return (response.results, page < (response.totalPages ?? page))
+        }
+    }
+
+    /// Load TV series for a category (used by See All). Returns (items, hasMore) for pagination.
+    func tvSeriesPaginated(for category: TVCategory, page: Int) async throws -> (items: [TVSeriesListItem], hasMore: Bool) {
+        switch category {
+        case .trendingToday:
+            let items = try await trendingTVSeries()
+            return (items, false)
+        case .popular:
+            let response = try await client.tvSeries.popular(page: page, language: nil)
+            return (response.results, page < (response.totalPages ?? page))
+        case .topRated:
+            let response = try await client.discover.tvSeries(filter: nil, sortedBy: .voteAverage(descending: true), page: page, language: nil)
+            return (response.results, page < (response.totalPages ?? page))
+        case .documentaries:
+            let filter = DiscoverTVSeriesFilter(genres: [99])
+            let response = try await client.discover.tvSeries(filter: filter, sortedBy: .popularity(descending: true), page: page, language: nil)
+            return (response.results, page < (response.totalPages ?? page))
+        }
     }
 }

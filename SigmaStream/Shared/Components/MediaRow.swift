@@ -14,12 +14,25 @@ struct MovieMediaRow: View {
     let movies: [MovieListItem]
     let config: APIConfiguration?
     let onSelect: (MovieListItem) -> Void
+    var onSeeAll: (() -> Void)? = nil
+    var showMyListContextMenu: Bool = true
+
+    @Environment(AppState.self) private var appState
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(.title2)
-                .fontWeight(.semibold)
+            HStack {
+                Text(title)
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                Spacer()
+                if let onSeeAll {
+                    Button("See All") {
+                        onSeeAll()
+                    }
+                    .font(.subheadline)
+                }
+            }
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 16) {
@@ -30,11 +43,25 @@ struct MovieMediaRow: View {
                             MediaCard(
                                 posterPath: movie.posterPath,
                                 title: movie.title,
-                                subtitle: movie.releaseDate.map { formatYear($0) } ?? movie.voteAverage.map { String(format: "%.1f", $0) + "/10" },
+                                subtitle: movie.releaseDate.map { formatYear($0) },
                                 config: config
                             )
                         }
                         .buttonStyle(.plain)
+                        .hoverEffect(.lift)
+                        .contextMenu {
+                            if showMyListContextMenu {
+                                if appState.myListManager.isMovieInList(movie.id) {
+                                    Button("Remove from My List", role: .destructive) {
+                                        appState.myListManager.toggleMovie(movie.id)
+                                    }
+                                } else {
+                                    Button("Add to My List") {
+                                        appState.myListManager.toggleMovie(movie.id)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 .padding(.horizontal)
@@ -54,12 +81,25 @@ struct TVSeriesMediaRow: View {
     let tvSeries: [TVSeriesListItem]
     let config: APIConfiguration?
     let onSelect: (TVSeriesListItem) -> Void
+    var onSeeAll: (() -> Void)? = nil
+    var showMyListContextMenu: Bool = true
+
+    @Environment(AppState.self) private var appState
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(.title2)
-                .fontWeight(.semibold)
+            HStack {
+                Text(title)
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                Spacer()
+                if let onSeeAll {
+                    Button("See All") {
+                        onSeeAll()
+                    }
+                    .font(.subheadline)
+                }
+            }
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 16) {
@@ -70,11 +110,25 @@ struct TVSeriesMediaRow: View {
                             MediaCard(
                                 posterPath: series.posterPath,
                                 title: series.name,
-                                subtitle: series.firstAirDate.map { formatYear($0) } ?? series.voteAverage.map { String(format: "%.1f", $0) + "/10" },
+                                subtitle: series.firstAirDate.map { formatYear($0) },
                                 config: config
                             )
                         }
                         .buttonStyle(.plain)
+                        .hoverEffect(.lift)
+                        .contextMenu {
+                            if showMyListContextMenu {
+                                if appState.myListManager.isSeriesInList(series.id) {
+                                    Button("Remove from My List", role: .destructive) {
+                                        appState.myListManager.toggleSeries(series.id)
+                                    }
+                                } else {
+                                    Button("Add to My List") {
+                                        appState.myListManager.toggleSeries(series.id)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 .padding(.horizontal)

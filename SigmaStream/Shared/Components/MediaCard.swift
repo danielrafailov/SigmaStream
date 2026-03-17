@@ -54,9 +54,9 @@ struct MediaCard: View {
             .frame(width: 220, height: 330)
             .clipShape(RoundedRectangle(cornerRadius: 12))
 
-            Text(title)
+            Text(title.formattedAsTitleCase)
                 .font(.headline)
-                .lineLimit(2)
+                .lineLimit(1)
 
             if let subtitle {
                 Text(subtitle)

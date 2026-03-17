@@ -11,11 +11,13 @@ import SwiftUI
 struct VideoPlayerView: View {
     let url: URL
     let title: String
+    var onPlaybackEnded: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
 
     @State private var player: AVPlayer?
     @State private var loadError: String?
     @State private var retryTrigger = 0
+    @State private var endObserver: NSObjectProtocol?
 
     private let loadTimeout: TimeInterval = 25
 
@@ -41,7 +43,24 @@ struct VideoPlayerView: View {
         .task(id: "\(url)-\(retryTrigger)") {
             await startPlaybackAndObserve()
         }
-        .onDisappear { player?.pause() }
+        .onDisappear {
+            if let observer = endObserver {
+                NotificationCenter.default.removeObserver(observer)
+                endObserver = nil
+            }
+            player?.pause()
+        }
+    }
+
+    private func selectEnglishAudioIfAvailable(for item: AVPlayerItem) {
+        guard let group = item.asset.mediaSelectionGroup(forMediaCharacteristic: .audible) else { return }
+        let englishOption = group.options.first { opt in
+            let tag = (opt.extendedLanguageTag ?? "").lowercased()
+            return tag.hasPrefix("en") || tag == "eng"
+        }
+        if let option = englishOption {
+            item.select(option, in: group)
+        }
     }
 
     private func startPlaybackAndObserve() async {
@@ -59,6 +78,12 @@ struct VideoPlayerView: View {
                 await MainActor.run { loadError = msg }
                 return
             case .readyToPlay:
+                selectEnglishAudioIfAvailable(for: item)
+                let token = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { _ in
+                    onPlaybackEnded?()
+                    dismiss()
+                }
+                await MainActor.run { endObserver = token }
                 return
             case .unknown:
                 break

@@ -13,11 +13,15 @@ import TMDb
 final class AppState {
     let tmdbService: TMDbService
     let streamingService: StreamingService
+    let myListManager: MyListManager
+    let watchProgressManager: WatchProgressManager
     private(set) var apiConfiguration: APIConfiguration?
 
     init(apiKey: String = Secrets.tmdbApiKey, streamingBaseURL: String = Secrets.streamingServerBaseURL) {
         self.tmdbService = TMDbService(apiKey: apiKey)
         self.streamingService = StreamingService(baseURL: streamingBaseURL)
+        self.myListManager = MyListManager()
+        self.watchProgressManager = WatchProgressManager()
     }
 
     func loadConfiguration() async {

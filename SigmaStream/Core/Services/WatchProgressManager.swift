@@ -60,6 +60,7 @@ final class WatchProgressManager {
 
     func recordEpisode(seriesId: Int, season: Int, episode: Int) {
         watchedEpisodes.removeAll { $0.seriesId == seriesId && $0.season == season && $0.episode == episode }
+        watchedEpisodes.removeAll { $0.seriesId == seriesId }
         watchedEpisodes.insert(WatchedEpisode(
             seriesId: seriesId,
             season: season,
@@ -85,8 +86,18 @@ final class WatchProgressManager {
         }
         if let data = UserDefaults.standard.data(forKey: episodesKey),
            let decoded = try? JSONDecoder().decode([WatchedEpisode].self, from: data) {
-            watchedEpisodes = decoded
+            watchedEpisodes = pruneToLatestEpisodePerSeries(decoded)
+            if watchedEpisodes.count != decoded.count { saveEpisodes() }
         }
+    }
+
+    /// Keep only the most recently watched episode per series; remove older entries.
+    private func pruneToLatestEpisodePerSeries(_ episodes: [WatchedEpisode]) -> [WatchedEpisode] {
+        var latest: [Int: WatchedEpisode] = [:]
+        for ep in episodes.sorted(by: { $0.lastWatchedAt > $1.lastWatchedAt }) {
+            if latest[ep.seriesId] == nil { latest[ep.seriesId] = ep }
+        }
+        return latest.values.sorted { $0.lastWatchedAt > $1.lastWatchedAt }
     }
 
     private func saveMovies() {

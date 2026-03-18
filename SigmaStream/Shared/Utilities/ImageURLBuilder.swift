@@ -21,4 +21,15 @@ enum ImageURLBuilder {
         guard let config else { return nil }
         return config.images.posterURL(for: path, idealWidth: idealWidth)
     }
+
+    /// Build backdrop URL for a given path and configuration.
+    /// Returns nil if config or path is nil.
+    static func backdropURL(
+        for path: URL?,
+        config: APIConfiguration?,
+        idealWidth: Int = 1280
+    ) -> URL? {
+        guard let config else { return nil }
+        return config.images.backdropURL(for: path, idealWidth: idealWidth)
+    }
 }

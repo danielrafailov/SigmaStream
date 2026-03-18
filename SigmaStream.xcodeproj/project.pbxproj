@@ -12,11 +12,25 @@
 
 /* Begin PBXFileReference section */
 		4B64EB5A2F68EAE600884849 /* SigmaStream.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SigmaStream.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		4B64EBC42F68FA000084849 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		4BA096432F6A314A000EAF76 /* Exceptions for "SigmaStream" folder in "SigmaStream" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 4B64EB592F68EAE600884849 /* SigmaStream */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		4B64EB5C2F68EAE600884849 /* SigmaStream */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				4BA096432F6A314A000EAF76 /* Exceptions for "SigmaStream" folder in "SigmaStream" target */,
+			);
 			path = SigmaStream;
 			sourceTree = "<group>";
 		};
@@ -39,6 +53,8 @@
 			children = (
 				4B64EB5C2F68EAE600884849 /* SigmaStream */,
 				4B64EB5B2F68EAE600884849 /* Products */,
+				4BA096EE2F6A4FB0000EAF76 /* Recovered References */,
+				4BA097412F6A5050000EAF76 /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
@@ -48,6 +64,21 @@
 				4B64EB5A2F68EAE600884849 /* SigmaStream.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		4BA096EE2F6A4FB0000EAF76 /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				4B64EBC42F68FA000084849 /* WebKit.framework */,
+			);
+			name = "Recovered References";
+			sourceTree = "<group>";
+		};
+		4BA097412F6A5050000EAF76 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -265,6 +296,7 @@
 				DEVELOPMENT_TEAM = UTK8J8K3K5;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = SigmaStream/Info.plist;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIUserInterfaceStyle = Automatic;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -294,6 +326,7 @@
 				DEVELOPMENT_TEAM = UTK8J8K3K5;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = SigmaStream/Info.plist;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIUserInterfaceStyle = Automatic;
 				LD_RUNPATH_SEARCH_PATHS = (

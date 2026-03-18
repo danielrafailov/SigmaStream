@@ -20,6 +20,8 @@ struct TVSeriesDetailView: View {
     @State private var playableContent: PlayableContent?
     @State private var isResolvingStream = false
     @State private var streamError: String?
+    @State private var trailerYouTubeKey: String?
+    @State private var trailerAlertMessage: String?
 
     private var seasonNumbers: [Int] {
         guard let s = series else { return [1] }
@@ -44,9 +46,24 @@ struct TVSeriesDetailView: View {
                     description: Text(error)
                 )
             } else if let series {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        HStack(alignment: .top, spacing: 24) {
+                ZStack {
+                    if let backdropURL = ImageURLBuilder.backdropURL(for: series.backdropPath, config: appState.apiConfiguration) {
+                        AsyncImage(url: backdropURL) { phase in
+                            if case .success(let image) = phase {
+                                image
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .blur(radius: 24)
+                        .overlay(Color.black.opacity(0.55))
+                        .ignoresSafeArea()
+                    }
+
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 20) {
+                            HStack(alignment: .top, spacing: 24) {
                             posterSection
                             VStack(alignment: .leading, spacing: 8) {
                                 Text(series.name)
@@ -62,6 +79,15 @@ struct TVSeriesDetailView: View {
                                 if let rating = series.voteAverage {
                                     Label(String(format: "%.1f/10", rating), systemImage: "star.fill")
                                         .font(.title3)
+                                }
+
+                                if let key = trailerYouTubeKey {
+                                    Button {
+                                        openTrailer(key: key)
+                                    } label: {
+                                        Label("Watch Trailer", systemImage: "play.rectangle.fill")
+                                    }
+                                    .padding(.top, 8)
                                 }
                             }
                             Spacer()
@@ -83,6 +109,7 @@ struct TVSeriesDetailView: View {
 
                         seasonsSection
                         episodesSection
+                        }
                     }
                 }
             }
@@ -96,6 +123,14 @@ struct TVSeriesDetailView: View {
                     Image(systemName: appState.myListManager.isSeriesInList(seriesId) ? "plus.circle.fill" : "plus.circle")
                 }
             }
+        }
+        .alert("Trailer", isPresented: Binding(
+            get: { trailerAlertMessage != nil },
+            set: { if !$0 { trailerAlertMessage = nil } }
+        )) {
+            Button("OK") { trailerAlertMessage = nil }
+        } message: {
+            Text(trailerAlertMessage ?? "")
         }
         .fullScreenCover(item: $playableContent) { content in
             VideoPlayerView(
@@ -238,10 +273,31 @@ struct TVSeriesDetailView: View {
         Calendar.current.component(.year, from: date).description
     }
 
+    private func openTrailer(key: String) {
+        let youtubeURL = URL(string: "youtube://watch/\(key)")
+        let httpsURL = URL(string: "https://www.youtube.com/watch?v=\(key)")!
+        let canOpenYouTube = youtubeURL.map { UIApplication.shared.canOpenURL($0) } ?? false
+        let urlToOpen = (canOpenYouTube && youtubeURL != nil) ? youtubeURL! : httpsURL
+
+        #if DEBUG
+        print("[TVSeriesDetail] Trailer key=\(key), youtubeURL=\(youtubeURL?.absoluteString ?? "nil"), canOpenYouTube=\(canOpenYouTube), opening=\(urlToOpen.absoluteString)")
+        #endif
+
+        UIApplication.shared.open(urlToOpen) { success in
+            #if DEBUG
+            print("[TVSeriesDetail] Trailer open success=\(success)")
+            #endif
+            if !success {
+                trailerAlertMessage = "You need the YouTube app to view trailers. Install it from the App Store if you haven't already."
+            }
+        }
+    }
+
     private func loadSeries() async {
         do {
             let result = try await appState.tmdbService.tvSeriesDetails(forSeriesId: seriesId)
             series = result
+            trailerYouTubeKey = try? await appState.tmdbService.tvSeriesTrailerYouTubeKey(seriesId: seriesId)
             let seasons = (result.seasons ?? []).map(\.seasonNumber).sorted()
             selectedSeason = seasons.first ?? (result.numberOfSeasons ?? 1)
             await loadSeason(selectedSeason)
@@ -271,12 +327,18 @@ struct TVSeriesDetailView: View {
         do {
             let urls = try await appState.streamingService.playableURLsForEpisode(seriesId: seriesId, season: season, episode: episode)
             guard !urls.isEmpty else {
+                #if DEBUG
+                print("[TVSeriesDetail] Stream resolve returned empty URLs for S\(season)E\(episode)")
+                #endif
                 streamError = "No stream was found"
                 return
             }
             playableContent = PlayableContent(urls: urls, title: "\(series?.name ?? "Episode") - \(title)", tvSeriesId: seriesId, season: season, episode: episode)
             appState.watchProgressManager.recordEpisode(seriesId: seriesId, season: season, episode: episode)
         } catch {
+            #if DEBUG
+            print("[TVSeriesDetail] Stream resolve failed: \(error)")
+            #endif
             streamError = "No stream was found"
         }
     }

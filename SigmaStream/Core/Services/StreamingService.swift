@@ -58,11 +58,24 @@ actor StreamingService {
     }
 
     private func fetchSourceResponse(from url: URL) async throws -> OMSSSourceResponse {
+        #if DEBUG
+        print("[StreamingService] Requesting: \(url.absoluteString)")
+        #endif
+
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        let (data, response) = try await session.data(for: request)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            #if DEBUG
+            print("[StreamingService] Network error for \(url.absoluteString): \(error)")
+            #endif
+            throw error
+        }
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw StreamingError.invalidResponse
@@ -70,16 +83,26 @@ actor StreamingService {
 
         if httpResponse.statusCode == 404 {
             let errorBody = try? JSONDecoder().decode(OMSSErrorResponse.self, from: data)
-            throw StreamingError.noSourcesAvailable(errorBody?.error?.message ?? "No sources found")
+            let msg = errorBody?.error?.message ?? "No sources found"
+            #if DEBUG
+            print("[StreamingService] 404: \(msg)")
+            #endif
+            throw StreamingError.noSourcesAvailable(msg)
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
+            #if DEBUG
+            print("[StreamingService] HTTP \(httpResponse.statusCode) from \(url.absoluteString)")
+            #endif
             throw StreamingError.serverError(statusCode: httpResponse.statusCode)
         }
 
         do {
             return try JSONDecoder().decode(OMSSSourceResponse.self, from: data)
         } catch {
+            #if DEBUG
+            print("[StreamingService] Decode failed: \(error)")
+            #endif
             throw StreamingError.decodeFailed(error)
         }
     }
@@ -96,7 +119,7 @@ actor StreamingService {
             }
             return a.hasEnglishAudio && !b.hasEnglishAudio
         }
-        return sorted.compactMap { source -> URL? in
+        let result = sorted.compactMap { source -> URL? in
             let proxyPath = source.url
             let urlString: String
             if proxyPath.hasPrefix("http") {
@@ -107,6 +130,10 @@ actor StreamingService {
             guard let url = URL(string: urlString) else { return nil }
             return rewriteLocalhostToBaseHost(url)
         }
+        #if DEBUG
+        print("[StreamingService] Returning \(result.count) playable URL(s): \(result.map(\.absoluteString))")
+        #endif
+        return result
     }
 
     /// Rewrites localhost/127.0.0.1 in proxy URLs so Apple TV can reach the Mac running CinePro.
@@ -119,7 +146,11 @@ actor StreamingService {
         comps?.host = baseHost
         comps?.port = base.port ?? 3000
         comps?.scheme = base.scheme ?? "http"
-        return comps?.url ?? url
+        let rewritten = comps?.url ?? url
+        #if DEBUG
+        print("[StreamingService] Rewrote localhost URL to \(rewritten.absoluteString)")
+        #endif
+        return rewritten
     }
 }
 

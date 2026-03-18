@@ -28,6 +28,9 @@ private struct ContinueWatchingEpisodeItem: Identifiable {
 }
 
 struct TVShowsView: View {
+    var shouldLoad: Bool = true
+    var onLoadComplete: (() -> Void)? = nil
+
     @Environment(AppState.self) private var appState
     @State private var continueWatching: [ContinueWatchingEpisodeItem] = []
     @State private var trending: [TVSeriesListItem] = []
@@ -157,10 +160,13 @@ struct TVShowsView: View {
             .navigationDestination(item: $categoryForSeeAll) { wrapper in
                 TVCategoryListView(category: wrapper.category)
             }
-            .task {
+            .task(id: shouldLoad) {
+                guard shouldLoad else { return }
                 await loadData()
+                onLoadComplete?()
             }
             .onAppear {
+                guard shouldLoad else { return }
                 Task { await loadContinueWatching() }
             }
             .onReceive(NotificationCenter.default.publisher(for: WatchProgressManager.continueWatchingDidChange)) { _ in

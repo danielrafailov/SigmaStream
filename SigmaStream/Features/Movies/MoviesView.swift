@@ -25,6 +25,9 @@ private struct ContinueWatchingMovieItem: Identifiable {
 }
 
 struct MoviesView: View {
+    var shouldLoad: Bool = true
+    var onLoadComplete: (() -> Void)? = nil
+
     @Environment(AppState.self) private var appState
     @State private var continueWatching: [ContinueWatchingMovieItem] = []
     @State private var trending: [MovieListItem] = []
@@ -172,10 +175,13 @@ struct MoviesView: View {
             .navigationDestination(item: $categoryForSeeAll) { wrapper in
                 MovieCategoryListView(category: wrapper.category)
             }
-            .task {
+            .task(id: shouldLoad) {
+                guard shouldLoad else { return }
                 await loadData()
+                onLoadComplete?()
             }
             .onAppear {
+                guard shouldLoad else { return }
                 Task { await loadContinueWatching() }
             }
             .onReceive(NotificationCenter.default.publisher(for: WatchProgressManager.continueWatchingDidChange)) { _ in
@@ -274,11 +280,12 @@ struct MoviesView: View {
         }
 
         isLoading = false
+        onLoadComplete?()
     }
 
 }
 
 #Preview {
-    MoviesView()
+    MoviesView(shouldLoad: true)
         .environment(AppState(apiKey: "placeholder"))
 }

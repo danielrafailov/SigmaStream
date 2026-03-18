@@ -17,6 +17,8 @@ struct MovieDetailView: View {
     @State private var isResolvingStream = false
     @State private var streamError: String?
     @State private var playableContent: PlayableContent?
+    @State private var trailerYouTubeKey: String?
+    @State private var trailerAlertMessage: String?
 
     var body: some View {
         Group {
@@ -30,9 +32,24 @@ struct MovieDetailView: View {
                     description: Text(error)
                 )
             } else if let movie {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        HStack(alignment: .top, spacing: 24) {
+                ZStack {
+                    if let backdropURL = ImageURLBuilder.backdropURL(for: movie.backdropPath, config: appState.apiConfiguration) {
+                        AsyncImage(url: backdropURL) { phase in
+                            if case .success(let image) = phase {
+                                image
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .blur(radius: 24)
+                        .overlay(Color.black.opacity(0.55))
+                        .ignoresSafeArea()
+                    }
+
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 20) {
+                            HStack(alignment: .top, spacing: 24) {
                             posterSection
                             VStack(alignment: .leading, spacing: 8) {
                                 Text(movie.title)
@@ -50,12 +67,33 @@ struct MovieDetailView: View {
                                         .font(.title3)
                                 }
 
-                                Button {
-                                    Task { await resolveStream() }
-                                } label: {
-                                    Label("Watch", systemImage: "play.fill")
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack(spacing: 12) {
+                                        Button {
+                                            Task { await resolveStream() }
+                                        } label: {
+                                            Label("Watch", systemImage: "play.fill")
+                                        }
+                                        .disabled(isResolvingStream)
+
+                                        if let key = trailerYouTubeKey {
+                                            Button {
+                                                openTrailer(key: key)
+                                            } label: {
+                                                Label("Watch Trailer", systemImage: "play.rectangle.fill")
+                                            }
+                                        }
+                                    }
+
+                                    Button {
+                                        appState.myListManager.toggleMovie(movieId)
+                                    } label: {
+                                        Label(
+                                            appState.myListManager.isMovieInList(movieId) ? "Remove from List" : "Add to List",
+                                            systemImage: appState.myListManager.isMovieInList(movieId) ? "minus.circle" : "plus.circle"
+                                        )
+                                    }
                                 }
-                                .disabled(isResolvingStream)
                                 .padding(.top, 8)
                             }
                             Spacer()
@@ -74,19 +112,18 @@ struct MovieDetailView: View {
                                 .font(.body)
                                 .padding(.horizontal)
                         }
+                        }
                     }
                 }
             }
         }
-        .navigationTitle(movie?.title ?? "Movie")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    appState.myListManager.toggleMovie(movieId)
-                } label: {
-                    Image(systemName: appState.myListManager.isMovieInList(movieId) ? "plus.circle.fill" : "plus.circle")
-                }
-            }
+        .alert("Trailer", isPresented: Binding(
+            get: { trailerAlertMessage != nil },
+            set: { if !$0 { trailerAlertMessage = nil } }
+        )) {
+            Button("OK") { trailerAlertMessage = nil }
+        } message: {
+            Text(trailerAlertMessage ?? "")
         }
         .fullScreenCover(item: $playableContent) { content in
             VideoPlayerView(
@@ -104,6 +141,26 @@ struct MovieDetailView: View {
         }
     }
 
+    private func openTrailer(key: String) {
+        let youtubeURL = URL(string: "youtube://watch/\(key)")
+        let httpsURL = URL(string: "https://www.youtube.com/watch?v=\(key)")!
+        let canOpenYouTube = youtubeURL.map { UIApplication.shared.canOpenURL($0) } ?? false
+        let urlToOpen = (canOpenYouTube && youtubeURL != nil) ? youtubeURL! : httpsURL
+
+        #if DEBUG
+        print("[MovieDetail] Trailer key=\(key), youtubeURL=\(youtubeURL?.absoluteString ?? "nil"), canOpenYouTube=\(canOpenYouTube), opening=\(urlToOpen.absoluteString)")
+        #endif
+
+        UIApplication.shared.open(urlToOpen) { success in
+            #if DEBUG
+            print("[MovieDetail] Trailer open success=\(success)")
+            #endif
+            if !success {
+                trailerAlertMessage = "You need the YouTube app to view trailers. Install it from the App Store if you haven't already."
+            }
+        }
+    }
+
     private func resolveStream() async {
         guard !isResolvingStream else { return }
         isResolvingStream = true
@@ -113,6 +170,9 @@ struct MovieDetailView: View {
         do {
             let urls = try await appState.streamingService.playableURLsForMovie(tmdbId: movieId)
             guard !urls.isEmpty else {
+                #if DEBUG
+                print("[MovieDetail] Stream resolve returned empty URLs for movie \(movieId)")
+                #endif
                 streamError = "No stream was found"
                 return
             }
@@ -120,6 +180,9 @@ struct MovieDetailView: View {
             playableContent = content
             appState.watchProgressManager.recordMovie(movieId)
         } catch {
+            #if DEBUG
+            print("[MovieDetail] Stream resolve failed: \(error)")
+            #endif
             streamError = "No stream was found"
         }
     }
@@ -158,6 +221,7 @@ struct MovieDetailView: View {
     private func loadMovie() async {
         do {
             movie = try await appState.tmdbService.movieDetails(forMovieId: movieId)
+            trailerYouTubeKey = try? await appState.tmdbService.movieTrailerYouTubeKey(movieId: movieId)
         } catch {
             errorMessage = error.localizedDescription
         }

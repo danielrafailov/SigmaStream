@@ -65,11 +65,17 @@ struct VideoPlayerView: View {
 
     private func startPlaybackAndObserve() async {
         guard currentURLIndex < urls.count else {
+            #if DEBUG
+            print("[VideoPlayer] No URLs to play (count: \(urls.count))")
+            #endif
             await MainActor.run { loadError = "No stream was found" }
             return
         }
         loadError = nil
         let url = urls[currentURLIndex]
+        #if DEBUG
+        print("[VideoPlayer] Attempting URL \(currentURLIndex + 1)/\(urls.count): \(url.absoluteString)")
+        #endif
         let newPlayer = AVPlayer(url: url)
         await MainActor.run { player = newPlayer }
         newPlayer.play()
@@ -79,6 +85,10 @@ struct VideoPlayerView: View {
             guard let item = newPlayer.currentItem else { continue }
             switch item.status {
             case .failed:
+                #if DEBUG
+                let errMsg = item.error?.localizedDescription ?? String(describing: item.error)
+                print("[VideoPlayer] AVPlayerItem failed for \(url.absoluteString): \(errMsg)")
+                #endif
                 await MainActor.run {
                     player = nil
                     currentURLIndex += 1
@@ -101,6 +111,9 @@ struct VideoPlayerView: View {
                 break
             }
         }
+        #if DEBUG
+        print("[VideoPlayer] Timeout loading \(url.absoluteString) after \(loadTimeout)s")
+        #endif
         await MainActor.run {
             player = nil
             currentURLIndex += 1

@@ -8,7 +8,8 @@ import Foundation
 
 struct PlayableContent: Identifiable {
     let id = UUID()
-    let url: URL
+    /// All stream URLs to try in order (best quality first). Non-empty.
+    let urls: [URL]
     let title: String
 
     /// For movies: tmdbId. For TV: nil.
@@ -18,8 +19,8 @@ struct PlayableContent: Identifiable {
     let season: Int?
     let episode: Int?
 
-    init(url: URL, title: String, movieId: Int? = nil, tvSeriesId: Int? = nil, season: Int? = nil, episode: Int? = nil) {
-        self.url = url
+    init(urls: [URL], title: String, movieId: Int? = nil, tvSeriesId: Int? = nil, season: Int? = nil, episode: Int? = nil) {
+        self.urls = urls
         self.title = title
         self.movieId = movieId
         self.tvSeriesId = tvSeriesId

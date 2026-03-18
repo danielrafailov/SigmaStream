@@ -90,7 +90,7 @@ struct MovieDetailView: View {
         }
         .fullScreenCover(item: $playableContent) { content in
             VideoPlayerView(
-                url: content.url,
+                urls: content.urls,
                 title: content.title,
                 onPlaybackEnded: {
                     if let mid = content.movieId {
@@ -111,11 +111,12 @@ struct MovieDetailView: View {
         defer { isResolvingStream = false }
 
         do {
-            guard let url = try await appState.streamingService.playableURLForMovie(tmdbId: movieId) else {
+            let urls = try await appState.streamingService.playableURLsForMovie(tmdbId: movieId)
+            guard !urls.isEmpty else {
                 streamError = "No stream was found"
                 return
             }
-            let content = PlayableContent(url: url, title: movie?.title ?? "Movie", movieId: movieId)
+            let content = PlayableContent(urls: urls, title: movie?.title ?? "Movie", movieId: movieId)
             playableContent = content
             appState.watchProgressManager.recordMovie(movieId)
         } catch {

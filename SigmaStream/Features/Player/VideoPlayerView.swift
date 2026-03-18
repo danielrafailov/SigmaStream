@@ -9,14 +9,14 @@ import AVKit
 import SwiftUI
 
 struct VideoPlayerView: View {
-    let url: URL
+    let urls: [URL]
     let title: String
     var onPlaybackEnded: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
 
     @State private var player: AVPlayer?
     @State private var loadError: String?
-    @State private var retryTrigger = 0
+    @State private var currentURLIndex = 0
     @State private var endObserver: NSObjectProtocol?
 
     private let loadTimeout: TimeInterval = 25
@@ -40,7 +40,7 @@ struct VideoPlayerView: View {
                 }
             }
         }
-        .task(id: "\(url)-\(retryTrigger)") {
+        .task(id: currentURLIndex) {
             await startPlaybackAndObserve()
         }
         .onDisappear {
@@ -64,7 +64,12 @@ struct VideoPlayerView: View {
     }
 
     private func startPlaybackAndObserve() async {
+        guard currentURLIndex < urls.count else {
+            await MainActor.run { loadError = "No stream was found" }
+            return
+        }
         loadError = nil
+        let url = urls[currentURLIndex]
         let newPlayer = AVPlayer(url: url)
         await MainActor.run { player = newPlayer }
         newPlayer.play()
@@ -74,7 +79,13 @@ struct VideoPlayerView: View {
             guard let item = newPlayer.currentItem else { continue }
             switch item.status {
             case .failed:
-                await MainActor.run { loadError = "No stream was found" }
+                await MainActor.run {
+                    player = nil
+                    currentURLIndex += 1
+                    if currentURLIndex >= urls.count {
+                        loadError = "No stream was found"
+                    }
+                }
                 return
             case .readyToPlay:
                 selectEnglishAudioIfAvailable(for: item)
@@ -91,7 +102,11 @@ struct VideoPlayerView: View {
             }
         }
         await MainActor.run {
-            loadError = "No stream was found"
+            player = nil
+            currentURLIndex += 1
+            if currentURLIndex >= urls.count {
+                loadError = "No stream was found"
+            }
         }
     }
 
@@ -109,7 +124,7 @@ struct VideoPlayerView: View {
                         .fontWeight(.semibold)
                     HStack(spacing: 16) {
                         Button("Retry") {
-                            retryTrigger += 1
+                            currentURLIndex = 0
                         }
                         Button("Done") {
                             dismiss()
@@ -124,7 +139,7 @@ struct VideoPlayerView: View {
 #Preview {
     NavigationStack {
         VideoPlayerView(
-            url: URL(string: "https://example.com/sample.m3u8")!,
+            urls: [URL(string: "https://example.com/sample.m3u8")!],
             title: "Sample"
         )
     }

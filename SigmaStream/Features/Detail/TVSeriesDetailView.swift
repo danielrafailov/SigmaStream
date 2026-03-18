@@ -99,7 +99,7 @@ struct TVSeriesDetailView: View {
         }
         .fullScreenCover(item: $playableContent) { content in
             VideoPlayerView(
-                url: content.url,
+                urls: content.urls,
                 title: content.title,
                 onPlaybackEnded: {
                     if let sid = content.tvSeriesId,
@@ -269,11 +269,12 @@ struct TVSeriesDetailView: View {
         defer { isResolvingStream = false }
 
         do {
-            guard let url = try await appState.streamingService.playableURLForEpisode(seriesId: seriesId, season: season, episode: episode) else {
+            let urls = try await appState.streamingService.playableURLsForEpisode(seriesId: seriesId, season: season, episode: episode)
+            guard !urls.isEmpty else {
                 streamError = "No stream was found"
                 return
             }
-            playableContent = PlayableContent(url: url, title: "\(series?.name ?? "Episode") - \(title)", tvSeriesId: seriesId, season: season, episode: episode)
+            playableContent = PlayableContent(urls: urls, title: "\(series?.name ?? "Episode") - \(title)", tvSeriesId: seriesId, season: season, episode: episode)
             appState.watchProgressManager.recordEpisode(seriesId: seriesId, season: season, episode: episode)
         } catch {
             streamError = "No stream was found"

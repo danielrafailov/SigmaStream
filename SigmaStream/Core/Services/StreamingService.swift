@@ -18,24 +18,24 @@ actor StreamingService {
         self.session = URLSession.shared
     }
 
-    /// Fetch streaming sources for a movie. Returns the best HLS URL or nil if none.
-    func playableURLForMovie(tmdbId: Int) async throws -> URL? {
+    /// Fetch all playable URLs for a movie, sorted by quality. Empty if none.
+    func playableURLsForMovie(tmdbId: Int) async throws -> [URL] {
         let urlString = "\(baseURL)/v1/movies/\(tmdbId)"
         guard let url = URL(string: urlString) else {
             throw StreamingError.invalidURL(urlString)
         }
         let response = try await fetchSourceResponse(from: url)
-        return buildPlayableURL(from: response)
+        return sortedPlayableURLs(from: response)
     }
 
-    /// Fetch streaming sources for a TV episode.
-    func playableURLForEpisode(seriesId: Int, season: Int, episode: Int) async throws -> URL? {
+    /// Fetch all playable URLs for a TV episode, sorted by quality. Empty if none.
+    func playableURLsForEpisode(seriesId: Int, season: Int, episode: Int) async throws -> [URL] {
         let urlString = "\(baseURL)/v1/tv/\(seriesId)/seasons/\(season)/episodes/\(episode)"
         guard let url = URL(string: urlString) else {
             throw StreamingError.invalidURL(urlString)
         }
         let response = try await fetchSourceResponse(from: url)
-        return buildPlayableURL(from: response)
+        return sortedPlayableURLs(from: response)
     }
 
     /// Returns all sources for optional source picker UI (quality, provider).
@@ -84,8 +84,8 @@ actor StreamingService {
         }
     }
 
-    private func buildPlayableURL(from response: OMSSSourceResponse) -> URL? {
-        // Include both HLS and MP4 (AVPlayer supports both)
+    /// Returns all playable URLs sorted by quality (best first). Empty if none.
+    private func sortedPlayableURLs(from response: OMSSSourceResponse) -> [URL] {
         let playable = response.sources.filter { $0.isPlayable }
         let sorted = playable.sorted { a, b in
             if a.qualityRank != b.qualityRank {
@@ -96,18 +96,17 @@ actor StreamingService {
             }
             return a.hasEnglishAudio && !b.hasEnglishAudio
         }
-        guard let best = sorted.first else { return nil }
-
-        let proxyPath = best.url
-        var urlString: String
-        if proxyPath.hasPrefix("http") {
-            urlString = proxyPath
-        } else {
-            urlString = proxyPath.hasPrefix("/") ? "\(baseURL)\(proxyPath)" : "\(baseURL)/\(proxyPath)"
+        return sorted.compactMap { source -> URL? in
+            let proxyPath = source.url
+            let urlString: String
+            if proxyPath.hasPrefix("http") {
+                urlString = proxyPath
+            } else {
+                urlString = proxyPath.hasPrefix("/") ? "\(baseURL)\(proxyPath)" : "\(baseURL)/\(proxyPath)"
+            }
+            guard let url = URL(string: urlString) else { return nil }
+            return rewriteLocalhostToBaseHost(url)
         }
-        guard let url = URL(string: urlString) else { return nil }
-        // On physical Apple TV, CinePro returns localhost in URLs; rewrite to Mac's IP from Secrets
-        return rewriteLocalhostToBaseHost(url)
     }
 
     /// Rewrites localhost/127.0.0.1 in proxy URLs so Apple TV can reach the Mac running CinePro.

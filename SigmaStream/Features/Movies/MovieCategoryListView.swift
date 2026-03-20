@@ -18,10 +18,10 @@ struct MovieCategoryListView: View {
     @State private var isLoadingMore = false
     @State private var errorMessage: String?
     @State private var selectedMovie: MovieSelection?
+    @FocusState private var focusedMovieId: Int?
 
-    private func formatYear(_ date: Date) -> String {
-        Calendar.current.component(.year, from: date).description
-    }
+    private let columns = 5
+    private let gridSpacing: CGFloat = 6
 
     var body: some View {
         Group {
@@ -35,45 +35,55 @@ struct MovieCategoryListView: View {
                     description: Text(error)
                 )
             } else {
-                ScrollView {
-                    LazyVGrid(columns: [
-                        GridItem(.adaptive(minimum: 220, maximum: 260), spacing: 24)
-                    ], spacing: 24) {
-                        ForEach(Array(movies.enumerated()), id: \.element.id) { index, movie in
-                            Button {
-                                selectedMovie = MovieSelection(id: movie.id)
-                            } label: {
-                                MediaCard(
-                                    posterPath: movie.posterPath,
-                                    title: movie.title,
-                                    subtitle: movie.releaseDate.map { formatYear($0) },
-                                    config: appState.apiConfiguration
-                                )
-                            }
-                            .buttonStyle(.plain)
-                            .hoverEffect(.lift)
-                            .contextMenu {
-                                Button(appState.myListManager.isMovieInList(movie.id) ? "Remove from My List" : "Add to My List") {
-                                    appState.myListManager.toggleMovie(movie.id)
+                GeometryReader { geo in
+                    let availableWidth = geo.size.width - 32
+                    let posterWidth = (availableWidth - CGFloat(columns - 1) * gridSpacing) / CGFloat(columns)
+                    let posterHeight = posterWidth * (3.0 / 2.0)
+
+                    ScrollView(.vertical, showsIndicators: true) {
+                        LazyVGrid(columns: Array(repeating: GridItem(.fixed(posterWidth), spacing: gridSpacing), count: columns), spacing: gridSpacing) {
+                            ForEach(Array(movies.enumerated()), id: \.element.id) { index, movie in
+                                let isFocused = focusedMovieId == movie.id
+                                Button {
+                                    selectedMovie = MovieSelection(id: movie.id)
+                                } label: {
+                                    MediaCard(
+                                        posterPath: movie.posterPath,
+                                        backdropPath: movie.backdropPath,
+                                        config: appState.apiConfiguration,
+                                        idealWidth: Int(posterWidth),
+                                        isFocused: isFocused,
+                                        alwaysPoster: true
+                                    )
+                                    .frame(width: posterWidth, height: posterHeight)
+                                }
+                                .buttonStyle(.plain)
+                                .hoverEffectDisabled(true)
+                                .focused($focusedMovieId, equals: movie.id)
+                                .accessibilityLabel(movie.title)
+                                .contextMenu {
+                                    Button(appState.myListManager.isMovieInList(movie.id) ? "Remove from My List" : "Add to My List") {
+                                        appState.myListManager.toggleMovie(movie.id)
+                                    }
+                                }
+                                .onAppear {
+                                    if index >= movies.count - 3 && hasMore && !isLoadingMore {
+                                        Task { await loadMore() }
+                                    }
                                 }
                             }
-                            .onAppear {
-                                if index >= movies.count - 3 && hasMore && !isLoadingMore {
-                                    Task { await loadMore() }
-                                }
+                            if isLoadingMore {
+                                ProgressView()
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 24)
                             }
                         }
-                        if isLoadingMore {
-                            ProgressView()
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 24)
-                        }
+                        .padding(16)
                     }
-                    .padding()
                 }
             }
         }
-        .navigationTitle(category.rawValue)
+        .navigationTitle("")
         .navigationDestination(item: $selectedMovie) { selection in
             MovieDetailView(movieId: selection.id)
         }
@@ -112,4 +122,3 @@ struct MovieCategoryListView: View {
         isLoadingMore = false
     }
 }
-

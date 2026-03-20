@@ -8,6 +8,12 @@
 import AVKit
 import SwiftUI
 
+private enum StreamStatus: Equatable {
+    case trying(index: Int, total: Int)
+    case failed(index: Int)
+    case found
+}
+
 struct VideoPlayerView: View {
     let urls: [URL]
     let title: String
@@ -18,14 +24,21 @@ struct VideoPlayerView: View {
     @State private var loadError: String?
     @State private var currentURLIndex = 0
     @State private var endObserver: NSObjectProtocol?
+    @State private var streamStatus: StreamStatus?
 
     private let loadTimeout: TimeInterval = 25
+    private let failedMessageDuration: TimeInterval = 0.8
+    private let foundMessageDuration: TimeInterval = 0.25
 
     var body: some View {
         ZStack {
             if let player {
                 VideoPlayer(player: player)
                     .ignoresSafeArea()
+            }
+
+            if let status = streamStatus {
+                streamStatusOverlay(status: status)
             }
 
             if let error = loadError {
@@ -72,6 +85,9 @@ struct VideoPlayerView: View {
             return
         }
         loadError = nil
+        await MainActor.run {
+            streamStatus = .trying(index: currentURLIndex + 1, total: urls.count)
+        }
         let url = urls[currentURLIndex]
         #if DEBUG
         print("[VideoPlayer] Attempting URL \(currentURLIndex + 1)/\(urls.count): \(url.absoluteString)")
@@ -90,9 +106,14 @@ struct VideoPlayerView: View {
                 print("[VideoPlayer] AVPlayerItem failed for \(url.absoluteString): \(errMsg)")
                 #endif
                 await MainActor.run {
+                    streamStatus = .failed(index: currentURLIndex + 1)
+                }
+                try? await Task.sleep(nanoseconds: UInt64(failedMessageDuration * 1_000_000_000))
+                await MainActor.run {
                     player = nil
                     currentURLIndex += 1
                     if currentURLIndex >= urls.count {
+                        streamStatus = nil
                         loadError = "No stream was found"
                     }
                 }
@@ -104,6 +125,13 @@ struct VideoPlayerView: View {
                     dismiss()
                 }
                 await MainActor.run { endObserver = token }
+                await MainActor.run {
+                    streamStatus = .found
+                }
+                try? await Task.sleep(nanoseconds: UInt64(foundMessageDuration * 1_000_000_000))
+                await MainActor.run {
+                    streamStatus = nil
+                }
                 return
             case .unknown:
                 break
@@ -115,12 +143,60 @@ struct VideoPlayerView: View {
         print("[VideoPlayer] Timeout loading \(url.absoluteString) after \(loadTimeout)s")
         #endif
         await MainActor.run {
+            streamStatus = .failed(index: currentURLIndex + 1)
+        }
+        try? await Task.sleep(nanoseconds: UInt64(failedMessageDuration * 1_000_000_000))
+        await MainActor.run {
             player = nil
             currentURLIndex += 1
             if currentURLIndex >= urls.count {
+                streamStatus = nil
                 loadError = "No stream was found"
             }
         }
+    }
+
+    @ViewBuilder
+    private func streamStatusOverlay(status: StreamStatus) -> some View {
+        Color.black.opacity(0.85)
+            .ignoresSafeArea()
+            .overlay {
+                VStack(spacing: 24) {
+                    switch status {
+                    case .trying(let index, let total):
+                        ProgressView()
+                            .scaleEffect(1.2)
+                            .tint(.white)
+                        Text("Trying stream \(index) of \(total)")
+                            .font(.title3)
+                            .fontWeight(.medium)
+                            .foregroundStyle(.white)
+                    case .failed(let index):
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 48))
+                            .foregroundStyle(.red)
+                        Text("Stream \(index) failed")
+                            .font(.title3)
+                            .fontWeight(.medium)
+                            .foregroundStyle(.red)
+                    case .found:
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 48))
+                            .foregroundStyle(.green)
+                        Text("Found stream!")
+                            .font(.title3)
+                            .fontWeight(.medium)
+                            .foregroundStyle(.green)
+                    }
+                    if case .trying = status {
+                        Button("Cancel") {
+                            dismiss()
+                        }
+                        .buttonStyle(.bordered)
+                        .padding(.top, 8)
+                    }
+                }
+            }
     }
 
     @ViewBuilder
@@ -137,6 +213,7 @@ struct VideoPlayerView: View {
                         .fontWeight(.semibold)
                     HStack(spacing: 16) {
                         Button("Retry") {
+                            loadError = nil
                             currentURLIndex = 0
                         }
                         Button("Done") {

@@ -18,10 +18,10 @@ struct TVCategoryListView: View {
     @State private var isLoadingMore = false
     @State private var errorMessage: String?
     @State private var selectedSeries: TVSeriesSelection?
+    @FocusState private var focusedSeriesId: Int?
 
-    private func formatYear(_ date: Date) -> String {
-        Calendar.current.component(.year, from: date).description
-    }
+    private let columns = 5
+    private let gridSpacing: CGFloat = 6
 
     var body: some View {
         Group {
@@ -35,45 +35,55 @@ struct TVCategoryListView: View {
                     description: Text(error)
                 )
             } else {
-                ScrollView {
-                    LazyVGrid(columns: [
-                        GridItem(.adaptive(minimum: 220, maximum: 260), spacing: 24)
-                    ], spacing: 24) {
-                        ForEach(Array(tvSeries.enumerated()), id: \.element.id) { index, series in
-                            Button {
-                                selectedSeries = TVSeriesSelection(id: series.id)
-                            } label: {
-                                MediaCard(
-                                    posterPath: series.posterPath,
-                                    title: series.name,
-                                    subtitle: series.firstAirDate.map { formatYear($0) },
-                                    config: appState.apiConfiguration
-                                )
-                            }
-                            .buttonStyle(.plain)
-                            .hoverEffect(.lift)
-                            .contextMenu {
-                                Button(appState.myListManager.isSeriesInList(series.id) ? "Remove from My List" : "Add to My List") {
-                                    appState.myListManager.toggleSeries(series.id)
+                GeometryReader { geo in
+                    let availableWidth = geo.size.width - 32
+                    let posterWidth = (availableWidth - CGFloat(columns - 1) * gridSpacing) / CGFloat(columns)
+                    let posterHeight = posterWidth * (3.0 / 2.0)
+
+                    ScrollView(.vertical, showsIndicators: true) {
+                        LazyVGrid(columns: Array(repeating: GridItem(.fixed(posterWidth), spacing: gridSpacing), count: columns), spacing: gridSpacing) {
+                            ForEach(Array(tvSeries.enumerated()), id: \.element.id) { index, series in
+                                let isFocused = focusedSeriesId == series.id
+                                Button {
+                                    selectedSeries = TVSeriesSelection(id: series.id)
+                                } label: {
+                                    MediaCard(
+                                        posterPath: series.posterPath,
+                                        backdropPath: series.backdropPath,
+                                        config: appState.apiConfiguration,
+                                        idealWidth: Int(posterWidth),
+                                        isFocused: isFocused,
+                                        alwaysPoster: true
+                                    )
+                                    .frame(width: posterWidth, height: posterHeight)
+                                }
+                                .buttonStyle(.plain)
+                                .hoverEffectDisabled(true)
+                                .focused($focusedSeriesId, equals: series.id)
+                                .accessibilityLabel(series.name)
+                                .contextMenu {
+                                    Button(appState.myListManager.isSeriesInList(series.id) ? "Remove from My List" : "Add to My List") {
+                                        appState.myListManager.toggleSeries(series.id)
+                                    }
+                                }
+                                .onAppear {
+                                    if index >= tvSeries.count - 3 && hasMore && !isLoadingMore {
+                                        Task { await loadMore() }
+                                    }
                                 }
                             }
-                            .onAppear {
-                                if index >= tvSeries.count - 3 && hasMore && !isLoadingMore {
-                                    Task { await loadMore() }
-                                }
+                            if isLoadingMore {
+                                ProgressView()
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 24)
                             }
                         }
-                        if isLoadingMore {
-                            ProgressView()
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 24)
-                        }
+                        .padding(16)
                     }
-                    .padding()
                 }
             }
         }
-        .navigationTitle(category.rawValue)
+        .navigationTitle("")
         .navigationDestination(item: $selectedSeries) { selection in
             TVSeriesDetailView(seriesId: selection.id)
         }

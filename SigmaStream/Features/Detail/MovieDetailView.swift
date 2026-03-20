@@ -19,6 +19,8 @@ struct MovieDetailView: View {
     @State private var playableContent: PlayableContent?
     @State private var trailerYouTubeKey: String?
     @State private var trailerAlertMessage: String?
+    @FocusState private var focusedButtonId: String?
+    @FocusState private var focusedThumbId: String?
 
     var body: some View {
         Group {
@@ -32,86 +34,92 @@ struct MovieDetailView: View {
                     description: Text(error)
                 )
             } else if let movie {
-                ZStack {
-                    if let backdropURL = ImageURLBuilder.backdropURL(for: movie.backdropPath, config: appState.apiConfiguration) {
-                        AsyncImage(url: backdropURL) { phase in
-                            if case .success(let image) = phase {
-                                image
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fill)
+                GeometryReader { geo in
+                    let contentWidth = geo.size.width * 0.45
+                    ZStack(alignment: .leading) {
+                        if let backdropURL = ImageURLBuilder.backdropURL(for: movie.backdropPath, config: appState.apiConfiguration) {
+                            AsyncImage(url: backdropURL) { phase in
+                                if case .success(let image) = phase {
+                                    image
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                }
                             }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .ignoresSafeArea()
+
+                            AsyncImage(url: backdropURL) { phase in
+                                if case .success(let image) = phase {
+                                    image
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .blur(radius: 24)
+                            .overlay(Color.black.opacity(0.5))
+                            .mask(
+                                LinearGradient(
+                                    colors: [.black, .clear],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                            .ignoresSafeArea()
                         }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .blur(radius: 24)
-                        .overlay(Color.black.opacity(0.55))
-                        .ignoresSafeArea()
-                    }
 
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 20) {
-                            HStack(alignment: .top, spacing: 24) {
-                            posterSection
-                            VStack(alignment: .leading, spacing: 8) {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 24) {
                                 Text(movie.title)
-                                    .font(.largeTitle)
-                                    .fontWeight(.bold)
+                                    .font(.system(size: 48, weight: .bold))
 
-                                if let date = movie.releaseDate {
-                                    Text(Calendar.current.component(.year, from: date).description)
-                                        .font(.title3)
-                                        .foregroundStyle(.secondary)
+                                metadataRow
+
+                                if let overview = movie.overview, !overview.isEmpty {
+                                    Text(overview)
+                                        .font(.body)
+                                        .frame(maxWidth: contentWidth, alignment: .leading)
                                 }
 
-                                if let rating = movie.voteAverage {
-                                    Label(String(format: "%.1f/10", rating), systemImage: "star.fill")
-                                        .font(.title3)
+                                thumbsRow(contentWidth: contentWidth)
+                                    .padding(.leading, 24)
+
+                                if let streamErr = streamError {
+                                    Text(streamErr)
+                                        .foregroundStyle(.red)
+                                        .font(.subheadline)
                                 }
 
-                                VStack(alignment: .leading, spacing: 8) {
-                                    HStack(spacing: 12) {
-                                        Button {
+                                VStack(alignment: .leading, spacing: 24) {
+                                    if isReleased {
+                                        detailButton(id: "play", icon: "play.fill", title: "Play") {
                                             Task { await resolveStream() }
-                                        } label: {
-                                            Label("Watch", systemImage: "play.fill")
                                         }
                                         .disabled(isResolvingStream)
+                                    } else {
+                                        Text(comingSoonText)
+                                            .font(.subheadline)
+                                            .foregroundStyle(.secondary)
+                                    }
 
-                                        if let key = trailerYouTubeKey {
-                                            Button {
-                                                openTrailer(key: key)
-                                            } label: {
-                                                Label("Watch Trailer", systemImage: "play.rectangle.fill")
-                                            }
+                                    if let key = trailerYouTubeKey {
+                                        detailButton(id: "trailer", icon: "play.rectangle.fill", title: "Watch Trailer") {
+                                            openTrailer(key: key)
                                         }
                                     }
 
-                                    Button {
+                                    detailButton(
+                                        id: "mylist",
+                                        icon: appState.myListManager.isMovieInList(movieId) ? "minus.circle" : "plus.circle",
+                                        title: appState.myListManager.isMovieInList(movieId) ? "Remove from My List" : "Add to My List"
+                                    ) {
                                         appState.myListManager.toggleMovie(movieId)
-                                    } label: {
-                                        Label(
-                                            appState.myListManager.isMovieInList(movieId) ? "Remove from List" : "Add to List",
-                                            systemImage: appState.myListManager.isMovieInList(movieId) ? "minus.circle" : "plus.circle"
-                                        )
                                     }
                                 }
-                                .padding(.top, 8)
+                                .padding(.leading, 24)
                             }
-                            Spacer()
-                        }
-                        .padding()
-
-                        if let streamErr = streamError {
-                            Text(streamErr)
-                                .foregroundStyle(.red)
-                                .font(.subheadline)
-                                .padding(.horizontal)
-                        }
-
-                        if let overview = movie.overview, !overview.isEmpty {
-                            Text(overview)
-                                .font(.body)
-                                .padding(.horizontal)
-                        }
+                            .frame(maxWidth: contentWidth, alignment: .leading)
+                            .padding(48)
                         }
                     }
                 }
@@ -136,9 +144,97 @@ struct MovieDetailView: View {
                 }
             )
         }
+        .navigationTitle("")
         .task {
             await loadMovie()
         }
+    }
+
+    private func detailButton(id: String, icon: String, title: String, action: @escaping () -> Void, disabled: Bool = false) -> some View {
+        let isFocused = focusedButtonId == id
+        return Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.system(size: 22))
+                Text(title)
+                    .font(.system(size: 20, weight: .medium))
+            }
+            .foregroundStyle(isFocused ? .black : .white)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 0)
+            .padding(.trailing, 24)
+            .padding(.vertical, 14)
+        }
+        .buttonStyle(.plain)
+        .focused($focusedButtonId, equals: id)
+        .disabled(disabled)
+    }
+
+    private var metadataRow: some View {
+        HStack(spacing: 12) {
+            if let date = movie?.releaseDate {
+                Text(Calendar.current.component(.year, from: date).description)
+                    .foregroundStyle(.secondary)
+            }
+            if let genres = movie?.genres, !genres.isEmpty {
+                Text(genres.prefix(2).map(\.name).joined(separator: ", "))
+                    .foregroundStyle(.secondary)
+            }
+            if let runtime = movie?.runtime {
+                Text("\(runtime) min")
+                    .foregroundStyle(.secondary)
+            }
+            Text("HD")
+                .foregroundStyle(.secondary)
+            if let rating = movie?.voteAverage {
+                HStack(spacing: 4) {
+                    Image(systemName: "star.fill")
+                        .font(.caption)
+                    Text(String(format: "%.1f", rating))
+                }
+                .foregroundStyle(.secondary)
+            }
+            Image(systemName: "captions.bubble")
+                .foregroundStyle(.secondary)
+        }
+        .font(.subheadline)
+    }
+
+    private func thumbsRow(contentWidth: CGFloat) -> some View {
+        HStack(spacing: 56) {
+            Button {
+                appState.likedManager.toggleMovie(movieId)
+            } label: {
+                Image(systemName: appState.likedManager.isMovieLiked(movieId) ? "hand.thumbsup.fill" : "hand.thumbsup")
+                    .foregroundStyle(focusedThumbId == "up" ? .black : (appState.likedManager.isMovieLiked(movieId) ? .white : .secondary))
+                    .font(.system(size: 20))
+            }
+            .buttonStyle(.plain)
+            .focused($focusedThumbId, equals: "up")
+
+            Button {
+                appState.likedManager.setMovieLiked(movieId, liked: false)
+            } label: {
+                Image(systemName: "hand.thumbsdown")
+                    .foregroundStyle(focusedThumbId == "down" ? .black : .secondary)
+                    .font(.system(size: 20))
+            }
+            .buttonStyle(.plain)
+            .focused($focusedThumbId, equals: "down")
+        }
+        .frame(maxWidth: contentWidth, alignment: .leading)
+    }
+
+    private var isReleased: Bool {
+        guard let date = movie?.releaseDate else { return true }
+        return date <= Calendar.current.startOfDay(for: Date())
+    }
+
+    private var comingSoonText: String {
+        guard let date = movie?.releaseDate else { return "Coming Soon" }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        return "Coming \(formatter.string(from: date))"
     }
 
     private func openTrailer(key: String) {
@@ -147,14 +243,7 @@ struct MovieDetailView: View {
         let canOpenYouTube = youtubeURL.map { UIApplication.shared.canOpenURL($0) } ?? false
         let urlToOpen = (canOpenYouTube && youtubeURL != nil) ? youtubeURL! : httpsURL
 
-        #if DEBUG
-        print("[MovieDetail] Trailer key=\(key), youtubeURL=\(youtubeURL?.absoluteString ?? "nil"), canOpenYouTube=\(canOpenYouTube), opening=\(urlToOpen.absoluteString)")
-        #endif
-
         UIApplication.shared.open(urlToOpen) { success in
-            #if DEBUG
-            print("[MovieDetail] Trailer open success=\(success)")
-            #endif
             if !success {
                 trailerAlertMessage = "You need the YouTube app to view trailers. Install it from the App Store if you haven't already."
             }
@@ -170,9 +259,6 @@ struct MovieDetailView: View {
         do {
             let urls = try await appState.streamingService.playableURLsForMovie(tmdbId: movieId)
             guard !urls.isEmpty else {
-                #if DEBUG
-                print("[MovieDetail] Stream resolve returned empty URLs for movie \(movieId)")
-                #endif
                 streamError = "No stream was found"
                 return
             }
@@ -180,42 +266,8 @@ struct MovieDetailView: View {
             playableContent = content
             appState.watchProgressManager.recordMovie(movieId)
         } catch {
-            #if DEBUG
-            print("[MovieDetail] Stream resolve failed: \(error)")
-            #endif
             streamError = "No stream was found"
         }
-    }
-
-    @ViewBuilder
-    private var posterSection: some View {
-        if let url = ImageURLBuilder.posterURL(for: movie?.posterPath, config: appState.apiConfiguration, idealWidth: 500) {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .aspectRatio(2/3, contentMode: .fill)
-                default:
-                    posterPlaceholder
-                }
-            }
-            .frame(width: 300, height: 450)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-        } else {
-            posterPlaceholder
-        }
-    }
-
-    private var posterPlaceholder: some View {
-        RoundedRectangle(cornerRadius: 16)
-            .fill(.quaternary)
-            .frame(width: 300, height: 450)
-            .overlay {
-                Image(systemName: "film")
-                    .font(.system(size: 64))
-                    .foregroundStyle(.secondary)
-            }
     }
 
     private func loadMovie() async {

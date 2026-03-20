@@ -14,6 +14,7 @@ final class AppState {
     let tmdbService: TMDbService
     let streamingService: StreamingService
     let myListManager: MyListManager
+    let likedManager: LikedManager
     let watchProgressManager: WatchProgressManager
     private(set) var apiConfiguration: APIConfiguration?
 
@@ -21,6 +22,7 @@ final class AppState {
         self.tmdbService = TMDbService(apiKey: apiKey)
         self.streamingService = StreamingService(baseURL: streamingBaseURL)
         self.myListManager = MyListManager()
+        self.likedManager = LikedManager()
         self.watchProgressManager = WatchProgressManager()
     }
 

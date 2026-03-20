@@ -17,22 +17,11 @@ private struct TVCategorySeeAll: Identifiable, Hashable {
     static func == (lhs: TVCategorySeeAll, rhs: TVCategorySeeAll) -> Bool { lhs.id == rhs.id }
 }
 
-private struct ContinueWatchingEpisodeItem: Identifiable {
-    let seriesId: Int
-    let season: Int
-    let episode: Int
-    let seriesName: String
-    let posterPath: URL?
-    let firstAirDate: Date?
-    var id: String { "\(seriesId)-\(season)-\(episode)" }
-}
-
 struct TVShowsView: View {
     var shouldLoad: Bool = true
     var onLoadComplete: (() -> Void)? = nil
 
     @Environment(AppState.self) private var appState
-    @State private var continueWatching: [ContinueWatchingEpisodeItem] = []
     @State private var trending: [TVSeriesListItem] = []
     @State private var popular: [TVSeriesListItem] = []
     @State private var topRated: [TVSeriesListItem] = []
@@ -51,8 +40,8 @@ struct TVShowsView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 32) {
+            ScrollView(.vertical, showsIndicators: true) {
+                LazyVStack(alignment: .leading, spacing: 48) {
                     if let error = errorMessage {
                         Text(error)
                             .foregroundStyle(.red)
@@ -64,10 +53,6 @@ struct TVShowsView: View {
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 60)
                     } else {
-                        if !continueWatching.isEmpty {
-                            continueWatchingSection
-                        }
-
                         TVSeriesMediaRow(
                             title: "Trending Today",
                             tvSeries: trending,
@@ -153,7 +138,7 @@ struct TVShowsView: View {
                 }
                 .padding(.vertical)
             }
-            .navigationTitle("TV Shows")
+            .navigationTitle("")
             .navigationDestination(item: $selectedSeries) { selection in
                 TVSeriesDetailView(seriesId: selection.id)
             }
@@ -165,68 +150,7 @@ struct TVShowsView: View {
                 await loadData()
                 onLoadComplete?()
             }
-            .onAppear {
-                guard shouldLoad else { return }
-                Task { await loadContinueWatching() }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: WatchProgressManager.continueWatchingDidChange)) { _ in
-                Task { await loadContinueWatching() }
-            }
         }
-    }
-
-    @ViewBuilder
-    private var continueWatchingSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Continue Watching")
-                .font(.title2)
-                .fontWeight(.semibold)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 16) {
-                    ForEach(continueWatching) { item in
-                        Button {
-                            selectedSeries = TVSeriesSelection(id: item.seriesId)
-                        } label: {
-                            MediaCard(
-                                posterPath: item.posterPath,
-                                title: item.seriesName,
-                                subtitle: "S\(item.season) E\(item.episode)",
-                                config: appState.apiConfiguration
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .hoverEffect(.lift)
-                        .contextMenu {
-                            Button("Remove from Continue Watching", role: .destructive) {
-                                appState.watchProgressManager.removeEpisode(seriesId: item.seriesId, season: item.season, episode: item.episode)
-                                Task { await loadContinueWatching() }
-                            }
-                        }
-                    }
-                }
-                .padding(.horizontal)
-            }
-        }
-        .focusSection()
-    }
-
-    private func loadContinueWatching() async {
-        let episodes = appState.watchProgressManager.watchedEpisodes
-        var items: [ContinueWatchingEpisodeItem] = []
-        for ep in episodes {
-            if let series = try? await appState.tmdbService.tvSeriesDetails(forSeriesId: ep.seriesId) {
-                items.append(ContinueWatchingEpisodeItem(
-                    seriesId: ep.seriesId,
-                    season: ep.season,
-                    episode: ep.episode,
-                    seriesName: series.name,
-                    posterPath: series.posterPath,
-                    firstAirDate: series.firstAirDate
-                ))
-            }
-        }
-        continueWatching = items
     }
 
     private func loadData() async {
@@ -235,10 +159,20 @@ struct TVShowsView: View {
         errorMessage = nil
 
         do {
+            // Phase 1: Load first 3 lists so user sees content quickly
             async let trendingTask = appState.tmdbService.trendingTVSeries()
             async let popularTask = appState.tmdbService.popularTVSeries()
             async let topRatedTask = appState.tmdbService.topRatedTVSeries()
-            async let documentariesTask = appState.tmdbService.documentaryTVSeries()
+
+            trending = try await trendingTask
+            popular = try await popularTask
+            topRated = try await topRatedTask
+            isLoading = false
+
+            // Phase 2: Load documentaries in background
+            documentaries = try await appState.tmdbService.documentaryTVSeries()
+
+            // Phase 3: Load genre lists in background
             async let actionAdventureTask = appState.tmdbService.tvSeriesPaginated(for: .actionAdventure, page: 1)
             async let comedyTask = appState.tmdbService.tvSeriesPaginated(for: .comedy, page: 1)
             async let dramaTask = appState.tmdbService.tvSeriesPaginated(for: .drama, page: 1)
@@ -247,10 +181,6 @@ struct TVShowsView: View {
             async let sciFiFantasyTask = appState.tmdbService.tvSeriesPaginated(for: .sciFiFantasy, page: 1)
             async let thrillerTask = appState.tmdbService.tvSeriesPaginated(for: .thriller, page: 1)
 
-            trending = try await trendingTask
-            popular = try await popularTask
-            topRated = try await topRatedTask
-            documentaries = try await documentariesTask
             actionAdventure = try await actionAdventureTask.items
             comedy = try await comedyTask.items
             drama = try await dramaTask.items
@@ -260,9 +190,8 @@ struct TVShowsView: View {
             thriller = try await thrillerTask.items
         } catch {
             errorMessage = error.localizedDescription
+            isLoading = false
         }
-
-        isLoading = false
     }
 }
 

@@ -50,6 +50,7 @@ final class WatchProgressManager {
             watchedMovies = Array(watchedMovies.prefix(maxMovies))
         }
         saveMovies()
+        NotificationCenter.default.post(name: Self.continueWatchingDidChange, object: nil)
     }
 
     func removeMovie(_ movieId: Int) {
@@ -71,6 +72,7 @@ final class WatchProgressManager {
             watchedEpisodes = Array(watchedEpisodes.prefix(maxEpisodes))
         }
         saveEpisodes()
+        NotificationCenter.default.post(name: Self.continueWatchingDidChange, object: nil)
     }
 
     func removeEpisode(seriesId: Int, season: Int, episode: Int) {

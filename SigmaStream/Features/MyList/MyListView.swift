@@ -11,14 +11,18 @@ private struct MyListMovieItem: Identifiable {
     let id: Int
     let title: String
     let posterPath: URL?
+    let backdropPath: URL?
     let releaseDate: Date?
+    let overview: String?
 }
 
 private struct MyListSeriesItem: Identifiable {
     let id: Int
     let name: String
     let posterPath: URL?
+    let backdropPath: URL?
     let firstAirDate: Date?
+    let overview: String?
 }
 
 struct MyListView: View {
@@ -49,8 +53,8 @@ struct MyListView: View {
                         description: Text("Long press on a movie or TV show to add it to your list.")
                     )
                 } else {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 32) {
+                    ScrollView(.vertical, showsIndicators: true) {
+                        VStack(alignment: .leading, spacing: 48) {
                             if !listMovies.isEmpty {
                                 myListMoviesSection
                             }
@@ -63,7 +67,7 @@ struct MyListView: View {
                     }
                 }
             }
-            .navigationTitle("My List")
+            .navigationTitle("")
             .navigationDestination(item: $selectedMovie) { selection in
                 MovieDetailView(movieId: selection.id)
             }
@@ -79,6 +83,11 @@ struct MyListView: View {
         }
     }
 
+    @FocusState private var focusedMovieId: Int?
+    @FocusState private var focusedSeriesId: Int?
+    @State private var moviesScrollPosition = ScrollPosition(idType: Int.self)
+    @State private var seriesScrollPosition = ScrollPosition(idType: Int.self)
+
     @ViewBuilder
     private var myListMoviesSection: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -87,32 +96,62 @@ struct MyListView: View {
                 .fontWeight(.semibold)
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 16) {
+                HStack(alignment: .top, spacing: 20) {
                     ForEach(listMovies) { movie in
-                        Button {
-                            selectedMovie = MovieSelection(id: movie.id)
-                        } label: {
-                            MediaCard(
-                                posterPath: movie.posterPath,
-                                title: movie.title,
-                                subtitle: movie.releaseDate.map { Calendar.current.component(.year, from: $0).description },
-                                config: appState.apiConfiguration
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .hoverEffect(.lift)
-                        .contextMenu {
-                            Button("Remove from My List", role: .destructive) {
-                                appState.myListManager.toggleMovie(movie.id)
-                                Task { await loadMyList() }
+                        let isFocused = focusedMovieId == movie.id
+                        HStack(spacing: 0) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Button {
+                                selectedMovie = MovieSelection(id: movie.id)
+                            } label: {
+                                MediaCard(
+                                    posterPath: movie.posterPath,
+                                    backdropPath: movie.backdropPath,
+                                    config: appState.apiConfiguration,
+                                    isFocused: isFocused
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .hoverEffectDisabled(true)
+                            .focused($focusedMovieId, equals: movie.id)
+                            .accessibilityLabel(movie.title)
+                            .contextMenu {
+                                Button("Remove from My List", role: .destructive) {
+                                    appState.myListManager.toggleMovie(movie.id)
+                                    Task { await loadMyList() }
+                                }
+                            }
+
+                            if isFocused {
+                                MediaCardMetadata(
+                                    title: movie.title,
+                                    date: movie.releaseDate,
+                                    overview: movie.overview
+                                )
+                                .frame(maxWidth: mediaCardBackdropWidth)
+                                .transition(.opacity.combined(with: .move(edge: .top)))
+                                .animation(.easeInOut(duration: 0.2), value: focusedMovieId)
                             }
                         }
+                            if isFocused {
+                                Color.clear.frame(width: 32)
+                            }
+                        }
+                        .id(movie.id)
                     }
                 }
+                .scrollTargetLayout()
                 .padding(.horizontal)
             }
+            .scrollPosition($moviesScrollPosition, anchor: .leading)
+            .onChange(of: focusedMovieId) { _, newId in
+                if let id = newId {
+                    moviesScrollPosition.scrollTo(id: id, anchor: .leading)
+                }
+            }
+            .focusSection()
         }
-        .focusSection()
+        .padding(.bottom, 16)
     }
 
     @ViewBuilder
@@ -123,32 +162,62 @@ struct MyListView: View {
                 .fontWeight(.semibold)
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 16) {
+                HStack(alignment: .top, spacing: 20) {
                     ForEach(listSeries) { series in
-                        Button {
-                            selectedSeries = TVSeriesSelection(id: series.id)
-                        } label: {
-                            MediaCard(
-                                posterPath: series.posterPath,
-                                title: series.name,
-                                subtitle: series.firstAirDate.map { Calendar.current.component(.year, from: $0).description },
-                                config: appState.apiConfiguration
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .hoverEffect(.lift)
-                        .contextMenu {
-                            Button("Remove from My List", role: .destructive) {
-                                appState.myListManager.toggleSeries(series.id)
-                                Task { await loadMyList() }
+                        let isFocused = focusedSeriesId == series.id
+                        HStack(spacing: 0) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Button {
+                                selectedSeries = TVSeriesSelection(id: series.id)
+                            } label: {
+                                MediaCard(
+                                    posterPath: series.posterPath,
+                                    backdropPath: series.backdropPath,
+                                    config: appState.apiConfiguration,
+                                    isFocused: isFocused
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .hoverEffectDisabled(true)
+                            .focused($focusedSeriesId, equals: series.id)
+                            .accessibilityLabel(series.name)
+                            .contextMenu {
+                                Button("Remove from My List", role: .destructive) {
+                                    appState.myListManager.toggleSeries(series.id)
+                                    Task { await loadMyList() }
+                                }
+                            }
+
+                            if isFocused {
+                                MediaCardMetadata(
+                                    title: series.name,
+                                    date: series.firstAirDate,
+                                    overview: series.overview
+                                )
+                                .frame(maxWidth: mediaCardBackdropWidth)
+                                .transition(.opacity.combined(with: .move(edge: .top)))
+                                .animation(.easeInOut(duration: 0.2), value: focusedSeriesId)
                             }
                         }
+                            if isFocused {
+                                Color.clear.frame(width: 32)
+                            }
+                        }
+                        .id(series.id)
                     }
                 }
+                .scrollTargetLayout()
                 .padding(.horizontal)
             }
+            .scrollPosition($seriesScrollPosition, anchor: .leading)
+            .onChange(of: focusedSeriesId) { _, newId in
+                if let id = newId {
+                    seriesScrollPosition.scrollTo(id: id, anchor: .leading)
+                }
+            }
+            .focusSection()
         }
-        .focusSection()
+        .padding(.bottom, 16)
     }
 
     private func loadMyList() async {
@@ -168,7 +237,9 @@ struct MyListView: View {
                         id: movie.id,
                         title: movie.title,
                         posterPath: movie.posterPath,
-                        releaseDate: movie.releaseDate
+                        backdropPath: movie.backdropPath,
+                        releaseDate: movie.releaseDate,
+                        overview: movie.overview
                     ))
                 }
             }
@@ -179,7 +250,9 @@ struct MyListView: View {
                         id: s.id,
                         name: s.name,
                         posterPath: s.posterPath,
-                        firstAirDate: s.firstAirDate
+                        backdropPath: s.backdropPath,
+                        firstAirDate: s.firstAirDate,
+                        overview: s.overview
                     ))
                 }
             }

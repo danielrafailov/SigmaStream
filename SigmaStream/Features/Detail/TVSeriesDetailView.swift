@@ -22,6 +22,9 @@ struct TVSeriesDetailView: View {
     @State private var streamError: String?
     @State private var trailerYouTubeKey: String?
     @State private var trailerAlertMessage: String?
+    @State private var moreEpisodesSeries: TVSeries?
+    @FocusState private var focusedButtonId: String?
+    @FocusState private var focusedThumbId: String?
 
     private var seasonNumbers: [Int] {
         guard let s = series else { return [1] }
@@ -32,6 +35,12 @@ struct TVSeriesDetailView: View {
             return Array(1...n)
         }
         return [1]
+    }
+
+    private var firstEpisode: (season: Int, episode: TVEpisode)? {
+        guard let season = loadedSeason, let episodes = season.episodes, !episodes.isEmpty else { return nil }
+        let ep = episodes.first!
+        return (selectedSeason, ep)
     }
 
     var body: some View {
@@ -46,83 +55,101 @@ struct TVSeriesDetailView: View {
                     description: Text(error)
                 )
             } else if let series {
-                ZStack {
-                    if let backdropURL = ImageURLBuilder.backdropURL(for: series.backdropPath, config: appState.apiConfiguration) {
-                        AsyncImage(url: backdropURL) { phase in
-                            if case .success(let image) = phase {
-                                image
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fill)
+                GeometryReader { geo in
+                    let contentWidth = geo.size.width * 0.45
+                    ZStack(alignment: .leading) {
+                        if let backdropURL = ImageURLBuilder.backdropURL(for: series.backdropPath, config: appState.apiConfiguration) {
+                            AsyncImage(url: backdropURL) { phase in
+                                if case .success(let image) = phase {
+                                    image
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                }
                             }
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .blur(radius: 24)
-                        .overlay(Color.black.opacity(0.55))
-                        .ignoresSafeArea()
-                    }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .ignoresSafeArea()
 
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 20) {
-                            HStack(alignment: .top, spacing: 24) {
-                            posterSection
-                            VStack(alignment: .leading, spacing: 8) {
+                            AsyncImage(url: backdropURL) { phase in
+                                if case .success(let image) = phase {
+                                    image
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .blur(radius: 24)
+                            .overlay(Color.black.opacity(0.5))
+                            .mask(
+                                LinearGradient(
+                                    colors: [.black, .clear],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                            .ignoresSafeArea()
+                        }
+
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 24) {
                                 Text(series.name)
-                                    .font(.largeTitle)
-                                    .fontWeight(.bold)
+                                    .font(.system(size: 48, weight: .bold))
 
-                                if let date = series.firstAirDate {
-                                    Text(formatYear(date))
-                                        .font(.title3)
-                                        .foregroundStyle(.secondary)
+                                metadataRow
+
+                                if let overview = series.overview, !overview.isEmpty {
+                                    Text(overview)
+                                        .font(.body)
+                                        .frame(maxWidth: contentWidth, alignment: .leading)
                                 }
 
-                                if let rating = series.voteAverage {
-                                    Label(String(format: "%.1f/10", rating), systemImage: "star.fill")
-                                        .font(.title3)
+                                thumbsRow(contentWidth: contentWidth)
+                                    .padding(.leading, 24)
+
+                                if let streamErr = streamError {
+                                    Text(streamErr)
+                                        .foregroundStyle(.red)
+                                        .font(.subheadline)
                                 }
 
-                                if let key = trailerYouTubeKey {
-                                    Button {
-                                        openTrailer(key: key)
-                                    } label: {
-                                        Label("Watch Trailer", systemImage: "play.rectangle.fill")
+                                VStack(alignment: .leading, spacing: 16) {
+                                    if let first = firstEpisode {
+                                        detailButton(id: "play", icon: "play.fill", title: "Play Episode") {
+                                            Task { await resolveStream(season: first.season, episode: first.episode.episodeNumber, title: first.episode.name) }
+                                        }
+                                        .disabled(isResolvingStream)
                                     }
-                                    .padding(.top, 8)
+
+                                    detailButton(id: "more", icon: "list.bullet", title: "More Episodes") {
+                                        moreEpisodesSeries = series
+                                    }
+
+                                    if let key = trailerYouTubeKey {
+                                        detailButton(id: "trailer", icon: "play.rectangle.fill", title: "Watch Trailer") {
+                                            openTrailer(key: key)
+                                        }
+                                    }
+
+                                    detailButton(
+                                        id: "mylist",
+                                        icon: appState.myListManager.isSeriesInList(seriesId) ? "minus.circle" : "plus.circle",
+                                        title: appState.myListManager.isSeriesInList(seriesId) ? "Remove from My List" : "Add to My List"
+                                    ) {
+                                        appState.myListManager.toggleSeries(seriesId)
+                                    }
                                 }
+                                .padding(.leading, 24)
                             }
-                            Spacer()
-                        }
-                        .padding()
-
-                        if let overview = series.overview, !overview.isEmpty {
-                            Text(overview)
-                                .font(.body)
-                                .padding(.horizontal)
-                        }
-
-                        if let streamErr = streamError {
-                            Text(streamErr)
-                                .foregroundStyle(.red)
-                                .font(.subheadline)
-                                .padding(.horizontal)
-                        }
-
-                        seasonsSection
-                        episodesSection
+                            .frame(maxWidth: contentWidth, alignment: .leading)
+                            .padding(48)
                         }
                     }
                 }
             }
         }
-        .navigationTitle(series?.name ?? "TV Series")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    appState.myListManager.toggleSeries(seriesId)
-                } label: {
-                    Image(systemName: appState.myListManager.isSeriesInList(seriesId) ? "plus.circle.fill" : "plus.circle")
-                }
-            }
+        .navigationTitle("")
+        .navigationDestination(item: $moreEpisodesSeries) { s in
+            TVSeriesMoreEpisodesView(seriesId: s.id, seriesName: s.name)
+                .environment(appState)
         }
         .alert("Trailer", isPresented: Binding(
             get: { trailerAlertMessage != nil },
@@ -153,124 +180,79 @@ struct TVSeriesDetailView: View {
         }
     }
 
-    @ViewBuilder
-    private var posterSection: some View {
-        if let url = ImageURLBuilder.posterURL(for: series?.posterPath, config: appState.apiConfiguration, idealWidth: 500) {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .aspectRatio(2/3, contentMode: .fill)
-                default:
-                    posterPlaceholder
-                }
+    private func detailButton(id: String, icon: String, title: String, action: @escaping () -> Void, disabled: Bool = false) -> some View {
+        let isFocused = focusedButtonId == id
+        return Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.system(size: 22))
+                Text(title)
+                    .font(.system(size: 20, weight: .medium))
             }
-            .frame(width: 300, height: 450)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-        } else {
-            posterPlaceholder
+            .foregroundStyle(isFocused ? .black : .white)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 0)
+            .padding(.trailing, 24)
+            .padding(.vertical, 14)
         }
+        .buttonStyle(.plain)
+        .focused($focusedButtonId, equals: id)
+        .disabled(disabled)
     }
 
-    private var posterPlaceholder: some View {
-        RoundedRectangle(cornerRadius: 16)
-            .fill(.quaternary)
-            .frame(width: 300, height: 450)
-            .overlay {
-                Image(systemName: "tv")
-                    .font(.system(size: 64))
+    private var metadataRow: some View {
+        HStack(spacing: 12) {
+            if let date = series?.firstAirDate {
+                Text(Calendar.current.component(.year, from: date).description)
                     .foregroundStyle(.secondary)
             }
-    }
-
-    @ViewBuilder
-    private var seasonsSection: some View {
-        if !seasonNumbers.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Season")
-                    .font(.title2)
-                    .fontWeight(.semibold)
-
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(seasonNumbers, id: \.self) { num in
-                            Button {
-                                selectedSeason = num
-                            } label: {
-                                Text("Season \(num)")
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 8)
-                                    .background(selectedSeason == num ? Color.accentColor : Color.clear)
-                                    .foregroundStyle(selectedSeason == num ? .white : .primary)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(.horizontal)
-                }
-            }
-            .padding()
-        }
-    }
-
-    @ViewBuilder
-    private var episodesSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Episodes")
-                .font(.title2)
-                .fontWeight(.semibold)
-                .padding(.horizontal)
-
-            if isLoadingSeason {
-                ProgressView()
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 24)
-            } else if let season = loadedSeason, let episodes = season.episodes, !episodes.isEmpty {
-                ForEach(episodes, id: \.id) { episode in
-                    Button {
-                        Task { await resolveStream(season: selectedSeason, episode: episode.episodeNumber, title: episode.name) }
-                    } label: {
-                        HStack(spacing: 16) {
-                            Text("\(episode.episodeNumber)")
-                                .font(.headline)
-                                .foregroundStyle(.secondary)
-                                .frame(width: 36, alignment: .leading)
-
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(episode.name)
-                                    .font(.headline)
-                                    .lineLimit(2)
-                                if let date = episode.airDate {
-                                    Text(formatYear(date))
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            Spacer()
-                            Image(systemName: "play.circle.fill")
-                                .font(.title2)
-                        }
-                        .padding()
-                        .background(.ultraThinMaterial.opacity(0.5))
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isResolvingStream)
-                }
-                .padding(.horizontal)
-            } else {
-                Text("No episodes available")
+            if let genres = series?.genres, !genres.isEmpty {
+                Text(genres.prefix(2).map(\.name).joined(separator: ", "))
                     .foregroundStyle(.secondary)
-                    .padding(.vertical, 24)
-                    .frame(maxWidth: .infinity)
             }
+            if let n = series?.numberOfSeasons, n > 0 {
+                Text("\(n) Season\(n == 1 ? "" : "s")")
+                    .foregroundStyle(.secondary)
+            }
+            Text("HD")
+                .foregroundStyle(.secondary)
+            if let rating = series?.voteAverage {
+                HStack(spacing: 4) {
+                    Image(systemName: "star.fill")
+                        .font(.caption)
+                    Text(String(format: "%.1f", rating))
+                }
+                .foregroundStyle(.secondary)
+            }
+            Image(systemName: "captions.bubble")
+                .foregroundStyle(.secondary)
         }
-        .padding(.vertical)
+        .font(.subheadline)
     }
 
-    private func formatYear(_ date: Date) -> String {
-        Calendar.current.component(.year, from: date).description
+    private func thumbsRow(contentWidth: CGFloat) -> some View {
+        HStack(spacing: 56) {
+            Button {
+                appState.likedManager.toggleSeries(seriesId)
+            } label: {
+                Image(systemName: appState.likedManager.isSeriesLiked(seriesId) ? "hand.thumbsup.fill" : "hand.thumbsup")
+                    .foregroundStyle(focusedThumbId == "up" ? .black : (appState.likedManager.isSeriesLiked(seriesId) ? .white : .secondary))
+                    .font(.system(size: 20))
+            }
+            .buttonStyle(.plain)
+            .focused($focusedThumbId, equals: "up")
+
+            Button {
+                appState.likedManager.setSeriesLiked(seriesId, liked: false)
+            } label: {
+                Image(systemName: "hand.thumbsdown")
+                    .foregroundStyle(focusedThumbId == "down" ? .black : .secondary)
+                    .font(.system(size: 20))
+            }
+            .buttonStyle(.plain)
+            .focused($focusedThumbId, equals: "down")
+        }
+        .frame(maxWidth: contentWidth, alignment: .leading)
     }
 
     private func openTrailer(key: String) {
@@ -279,14 +261,7 @@ struct TVSeriesDetailView: View {
         let canOpenYouTube = youtubeURL.map { UIApplication.shared.canOpenURL($0) } ?? false
         let urlToOpen = (canOpenYouTube && youtubeURL != nil) ? youtubeURL! : httpsURL
 
-        #if DEBUG
-        print("[TVSeriesDetail] Trailer key=\(key), youtubeURL=\(youtubeURL?.absoluteString ?? "nil"), canOpenYouTube=\(canOpenYouTube), opening=\(urlToOpen.absoluteString)")
-        #endif
-
         UIApplication.shared.open(urlToOpen) { success in
-            #if DEBUG
-            print("[TVSeriesDetail] Trailer open success=\(success)")
-            #endif
             if !success {
                 trailerAlertMessage = "You need the YouTube app to view trailers. Install it from the App Store if you haven't already."
             }
@@ -327,18 +302,12 @@ struct TVSeriesDetailView: View {
         do {
             let urls = try await appState.streamingService.playableURLsForEpisode(seriesId: seriesId, season: season, episode: episode)
             guard !urls.isEmpty else {
-                #if DEBUG
-                print("[TVSeriesDetail] Stream resolve returned empty URLs for S\(season)E\(episode)")
-                #endif
                 streamError = "No stream was found"
                 return
             }
             playableContent = PlayableContent(urls: urls, title: "\(series?.name ?? "Episode") - \(title)", tvSeriesId: seriesId, season: season, episode: episode)
             appState.watchProgressManager.recordEpisode(seriesId: seriesId, season: season, episode: episode)
         } catch {
-            #if DEBUG
-            print("[TVSeriesDetail] Stream resolve failed: \(error)")
-            #endif
             streamError = "No stream was found"
         }
     }

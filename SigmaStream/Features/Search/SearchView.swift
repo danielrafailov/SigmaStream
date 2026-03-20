@@ -70,7 +70,7 @@ struct SearchView: View {
                 }
                 .padding(.vertical)
             }
-            .navigationTitle("Search")
+            .navigationTitle("")
             .searchable(text: $searchText, prompt: "Movies & TV Shows")
             .onChange(of: searchText) { _, newValue in
                 searchTask?.cancel()

@@ -17,19 +17,11 @@ private struct MovieCategorySeeAll: Identifiable, Hashable {
     static func == (lhs: MovieCategorySeeAll, rhs: MovieCategorySeeAll) -> Bool { lhs.id == rhs.id }
 }
 
-private struct ContinueWatchingMovieItem: Identifiable {
-    let id: Int
-    let title: String
-    let posterPath: URL?
-    let releaseDate: Date?
-}
-
 struct MoviesView: View {
     var shouldLoad: Bool = true
     var onLoadComplete: (() -> Void)? = nil
 
     @Environment(AppState.self) private var appState
-    @State private var continueWatching: [ContinueWatchingMovieItem] = []
     @State private var trending: [MovieListItem] = []
     @State private var popular: [MovieListItem] = []
     @State private var topRated: [MovieListItem] = []
@@ -50,8 +42,8 @@ struct MoviesView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 32) {
+            ScrollView(.vertical, showsIndicators: true) {
+                LazyVStack(alignment: .leading, spacing: 48) {
                     if let error = errorMessage {
                         Text(error)
                             .foregroundStyle(.red)
@@ -63,10 +55,6 @@ struct MoviesView: View {
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 60)
                     } else {
-                        if !continueWatching.isEmpty {
-                            continueWatchingSection
-                        }
-
                         MovieMediaRow(
                             title: "Trending Today",
                             movies: trending,
@@ -168,7 +156,7 @@ struct MoviesView: View {
                 }
                 .padding(.vertical)
             }
-            .navigationTitle("Movies")
+            .navigationTitle("")
             .navigationDestination(item: $selectedMovie) { selection in
                 MovieDetailView(movieId: selection.id)
             }
@@ -180,66 +168,7 @@ struct MoviesView: View {
                 await loadData()
                 onLoadComplete?()
             }
-            .onAppear {
-                guard shouldLoad else { return }
-                Task { await loadContinueWatching() }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: WatchProgressManager.continueWatchingDidChange)) { _ in
-                Task { await loadContinueWatching() }
-            }
         }
-    }
-
-    @ViewBuilder
-    private var continueWatchingSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Continue Watching")
-                .font(.title2)
-                .fontWeight(.semibold)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 16) {
-                    ForEach(continueWatching) { movie in
-                        Button {
-                            selectedMovie = MovieSelection(id: movie.id)
-                        } label: {
-                            MediaCard(
-                                posterPath: movie.posterPath,
-                                title: movie.title,
-                                subtitle: movie.releaseDate.map { Calendar.current.component(.year, from: $0).description },
-                                config: appState.apiConfiguration
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .hoverEffect(.lift)
-                        .contextMenu {
-                            Button("Remove from Continue Watching", role: .destructive) {
-                                appState.watchProgressManager.removeMovie(movie.id)
-                                Task { await loadContinueWatching() }
-                            }
-                        }
-                    }
-                }
-                .padding(.horizontal)
-            }
-        }
-        .focusSection()
-    }
-
-    private func loadContinueWatching() async {
-        let ids = appState.watchProgressManager.watchedMovies.map(\.movieId)
-        var items: [ContinueWatchingMovieItem] = []
-        for id in ids {
-            if let movie = try? await appState.tmdbService.movieDetails(forMovieId: id) {
-                items.append(ContinueWatchingMovieItem(
-                    id: movie.id,
-                    title: movie.title,
-                    posterPath: movie.posterPath,
-                    releaseDate: movie.releaseDate
-                ))
-            }
-        }
-        continueWatching = items
     }
 
     private func loadData() async {
@@ -248,12 +177,26 @@ struct MoviesView: View {
         errorMessage = nil
 
         do {
+            // Phase 1: Load first 3 lists so user sees content quickly
             async let trendingTask = appState.tmdbService.trendingMovies()
             async let popularTask = appState.tmdbService.popularMovies()
             async let topRatedTask = appState.tmdbService.topRatedMovies()
+
+            trending = try await trendingTask
+            popular = try await popularTask
+            topRated = try await topRatedTask
+            isLoading = false
+
+            // Phase 2: Load next batch in background
             async let nowPlayingTask = appState.tmdbService.nowPlayingMovies()
             async let upcomingTask = appState.tmdbService.upcomingMovies()
             async let documentariesTask = appState.tmdbService.documentaryMovies()
+
+            nowPlaying = try await nowPlayingTask
+            upcoming = try await upcomingTask
+            documentaries = try await documentariesTask
+
+            // Phase 3: Load genre lists in background
             async let actionTask = appState.tmdbService.moviesPaginated(for: .action, page: 1)
             async let comedyTask = appState.tmdbService.moviesPaginated(for: .comedy, page: 1)
             async let dramaTask = appState.tmdbService.moviesPaginated(for: .drama, page: 1)
@@ -262,12 +205,6 @@ struct MoviesView: View {
             async let sciFiTask = appState.tmdbService.moviesPaginated(for: .sciFi, page: 1)
             async let thrillerTask = appState.tmdbService.moviesPaginated(for: .thriller, page: 1)
 
-            trending = try await trendingTask
-            popular = try await popularTask
-            topRated = try await topRatedTask
-            nowPlaying = try await nowPlayingTask
-            upcoming = try await upcomingTask
-            documentaries = try await documentariesTask
             action = try await actionTask.items
             comedy = try await comedyTask.items
             drama = try await dramaTask.items
@@ -277,9 +214,9 @@ struct MoviesView: View {
             thriller = try await thrillerTask.items
         } catch {
             errorMessage = error.localizedDescription
+            isLoading = false
         }
 
-        isLoading = false
         onLoadComplete?()
     }
 

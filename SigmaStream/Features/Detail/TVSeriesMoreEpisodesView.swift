@@ -95,26 +95,31 @@ struct TVSeriesMoreEpisodesView: View {
 
     @ViewBuilder
     private func contentStack(contentWidth: CGFloat, episodeRowWidth: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 24) {
             ScrollView {
                 Text(descriptionText)
                     .font(.body)
+                    .lineSpacing(4)
                     .frame(maxWidth: contentWidth, alignment: .topLeading)
             }
-            .frame(maxWidth: contentWidth, minHeight: 240, maxHeight: 240)
+            .frame(maxWidth: contentWidth, minHeight: 200, maxHeight: 200)
 
-            Picker("Season", selection: $selectedSeason) {
-                ForEach(seasonNumbers, id: \.self) { num in
-                    Text("Season \(num)").tag(num)
-                }
-            }
-            .pickerStyle(.menu)
-            .frame(maxWidth: contentWidth, alignment: .leading)
+            seasonSelector(contentWidth: contentWidth)
 
             if let streamErr = streamError {
-                Text(streamErr)
-                    .foregroundStyle(.red)
-                    .font(.subheadline)
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .foregroundStyle(.red)
+                    Text(streamErr)
+                        .foregroundStyle(.red)
+                        .font(.subheadline)
+                }
+            }
+
+            if let season = loadedSeason, let episodes = season.episodes, !episodes.isEmpty {
+                Text("Episodes")
+                    .font(.title3)
+                    .fontWeight(.semibold)
             }
 
             episodesSection(contentWidth: episodeRowWidth)
@@ -123,6 +128,32 @@ struct TVSeriesMoreEpisodesView: View {
         .padding(.horizontal, 48)
         .padding(.top, 24)
         .padding(.bottom, 48)
+    }
+
+    private func seasonSelector(contentWidth: CGFloat) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                ForEach(seasonNumbers, id: \.self) { num in
+                    Button {
+                        selectedSeason = num
+                    } label: {
+                        Text("Season \(num)")
+                            .font(.subheadline)
+                            .fontWeight(selectedSeason == num ? .semibold : .regular)
+                            .foregroundStyle(selectedSeason == num ? .black : .white)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 12)
+                            .background(
+                                Capsule()
+                                    .fill(selectedSeason == num ? Color.white : Color.white.opacity(0.25))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.vertical, 4)
+        }
+        .frame(maxWidth: contentWidth, alignment: .leading)
     }
 
     @ViewBuilder
@@ -143,7 +174,7 @@ struct TVSeriesMoreEpisodesView: View {
 
     private func episodeScrollView(episodes: [TVEpisode], contentWidth: CGFloat) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 16) {
                 ForEach(episodes, id: \.id) { episode in
                     episodeRow(episode: episode, contentWidth: contentWidth)
                 }
@@ -151,43 +182,37 @@ struct TVSeriesMoreEpisodesView: View {
             .scrollTargetLayout()
         }
         .scrollPosition(id: $scrollPositionEpisodeId, anchor: .center)
-        .frame(maxHeight: 420)
+        .frame(maxHeight: 460)
+    }
+
+    private func isEpisodeWatched(season: Int, episode: Int) -> Bool {
+        appState.watchProgressManager.watchedEpisodes.contains {
+            $0.seriesId == seriesId && $0.season == season && $0.episode == episode
+        }
     }
 
     private func episodeRow(episode: TVEpisode, contentWidth: CGFloat) -> some View {
         let isFocused = focusedEpisodeId == episode.id
+        let watched = isEpisodeWatched(season: selectedSeason, episode: episode.episodeNumber)
+        let stillURL = ImageURLBuilder.stillURL(for: episode.stillPath, config: appState.apiConfiguration)
+        let cardBackground = isFocused ? Color.white.opacity(0.22) : Color.white.opacity(0.08)
+        let cardStroke = isFocused ? Color.white.opacity(0.4) : Color.clear
+
         return Button {
             Task { await playEpisode(season: selectedSeason, episode: episode.episodeNumber, title: episode.name) }
         } label: {
-            HStack(alignment: .top, spacing: 24) {
-                Text("\(episode.episodeNumber)")
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 48, alignment: .leading)
-                    .fixedSize(horizontal: true, vertical: false)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(episode.name)
-                        .font(.headline)
-                        .lineLimit(4)
-                    if let date = episode.airDate {
-                        Text(Calendar.current.component(.year, from: date).description)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                Spacer()
-                Image(systemName: "play.circle.fill")
-                    .font(.title2)
-            }
-            .frame(maxWidth: contentWidth, alignment: .leading)
-            .padding(.vertical, 20)
-            .padding(.horizontal, 16)
-            .background(isFocused ? Color.white.opacity(0.2) : Color.white.opacity(0.1))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            episodeRowContent(
+                episode: episode,
+                contentWidth: contentWidth,
+                isFocused: isFocused,
+                watched: watched,
+                stillURL: stillURL,
+                cardBackground: cardBackground,
+                cardStroke: cardStroke
+            )
         }
         .buttonStyle(.plain)
-        .buttonBorderShape(.roundedRectangle(radius: 12))
+        .buttonBorderShape(.roundedRectangle(radius: 14))
         .focused($focusedEpisodeId, equals: episode.id)
         .disabled(isResolvingStream)
         .contextMenu {
@@ -195,6 +220,109 @@ struct TVSeriesMoreEpisodesView: View {
                 Task { await showStreamPicker(season: selectedSeason, episode: episode.episodeNumber, title: episode.name) }
             }
         }
+    }
+
+    private func episodeRowContent(
+        episode: TVEpisode,
+        contentWidth: CGFloat,
+        isFocused: Bool,
+        watched: Bool,
+        stillURL: URL?,
+        cardBackground: Color,
+        cardStroke: Color
+    ) -> some View {
+        HStack(alignment: .center, spacing: 20) {
+            episodeThumbnail(stillURL: stillURL, episodeNumber: episode.episodeNumber, isFocused: isFocused)
+            episodeMetadata(episode: episode, watched: watched)
+            Image(systemName: "play.circle.fill")
+                .font(.system(size: 36))
+                .foregroundStyle(isFocused ? .white : .white.opacity(0.8))
+                .symbolRenderingMode(.hierarchical)
+        }
+        .frame(maxWidth: contentWidth, alignment: .leading)
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: 14).fill(cardBackground))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(cardStroke, lineWidth: 2))
+    }
+
+    private func episodeMetadata(episode: TVEpisode, watched: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 12) {
+                Text(episode.name)
+                    .font(.headline)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                if watched {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.subheadline)
+                        .foregroundStyle(.green.opacity(0.9))
+                }
+            }
+            episodeMetadataRow(episode: episode)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func episodeMetadataRow(episode: TVEpisode) -> some View {
+        HStack(spacing: 8) {
+            Text("E\(episode.episodeNumber)")
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .foregroundStyle(.secondary)
+            if let date = episode.airDate {
+                Text("•")
+                    .foregroundStyle(.secondary)
+                Text(date, format: .dateTime.month().year())
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func episodeThumbnail(stillURL: URL?, episodeNumber: Int, isFocused: Bool) -> some View {
+        ZStack(alignment: .bottomLeading) {
+            Group {
+                if let url = stillURL {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        case .failure:
+                            thumbnailPlaceholder
+                        case .empty:
+                            thumbnailPlaceholder
+                                .overlay { ProgressView() }
+                        @unknown default:
+                            thumbnailPlaceholder
+                        }
+                    }
+                } else {
+                    thumbnailPlaceholder
+                }
+            }
+            .frame(width: 160, height: 90)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+
+            Text("\(episodeNumber)")
+                .font(.caption)
+                .fontWeight(.bold)
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.6), radius: 2, x: 0, y: 1)
+                .padding(6)
+        }
+    }
+
+    private var thumbnailPlaceholder: some View {
+        Rectangle()
+            .fill(.quaternary.opacity(0.5))
+            .overlay {
+                Image(systemName: "film")
+                    .font(.title2)
+                    .foregroundStyle(.secondary.opacity(0.6))
+            }
     }
 
     var body: some View {

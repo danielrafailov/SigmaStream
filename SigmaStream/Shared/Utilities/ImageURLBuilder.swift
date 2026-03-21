@@ -32,4 +32,14 @@ enum ImageURLBuilder {
         guard let config else { return nil }
         return config.images.backdropURL(for: path, idealWidth: idealWidth)
     }
+
+    /// Build still image URL for episode thumbnails. Uses same CDN as backdrops.
+    static func stillURL(
+        for path: URL?,
+        config: APIConfiguration?,
+        idealWidth: Int = 400
+    ) -> URL? {
+        guard let config else { return nil }
+        return config.images.backdropURL(for: path, idealWidth: idealWidth)
+    }
 }

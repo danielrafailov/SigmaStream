@@ -83,6 +83,7 @@ struct TVCategoryListView: View {
                 }
             }
         }
+        .defaultFocus($focusedSeriesId, tvSeries.first?.id)
         .navigationTitle("")
         .navigationDestination(item: $selectedSeries) { selection in
             TVSeriesDetailView(seriesId: selection.id)

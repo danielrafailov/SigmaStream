@@ -18,84 +18,59 @@ struct SearchView: View {
     @State private var searchTask: Task<Void, Never>?
     @State private var selectedMovie: MovieSelection?
     @State private var selectedSeries: TVSeriesSelection?
-    @State private var isSearchPresented = true
-    @FocusState private var isSearchFocused: Bool
-    @FocusState private var searchBridgeFocused: Bool
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 0) {
-                #if os(tvOS)
-                if isSearchPresented {
-                    HStack(spacing: 12) {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundStyle(.secondary)
-                        TextField("Movies & TV Shows", text: $searchText)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 32) {
+                    if let error = errorMessage {
+                        Text(error)
+                            .foregroundStyle(.red)
+                            .padding()
                     }
-                    .padding()
-                }
-                #endif
 
-                if !isSearchPresented && searchText.count >= 2 {
-                    searchHeaderRow
-                }
-
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 32) {
-                        if let error = errorMessage {
-                            Text(error)
-                                .foregroundStyle(.red)
-                                .padding()
-                        }
-
-                        if isLoading && searchText.count >= 2 {
-                            ProgressView("Searching...")
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 60)
-                        } else if searchText.count >= 2 {
-                            if movies.isEmpty && tvSeries.isEmpty && !isLoading {
-                                ContentUnavailableView(
-                                    "No results",
-                                    systemImage: "magnifyingglass",
-                                    description: Text("Try a different search term")
+                    if isLoading && searchText.count >= 2 {
+                        ProgressView("Searching...")
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 60)
+                    } else if searchText.count >= 2 {
+                        if movies.isEmpty && tvSeries.isEmpty && !isLoading {
+                            ContentUnavailableView(
+                                "No results",
+                                systemImage: "magnifyingglass",
+                                description: Text("Try a different search term")
+                            )
+                            .padding(.vertical, 60)
+                        } else {
+                            if !movies.isEmpty {
+                                MovieMediaRow(
+                                    title: "Movies",
+                                    movies: movies,
+                                    config: appState.apiConfiguration,
+                                    onSelect: { movie in selectedMovie = MovieSelection(id: movie.id) }
                                 )
-                                .padding(.vertical, 60)
-                            } else {
-                                if !movies.isEmpty {
-                                    MovieMediaRow(
-                                        title: "Movies",
-                                        movies: movies,
-                                        config: appState.apiConfiguration,
-                                        onSelect: { movie in selectedMovie = MovieSelection(id: movie.id) },
-                                        onFocusEnter: { isSearchPresented = false }
-                                    )
-                                }
-
-                                if !tvSeries.isEmpty {
-                                    TVSeriesMediaRow(
-                                        title: "TV Shows",
-                                        tvSeries: tvSeries,
-                                        config: appState.apiConfiguration,
-                                        onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
-                                        onFocusEnter: { isSearchPresented = false }
-                                    )
-                                }
                             }
-                        } else if !searchText.isEmpty {
-                            Text("Enter at least 2 characters to search")
-                                .foregroundStyle(.secondary)
-                                .padding(.vertical, 60)
+
+                            if !tvSeries.isEmpty {
+                                TVSeriesMediaRow(
+                                    title: "TV Shows",
+                                    tvSeries: tvSeries,
+                                    config: appState.apiConfiguration,
+                                    onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) }
+                                )
+                            }
                         }
+                    } else if !searchText.isEmpty {
+                        Text("Enter at least 2 characters to search")
+                            .foregroundStyle(.secondary)
+                            .padding(.vertical, 60)
                     }
-                    .scrollTargetLayout()
-                    .padding(.vertical)
                 }
+                .scrollTargetLayout()
+                .padding(.vertical)
             }
             .navigationTitle("")
-            #if !os(tvOS)
-            .searchable(text: $searchText, isPresented: $isSearchPresented, prompt: "Movies & TV Shows")
-            .searchFocused($isSearchFocused)
-            #endif
+            .searchable(text: $searchText, prompt: "")
             .onChange(of: searchText) { _, newValue in
                 searchTask?.cancel()
                 movies = []
@@ -121,28 +96,6 @@ struct SearchView: View {
                 await appState.loadConfiguration()
             }
         }
-    }
-
-    @ViewBuilder
-    private var searchHeaderRow: some View {
-        Button {
-            isSearchPresented = true
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                Text(searchText.count > 20 ? String(searchText.prefix(17)) + "..." : searchText)
-                    .lineLimit(1)
-            }
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
-        }
-        .buttonStyle(.plain)
-        .focused($searchBridgeFocused)
-        .onChange(of: searchBridgeFocused) { _, focused in
-            if focused { isSearchPresented = true }
-        }
-        .padding(.horizontal)
-        .padding(.vertical, 12)
     }
 
     private func performSearch(query: String) async {

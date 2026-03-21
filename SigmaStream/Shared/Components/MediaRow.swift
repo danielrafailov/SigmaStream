@@ -20,8 +20,7 @@ struct MovieMediaRow: View {
 
     @Environment(AppState.self) private var appState
     @FocusState private var focusedKey: String?
-    @State private var scrollPosition = ScrollPosition(idType: String.self)
-    @State private var hasInitializedFocus = false
+    @State private var scrollPositionId: String?
 
     private struct CarouselItem {
         let movie: MovieListItem
@@ -79,6 +78,7 @@ struct MovieMediaRow: View {
                     .id(seeAllKey)
                 }
             }
+            .focusSection()
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: 0) {
@@ -142,47 +142,54 @@ struct MovieMediaRow: View {
                 .scrollTargetLayout()
                 .padding(.horizontal)
             }
-            .scrollPosition($scrollPosition, anchor: .center)
+            .scrollPosition(id: Binding(
+                get: { scrollPositionId ?? firstMovieKey },
+                set: { scrollPositionId = $0 }
+            ), anchor: .leading)
             .onChange(of: focusedKey) { oldKey, newKey in
+                if newKey == nil {
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(200))
+                        scrollPositionId = nil
+                    }
+                    return
+                }
                 guard let key = newKey else { return }
                 let seeAllKey = "\(title)_seeAll"
                 if key != seeAllKey && key != wrapRightKey {
                     onFocusEnter?()
                     if let first = firstMovieKey, oldKey == seeAllKey {
-                        Task { @MainActor in
-                            scrollPosition.scrollTo(id: first, anchor: .leading)
-                            focusedKey = first
-                        }
+                        scrollPositionId = first
+                        focusedKey = first
+                        return
+                    }
+                    if oldKey == nil, key != firstMovieKey, let first = firstMovieKey {
+                        scrollPositionId = first
+                        focusedKey = first
                         return
                     }
                 }
                 if useCarousel {
                     if key == wrapRightKey, let first = firstMovieKey {
-                        Task { @MainActor in
-                            scrollPosition.scrollTo(id: first, anchor: .center)
-                            focusedKey = first
-                        }
+                        scrollPositionId = first
+                        focusedKey = first
                     } else if let firstCopy = firstCopyKey(for: key) {
-                        Task { @MainActor in
-                            scrollPosition.scrollTo(id: firstCopy, anchor: .center)
-                            focusedKey = firstCopy
-                        }
+                        scrollPositionId = firstCopy
+                        focusedKey = firstCopy
                     } else if key != wrapRightKey {
-                        scrollPosition.scrollTo(id: key, anchor: .center)
+                        scrollPositionId = key
                     }
                 } else if key != wrapRightKey {
-                    scrollPosition.scrollTo(id: key, anchor: .center)
+                    scrollPositionId = key
                 }
             }
             .onAppear {
-                if !hasInitializedFocus, let first = firstMovieKey {
-                    hasInitializedFocus = true
-                    scrollPosition.scrollTo(id: first, anchor: .center)
-                    focusedKey = first
+                if let first = firstMovieKey {
+                    scrollPositionId = first
                 }
             }
-            .defaultFocus($focusedKey, firstMovieKey ?? (useCarousel ? wrapRightKey : nil))
         }
+        .defaultFocus($focusedKey, firstMovieKey ?? (useCarousel ? wrapRightKey : nil), priority: .userInitiated)
         .focusSection()
         .padding(.bottom, 16)
     }
@@ -200,8 +207,7 @@ struct TVSeriesMediaRow: View {
 
     @Environment(AppState.self) private var appState
     @FocusState private var focusedKey: String?
-    @State private var scrollPosition = ScrollPosition(idType: String.self)
-    @State private var hasInitializedFocus = false
+    @State private var scrollPositionId: String?
 
     private struct TVCarouselItem {
         let series: TVSeriesListItem
@@ -323,47 +329,54 @@ struct TVSeriesMediaRow: View {
                 .scrollTargetLayout()
                 .padding(.horizontal)
             }
-            .scrollPosition($scrollPosition, anchor: .center)
+            .scrollPosition(id: Binding(
+                get: { scrollPositionId ?? firstSeriesKey },
+                set: { scrollPositionId = $0 }
+            ), anchor: .leading)
             .onChange(of: focusedKey) { oldKey, newKey in
+                if newKey == nil {
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(200))
+                        scrollPositionId = nil
+                    }
+                    return
+                }
                 guard let key = newKey else { return }
                 let seeAllKey = "\(title)_seeAll"
                 if key != seeAllKey && key != wrapRightKey {
                     onFocusEnter?()
                     if let first = firstSeriesKey, oldKey == seeAllKey {
-                        Task { @MainActor in
-                            scrollPosition.scrollTo(id: first, anchor: .leading)
-                            focusedKey = first
-                        }
+                        scrollPositionId = first
+                        focusedKey = first
+                        return
+                    }
+                    if oldKey == nil, key != firstSeriesKey, let first = firstSeriesKey {
+                        scrollPositionId = first
+                        focusedKey = first
                         return
                     }
                 }
                 if useCarousel {
                     if key == wrapRightKey, let first = firstSeriesKey {
-                        Task { @MainActor in
-                            scrollPosition.scrollTo(id: first, anchor: .center)
-                            focusedKey = first
-                        }
+                        scrollPositionId = first
+                        focusedKey = first
                     } else if let firstCopy = firstCopyKey(for: key) {
-                        Task { @MainActor in
-                            scrollPosition.scrollTo(id: firstCopy, anchor: .center)
-                            focusedKey = firstCopy
-                        }
+                        scrollPositionId = firstCopy
+                        focusedKey = firstCopy
                     } else if key != wrapRightKey {
-                        scrollPosition.scrollTo(id: key, anchor: .center)
+                        scrollPositionId = key
                     }
                 } else if key != wrapRightKey {
-                    scrollPosition.scrollTo(id: key, anchor: .center)
+                    scrollPositionId = key
                 }
             }
             .onAppear {
-                if !hasInitializedFocus, let first = firstSeriesKey {
-                    hasInitializedFocus = true
-                    scrollPosition.scrollTo(id: first, anchor: .center)
-                    focusedKey = first
+                if let first = firstSeriesKey {
+                    scrollPositionId = first
                 }
             }
-            .defaultFocus($focusedKey, firstSeriesKey ?? (useCarousel ? wrapRightKey : nil))
         }
+        .defaultFocus($focusedKey, firstSeriesKey ?? (useCarousel ? wrapRightKey : nil), priority: .userInitiated)
         .focusSection()
         .padding(.bottom, 16)
     }

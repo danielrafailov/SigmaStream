@@ -187,6 +187,7 @@ struct TVSeriesMoreEpisodesView: View {
             .clipShape(RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(.plain)
+        .buttonBorderShape(.roundedRectangle(radius: 12))
         .focused($focusedEpisodeId, equals: episode.id)
         .disabled(isResolvingStream)
         .contextMenu {

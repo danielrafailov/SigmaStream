@@ -44,7 +44,8 @@ struct StreamPickerView: View {
             }
         }
         .padding(.vertical, 24)
-        .background(Color.black)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
         .defaultFocus($focusedIndex, 0)
     }
 
@@ -61,11 +62,10 @@ struct StreamPickerView: View {
                 HStack {
                     Text(providerName)
                         .font(.headline)
-                        .foregroundStyle(isFocused ? .black : .primary)
                     Spacer()
                     Image(systemName: "play.circle.fill")
                         .font(.title2)
-                        .foregroundStyle(isFocused ? .black : .secondary)
+                        .foregroundStyle(.secondary)
                 }
                 HStack(spacing: 16) {
                     Label(quality, systemImage: "film")
@@ -78,10 +78,11 @@ struct StreamPickerView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(16)
-            .background(isFocused ? Color.white : Color(white: 0.15))
+            .background(isFocused ? Color.white.opacity(0.25) : Color.white.opacity(0.08))
             .clipShape(RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(.plain)
+        .buttonBorderShape(.roundedRectangle(radius: 12))
         .focused($focusedIndex, equals: index)
     }
 }

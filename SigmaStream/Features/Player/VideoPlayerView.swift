@@ -26,9 +26,10 @@ struct VideoPlayerView: View {
     @State private var endObserver: NSObjectProtocol?
     @State private var streamStatus: StreamStatus?
 
-    private let loadTimeout: TimeInterval = 25
+    private let loadTimeout: TimeInterval = 10
     private let failedMessageDuration: TimeInterval = 0.8
-    private let foundMessageDuration: TimeInterval = 0.25
+    private let pollInterval: TimeInterval = 0.2
+    private let foundMessageDuration: TimeInterval = 0.15
 
     var body: some View {
         ZStack {
@@ -96,8 +97,9 @@ struct VideoPlayerView: View {
         await MainActor.run { player = newPlayer }
         newPlayer.play()
 
-        for _ in 0..<Int(loadTimeout) {
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
+        let maxPolls = Int(loadTimeout / pollInterval)
+        for _ in 0..<maxPolls {
+            try? await Task.sleep(nanoseconds: UInt64(pollInterval * 1_000_000_000))
             guard let item = newPlayer.currentItem else { continue }
             switch item.status {
             case .failed:

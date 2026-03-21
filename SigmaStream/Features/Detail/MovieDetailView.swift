@@ -17,6 +17,10 @@ struct MovieDetailView: View {
     @State private var isResolvingStream = false
     @State private var streamError: String?
     @State private var playableContent: PlayableContent?
+    @State private var streamQuality: String?
+    @State private var showStreamPicker = false
+    @State private var streamPickerSources: [OMSSSource] = []
+    @State private var pendingStreamSelection: OMSSSource?
     @State private var trailerYouTubeKey: String?
     @State private var trailerAlertMessage: String?
     @FocusState private var focusedButtonId: String?
@@ -81,7 +85,7 @@ struct MovieDetailView: View {
                                         .frame(maxWidth: contentWidth, alignment: .leading)
                                 }
 
-                                thumbsRow(contentWidth: contentWidth)
+                                thumbsAndButtonsSection(contentWidth: contentWidth)
                                     .padding(.leading, 24)
 
                                 if let streamErr = streamError {
@@ -89,34 +93,6 @@ struct MovieDetailView: View {
                                         .foregroundStyle(.red)
                                         .font(.subheadline)
                                 }
-
-                                VStack(alignment: .leading, spacing: 24) {
-                                    if isReleased {
-                                        detailButton(id: "play", icon: "play.fill", title: "Play") {
-                                            Task { await resolveStream() }
-                                        }
-                                        .disabled(isResolvingStream)
-                                    } else {
-                                        Text(comingSoonText)
-                                            .font(.subheadline)
-                                            .foregroundStyle(.secondary)
-                                    }
-
-                                    if let key = trailerYouTubeKey {
-                                        detailButton(id: "trailer", icon: "play.rectangle.fill", title: "Watch Trailer") {
-                                            openTrailer(key: key)
-                                        }
-                                    }
-
-                                    detailButton(
-                                        id: "mylist",
-                                        icon: appState.myListManager.isMovieInList(movieId) ? "minus.circle" : "plus.circle",
-                                        title: appState.myListManager.isMovieInList(movieId) ? "Remove from My List" : "Add to My List"
-                                    ) {
-                                        appState.myListManager.toggleMovie(movieId)
-                                    }
-                                }
-                                .padding(.leading, 24)
                             }
                             .frame(maxWidth: contentWidth, alignment: .leading)
                             .padding(48)
@@ -132,6 +108,23 @@ struct MovieDetailView: View {
             Button("OK") { trailerAlertMessage = nil }
         } message: {
             Text(trailerAlertMessage ?? "")
+        }
+        .sheet(isPresented: $showStreamPicker, onDismiss: {
+            if let source = pendingStreamSelection {
+                pendingStreamSelection = nil
+                Task { await playSource(source) }
+            }
+        }) {
+            StreamPickerView(
+                title: movie?.title ?? "Movie",
+                sources: streamPickerSources,
+                onSelect: { source in
+                    pendingStreamSelection = source
+                    showStreamPicker = false
+                },
+                onDismiss: { showStreamPicker = false }
+            )
+            .environment(appState)
         }
         .fullScreenCover(item: $playableContent) { content in
             VideoPlayerView(
@@ -184,7 +177,7 @@ struct MovieDetailView: View {
                 Text("\(runtime) min")
                     .foregroundStyle(.secondary)
             }
-            Text("HD")
+            Text(streamQuality ?? "HD")
                 .foregroundStyle(.secondary)
             if let rating = movie?.voteAverage {
                 HStack(spacing: 4) {
@@ -200,6 +193,45 @@ struct MovieDetailView: View {
         .font(.subheadline)
     }
 
+    @ViewBuilder
+    private func thumbsAndButtonsSection(contentWidth: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 24) {
+            thumbsRow(contentWidth: contentWidth)
+
+            if isReleased {
+                detailButton(id: "play", icon: "play.fill", title: "Play") {
+                    Task { await resolveStream() }
+                }
+                .disabled(isResolvingStream)
+
+                detailButton(id: "chooseStream", icon: "list.bullet", title: "Choose Stream") {
+                    Task { await showStreamPicker() }
+                }
+                .disabled(isResolvingStream)
+            } else {
+                Text(comingSoonText)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let key = trailerYouTubeKey {
+                detailButton(id: "trailer", icon: "play.rectangle.fill", title: "Watch Trailer") {
+                    openTrailer(key: key)
+                }
+            }
+
+            detailButton(
+                id: "mylist",
+                icon: appState.myListManager.isMovieInList(movieId) ? "minus.circle" : "plus.circle",
+                title: appState.myListManager.isMovieInList(movieId) ? "Remove from My List" : "Add to My List"
+            ) {
+                appState.myListManager.toggleMovie(movieId)
+            }
+        }
+        .frame(maxWidth: contentWidth, alignment: .leading)
+        .focusSection()
+    }
+
     private func thumbsRow(contentWidth: CGFloat) -> some View {
         HStack(spacing: 56) {
             Button {
@@ -208,19 +240,11 @@ struct MovieDetailView: View {
                 Image(systemName: appState.likedManager.isMovieLiked(movieId) ? "hand.thumbsup.fill" : "hand.thumbsup")
                     .foregroundStyle(focusedThumbId == "up" ? .black : (appState.likedManager.isMovieLiked(movieId) ? .white : .secondary))
                     .font(.system(size: 20))
+                    .frame(width: 60, height: 60)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .focused($focusedThumbId, equals: "up")
-
-            Button {
-                appState.likedManager.setMovieLiked(movieId, liked: false)
-            } label: {
-                Image(systemName: "hand.thumbsdown")
-                    .foregroundStyle(focusedThumbId == "down" ? .black : .secondary)
-                    .font(.system(size: 20))
-            }
-            .buttonStyle(.plain)
-            .focused($focusedThumbId, equals: "down")
         }
         .frame(maxWidth: contentWidth, alignment: .leading)
     }
@@ -257,16 +281,53 @@ struct MovieDetailView: View {
         defer { isResolvingStream = false }
 
         do {
-            let urls = try await appState.streamingService.playableURLsForMovie(tmdbId: movieId)
+            let (urls, quality) = try await appState.streamingService.playableURLsAndQualityForMovie(tmdbId: movieId)
             guard !urls.isEmpty else {
                 streamError = "No stream was found"
                 return
             }
-            let content = PlayableContent(urls: urls, title: movie?.title ?? "Movie", movieId: movieId)
+            if let quality { streamQuality = quality }
+            let content = PlayableContent(urls: urls, title: movie?.title ?? "Movie", quality: quality, movieId: movieId)
             playableContent = content
             appState.watchProgressManager.recordMovie(movieId)
         } catch {
             streamError = "No stream was found"
+        }
+    }
+
+    private func showStreamPicker() async {
+        guard !isResolvingStream else { return }
+        isResolvingStream = true
+        streamError = nil
+        defer { isResolvingStream = false }
+
+        do {
+            let sources = try await appState.streamingService.sourcesForMovie(tmdbId: movieId)
+            let playable = sources.filter { $0.isPlayable }
+            guard !playable.isEmpty else {
+                streamError = "No stream was found"
+                return
+            }
+            if let q = playable.first?.quality { streamQuality = q }
+            await MainActor.run {
+                streamPickerSources = playable
+                showStreamPicker = true
+            }
+        } catch {
+            streamError = "No stream was found"
+        }
+    }
+
+    private func playSource(_ source: OMSSSource) async {
+        guard let url = await appState.streamingService.playableURL(for: source) else {
+            streamError = "Could not load stream"
+            return
+        }
+        if let q = source.quality { streamQuality = q }
+        let content = PlayableContent(urls: [url], title: movie?.title ?? "Movie", quality: source.quality, movieId: movieId)
+        await MainActor.run {
+            playableContent = content
+            appState.watchProgressManager.recordMovie(movieId)
         }
     }
 

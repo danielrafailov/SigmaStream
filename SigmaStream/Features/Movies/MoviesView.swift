@@ -95,65 +95,81 @@ struct MoviesView: View {
                             onSeeAll: { categoryForSeeAll = MovieCategorySeeAll(category: .upcoming) }
                         )
 
-                        MovieMediaRow(
-                            title: "Documentaries",
-                            movies: documentaries,
-                            config: appState.apiConfiguration,
-                            onSelect: { movie in selectedMovie = MovieSelection(id: movie.id) },
-                            onSeeAll: { categoryForSeeAll = MovieCategorySeeAll(category: .documentaries) }
-                        )
-
-                        MovieMediaRow(
-                            title: "Action",
-                            movies: action,
-                            config: appState.apiConfiguration,
-                            onSelect: { movie in selectedMovie = MovieSelection(id: movie.id) },
-                            onSeeAll: { categoryForSeeAll = MovieCategorySeeAll(category: .action) }
-                        )
-                        MovieMediaRow(
-                            title: "Comedy",
-                            movies: comedy,
-                            config: appState.apiConfiguration,
-                            onSelect: { movie in selectedMovie = MovieSelection(id: movie.id) },
-                            onSeeAll: { categoryForSeeAll = MovieCategorySeeAll(category: .comedy) }
-                        )
-                        MovieMediaRow(
-                            title: "Drama",
-                            movies: drama,
-                            config: appState.apiConfiguration,
-                            onSelect: { movie in selectedMovie = MovieSelection(id: movie.id) },
-                            onSeeAll: { categoryForSeeAll = MovieCategorySeeAll(category: .drama) }
-                        )
-                        MovieMediaRow(
-                            title: "Horror",
-                            movies: horror,
-                            config: appState.apiConfiguration,
-                            onSelect: { movie in selectedMovie = MovieSelection(id: movie.id) },
-                            onSeeAll: { categoryForSeeAll = MovieCategorySeeAll(category: .horror) }
-                        )
-                        MovieMediaRow(
-                            title: "Romance",
-                            movies: romance,
-                            config: appState.apiConfiguration,
-                            onSelect: { movie in selectedMovie = MovieSelection(id: movie.id) },
-                            onSeeAll: { categoryForSeeAll = MovieCategorySeeAll(category: .romance) }
-                        )
-                        MovieMediaRow(
-                            title: "Sci-Fi",
-                            movies: sciFi,
-                            config: appState.apiConfiguration,
-                            onSelect: { movie in selectedMovie = MovieSelection(id: movie.id) },
-                            onSeeAll: { categoryForSeeAll = MovieCategorySeeAll(category: .sciFi) }
-                        )
-                        MovieMediaRow(
-                            title: "Thriller",
-                            movies: thriller,
-                            config: appState.apiConfiguration,
-                            onSelect: { movie in selectedMovie = MovieSelection(id: movie.id) },
-                            onSeeAll: { categoryForSeeAll = MovieCategorySeeAll(category: .thriller) }
-                        )
+                        if !documentaries.isEmpty {
+                            MovieMediaRow(
+                                title: "Documentaries",
+                                movies: documentaries,
+                                config: appState.apiConfiguration,
+                                onSelect: { movie in selectedMovie = MovieSelection(id: movie.id) },
+                                onSeeAll: { categoryForSeeAll = MovieCategorySeeAll(category: .documentaries) }
+                            )
+                        }
+                        if !action.isEmpty {
+                            MovieMediaRow(
+                                title: "Action",
+                                movies: action,
+                                config: appState.apiConfiguration,
+                                onSelect: { movie in selectedMovie = MovieSelection(id: movie.id) },
+                                onSeeAll: { categoryForSeeAll = MovieCategorySeeAll(category: .action) }
+                            )
+                        }
+                        if !comedy.isEmpty {
+                            MovieMediaRow(
+                                title: "Comedy",
+                                movies: comedy,
+                                config: appState.apiConfiguration,
+                                onSelect: { movie in selectedMovie = MovieSelection(id: movie.id) },
+                                onSeeAll: { categoryForSeeAll = MovieCategorySeeAll(category: .comedy) }
+                            )
+                        }
+                        if !drama.isEmpty {
+                            MovieMediaRow(
+                                title: "Drama",
+                                movies: drama,
+                                config: appState.apiConfiguration,
+                                onSelect: { movie in selectedMovie = MovieSelection(id: movie.id) },
+                                onSeeAll: { categoryForSeeAll = MovieCategorySeeAll(category: .drama) }
+                            )
+                        }
+                        if !horror.isEmpty {
+                            MovieMediaRow(
+                                title: "Horror",
+                                movies: horror,
+                                config: appState.apiConfiguration,
+                                onSelect: { movie in selectedMovie = MovieSelection(id: movie.id) },
+                                onSeeAll: { categoryForSeeAll = MovieCategorySeeAll(category: .horror) }
+                            )
+                        }
+                        if !romance.isEmpty {
+                            MovieMediaRow(
+                                title: "Romance",
+                                movies: romance,
+                                config: appState.apiConfiguration,
+                                onSelect: { movie in selectedMovie = MovieSelection(id: movie.id) },
+                                onSeeAll: { categoryForSeeAll = MovieCategorySeeAll(category: .romance) }
+                            )
+                        }
+                        if !sciFi.isEmpty {
+                            MovieMediaRow(
+                                title: "Sci-Fi",
+                                movies: sciFi,
+                                config: appState.apiConfiguration,
+                                onSelect: { movie in selectedMovie = MovieSelection(id: movie.id) },
+                                onSeeAll: { categoryForSeeAll = MovieCategorySeeAll(category: .sciFi) }
+                            )
+                        }
+                        if !thriller.isEmpty {
+                            MovieMediaRow(
+                                title: "Thriller",
+                                movies: thriller,
+                                config: appState.apiConfiguration,
+                                onSelect: { movie in selectedMovie = MovieSelection(id: movie.id) },
+                                onSeeAll: { categoryForSeeAll = MovieCategorySeeAll(category: .thriller) }
+                            )
+                        }
                     }
                 }
+                .scrollTargetLayout()
                 .padding(.vertical)
             }
             .navigationTitle("")

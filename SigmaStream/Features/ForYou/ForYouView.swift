@@ -55,6 +55,10 @@ struct ForYouView: View {
     @State private var listSeries: [MyListSeriesItem] = []
     @State private var likedMovies: [MyListMovieItem] = []
     @State private var likedSeries: [MyListSeriesItem] = []
+    @State private var becauseYouWatchedTitle: String?
+    @State private var becauseYouWatchedMovies: [MovieListItem] = []
+    @State private var becauseYouWatchedSeries: [TVSeriesListItem] = []
+    @State private var becauseYouWatchedIsMovie = false
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var selectedMovie: MovieSelection?
@@ -81,6 +85,9 @@ struct ForYouView: View {
                 } else {
                     ScrollView(.vertical, showsIndicators: true) {
                         VStack(alignment: .leading, spacing: 48) {
+                            if becauseYouWatchedTitle != nil && (!becauseYouWatchedMovies.isEmpty || !becauseYouWatchedSeries.isEmpty) {
+                                becauseYouWatchedSection
+                            }
                             if !listMovies.isEmpty {
                                 myListMoviesSection
                             }
@@ -97,6 +104,7 @@ struct ForYouView: View {
                                 likedSection
                             }
                         }
+                        .scrollTargetLayout()
                         .padding(.vertical)
                     }
                 }
@@ -172,7 +180,7 @@ struct ForYouView: View {
                                         Task { await loadAll() }
                                     }
                                 }
-                                if isFocused {
+                                if isFocused, movie.backdropPath != nil {
                                     MediaCardMetadata(
                                         title: movie.title,
                                         date: movie.releaseDate,
@@ -183,7 +191,7 @@ struct ForYouView: View {
                                     .animation(.easeInOut(duration: 0.2), value: focusedMovieId)
                                 }
                             }
-                            if isFocused { Color.clear.frame(width: 32) }
+                            if isFocused, movie.backdropPath != nil { Color.clear.frame(width: 32) }
                         }
                         .id(movie.id)
                     }
@@ -231,7 +239,7 @@ struct ForYouView: View {
                                         Task { await loadAll() }
                                     }
                                 }
-                                if isFocused {
+                                if isFocused, series.backdropPath != nil {
                                     MediaCardMetadata(
                                         title: series.name,
                                         date: series.firstAirDate,
@@ -242,7 +250,7 @@ struct ForYouView: View {
                                     .animation(.easeInOut(duration: 0.2), value: focusedSeriesId)
                                 }
                             }
-                            if isFocused { Color.clear.frame(width: 32) }
+                            if isFocused, series.backdropPath != nil { Color.clear.frame(width: 32) }
                         }
                         .id(series.id)
                     }
@@ -290,7 +298,7 @@ struct ForYouView: View {
                                         Task { await loadAll() }
                                     }
                                 }
-                                if isFocused {
+                                if isFocused, movie.backdropPath != nil {
                                     MediaCardMetadata(
                                         title: movie.title,
                                         date: movie.releaseDate,
@@ -301,7 +309,7 @@ struct ForYouView: View {
                                     .animation(.easeInOut(duration: 0.2), value: continueWatchingMovieFocusedId)
                                 }
                             }
-                            if isFocused { Color.clear.frame(width: 32) }
+                            if isFocused, movie.backdropPath != nil { Color.clear.frame(width: 32) }
                         }
                         .id(movie.id)
                     }
@@ -349,7 +357,7 @@ struct ForYouView: View {
                                         Task { await loadAll() }
                                     }
                                 }
-                                if isFocused {
+                                if isFocused, item.backdropPath != nil {
                                     MediaCardMetadata(
                                         title: item.seriesName,
                                         date: item.firstAirDate,
@@ -360,7 +368,7 @@ struct ForYouView: View {
                                     .animation(.easeInOut(duration: 0.2), value: continueWatchingTVFocusedId)
                                 }
                             }
-                            if isFocused { Color.clear.frame(width: 32) }
+                            if isFocused, item.backdropPath != nil { Color.clear.frame(width: 32) }
                         }
                         .id(item.id)
                     }
@@ -381,6 +389,7 @@ struct ForYouView: View {
 
         await loadContinueWatchingMovies()
         await loadContinueWatchingTV()
+        await loadBecauseYouWatched()
         await loadMyList()
         await loadLiked()
 
@@ -423,6 +432,93 @@ struct ForYouView: View {
             }
         }
         continueWatchingTV = items
+    }
+
+    private func loadBecauseYouWatched() async {
+        becauseYouWatchedTitle = nil
+        becauseYouWatchedMovies = []
+        becauseYouWatchedSeries = []
+
+        let lastMovie = appState.watchProgressManager.watchedMovies.first
+        let lastEpisode = appState.watchProgressManager.watchedEpisodes.first
+
+        var sourceId = 0
+        var sourceTitle: String?
+        var isMovie = false
+
+        if let movie = lastMovie, let episode = lastEpisode {
+            if movie.lastWatchedAt >= episode.lastWatchedAt {
+                if let details = try? await appState.tmdbService.movieDetails(forMovieId: movie.movieId) {
+                    sourceId = movie.movieId
+                    sourceTitle = details.title
+                    isMovie = true
+                } else { return }
+            } else {
+                if let details = try? await appState.tmdbService.tvSeriesDetails(forSeriesId: episode.seriesId) {
+                    sourceId = episode.seriesId
+                    sourceTitle = details.name
+                    isMovie = false
+                } else { return }
+            }
+        } else if let movie = lastMovie,
+                  let details = try? await appState.tmdbService.movieDetails(forMovieId: movie.movieId) {
+            sourceId = movie.movieId
+            sourceTitle = details.title
+            isMovie = true
+        } else if let episode = lastEpisode,
+                  let details = try? await appState.tmdbService.tvSeriesDetails(forSeriesId: episode.seriesId) {
+            sourceId = episode.seriesId
+            sourceTitle = details.name
+            isMovie = false
+        } else {
+            return
+        }
+
+        guard let title = sourceTitle, !title.isEmpty else { return }
+
+        do {
+            if isMovie {
+                let items = try await appState.tmdbService.movieRecommendations(forMovieId: sourceId)
+                await MainActor.run {
+                    becauseYouWatchedTitle = title
+                    becauseYouWatchedMovies = Array(items.prefix(12))
+                    becauseYouWatchedIsMovie = true
+                }
+            } else {
+                let items = try await appState.tmdbService.tvSeriesRecommendations(forSeriesId: sourceId)
+                await MainActor.run {
+                    becauseYouWatchedTitle = title
+                    becauseYouWatchedSeries = Array(items.prefix(12))
+                    becauseYouWatchedIsMovie = false
+                }
+            }
+        } catch {
+            // Silently skip if recommendations fail
+        }
+    }
+
+    @ViewBuilder
+    private var becauseYouWatchedSection: some View {
+        Group {
+            if let title = becauseYouWatchedTitle {
+                if becauseYouWatchedIsMovie && !becauseYouWatchedMovies.isEmpty {
+                    MovieMediaRow(
+                        title: "Because you watched \(title)",
+                        movies: becauseYouWatchedMovies,
+                        config: appState.apiConfiguration,
+                        onSelect: { movie in selectedMovie = MovieSelection(id: movie.id) }
+                    )
+                } else if !becauseYouWatchedIsMovie && !becauseYouWatchedSeries.isEmpty {
+                    TVSeriesMediaRow(
+                        title: "Because you watched \(title)",
+                        tvSeries: becauseYouWatchedSeries,
+                        config: appState.apiConfiguration,
+                        onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) }
+                    )
+                }
+            }
+        }
+        .padding(.bottom, 16)
     }
 
     private func loadMyList() async {
@@ -533,7 +629,7 @@ struct ForYouView: View {
                                             Task { await loadAll() }
                                         }
                                     }
-                                    if isFocused {
+                                    if isFocused, movie.backdropPath != nil {
                                         MediaCardMetadata(
                                             title: movie.title,
                                             date: movie.releaseDate,
@@ -544,7 +640,7 @@ struct ForYouView: View {
                                         .animation(.easeInOut(duration: 0.2), value: likedMovieFocusedId)
                                     }
                                 }
-                                if isFocused { Color.clear.frame(width: 32) }
+                                if isFocused, movie.backdropPath != nil { Color.clear.frame(width: 32) }
                             }
                             .id(movie.id)
                         }
@@ -584,7 +680,7 @@ struct ForYouView: View {
                                             Task { await loadAll() }
                                         }
                                     }
-                                    if isFocused {
+                                    if isFocused, series.backdropPath != nil {
                                         MediaCardMetadata(
                                             title: series.name,
                                             date: series.firstAirDate,
@@ -595,7 +691,7 @@ struct ForYouView: View {
                                         .animation(.easeInOut(duration: 0.2), value: likedSeriesFocusedId)
                                     }
                                 }
-                                if isFocused { Color.clear.frame(width: 32) }
+                                if isFocused, series.backdropPath != nil { Color.clear.frame(width: 32) }
                             }
                             .id(series.id)
                         }

@@ -90,6 +90,7 @@ struct HomeView: View {
                         )
                     }
                 }
+                .scrollTargetLayout()
                 .padding(.vertical)
             }
             .navigationTitle("")

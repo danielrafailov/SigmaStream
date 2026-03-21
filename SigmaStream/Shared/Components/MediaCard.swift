@@ -15,6 +15,12 @@ private let posterHeight: CGFloat = 540
 /// Full width of the wide poster (backdrop). Use for metadata panel width.
 let mediaCardBackdropWidth: CGFloat = posterHeight * (16.0 / 9.0)
 
+/// Poster width for 2:3 ratio. Exported for layout calculations.
+let mediaCardPosterWidth: CGFloat = posterHeight * (2.0 / 3.0)
+
+/// Extended description width: wide poster + spacing + one poster (aligns with 2nd poster).
+let mediaCardExtendedDescriptionWidth: CGFloat = mediaCardBackdropWidth + 20 + mediaCardPosterWidth
+
 /// Poster-only card for movies and TV shows (Netflix-style).
 /// When focused: shows wider backdrop (16:9) with height locked to poster height. When unfocused: shows poster (2:3).
 struct MediaCard: View {

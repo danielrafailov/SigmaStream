@@ -321,6 +321,20 @@ actor TMDbService {
         return response.results
     }
 
+    /// Fetch movie recommendations (for "Because you watched X").
+    func movieRecommendations(forMovieId movieId: Int, page: Int = 1) async throws -> [MovieListItem] {
+        let url = tmdbURL(path: "/movie/\(movieId)/recommendations", queryItems: ["page": "\(page)"])
+        let response: TMDbPaginatedMovieResponse = try await cached("movie_recommendations_\(movieId)_\(page)", url: url, as: TMDbPaginatedMovieResponse.self)
+        return response.results
+    }
+
+    /// Fetch TV series recommendations (for "Because you watched X").
+    func tvSeriesRecommendations(forSeriesId seriesId: Int, page: Int = 1) async throws -> [TVSeriesListItem] {
+        let url = tmdbURL(path: "/tv/\(seriesId)/recommendations", queryItems: ["page": "\(page)"])
+        let response: TMDbPaginatedTVResponse = try await cached("tv_recommendations_\(seriesId)_\(page)", url: url, as: TMDbPaginatedTVResponse.self)
+        return response.results
+    }
+
     /// Load movies for a category (used by See All). Returns (items, hasMore) for pagination.
     func moviesPaginated(for category: MovieCategory, page: Int) async throws -> (items: [MovieListItem], hasMore: Bool) {
         if let genreId = category.genreId {

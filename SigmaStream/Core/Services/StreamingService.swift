@@ -20,22 +20,34 @@ actor StreamingService {
 
     /// Fetch all playable URLs for a movie, sorted by quality. Empty if none.
     func playableURLsForMovie(tmdbId: Int) async throws -> [URL] {
+        let (urls, _) = try await playableURLsAndQualityForMovie(tmdbId: tmdbId)
+        return urls
+    }
+
+    /// Fetch playable URLs and best quality for a movie.
+    func playableURLsAndQualityForMovie(tmdbId: Int) async throws -> (urls: [URL], quality: String?) {
         let urlString = "\(baseURL)/v1/movies/\(tmdbId)"
         guard let url = URL(string: urlString) else {
             throw StreamingError.invalidURL(urlString)
         }
         let response = try await fetchSourceResponse(from: url)
-        return sortedPlayableURLs(from: response)
+        return sortedPlayableURLsAndQuality(from: response)
     }
 
     /// Fetch all playable URLs for a TV episode, sorted by quality. Empty if none.
     func playableURLsForEpisode(seriesId: Int, season: Int, episode: Int) async throws -> [URL] {
+        let (urls, _) = try await playableURLsAndQualityForEpisode(seriesId: seriesId, season: season, episode: episode)
+        return urls
+    }
+
+    /// Fetch playable URLs and best quality for a TV episode.
+    func playableURLsAndQualityForEpisode(seriesId: Int, season: Int, episode: Int) async throws -> (urls: [URL], quality: String?) {
         let urlString = "\(baseURL)/v1/tv/\(seriesId)/seasons/\(season)/episodes/\(episode)"
         guard let url = URL(string: urlString) else {
             throw StreamingError.invalidURL(urlString)
         }
         let response = try await fetchSourceResponse(from: url)
-        return sortedPlayableURLs(from: response)
+        return sortedPlayableURLsAndQuality(from: response)
     }
 
     /// Returns all sources for optional source picker UI (quality, provider).
@@ -107,8 +119,8 @@ actor StreamingService {
         }
     }
 
-    /// Returns all playable URLs sorted by quality (best first). Empty if none.
-    private func sortedPlayableURLs(from response: OMSSSourceResponse) -> [URL] {
+    /// Returns playable URLs (sorted by quality, best first) and the best source's quality string.
+    private func sortedPlayableURLsAndQuality(from response: OMSSSourceResponse) -> ([URL], String?) {
         let playable = response.sources.filter { $0.isPlayable }
         let sorted = playable.sorted { a, b in
             if a.qualityRank != b.qualityRank {
@@ -119,6 +131,7 @@ actor StreamingService {
             }
             return a.hasEnglishAudio && !b.hasEnglishAudio
         }
+        let bestQuality = sorted.first?.quality
         let result = sorted.compactMap { source -> URL? in
             let proxyPath = source.url
             let urlString: String
@@ -133,7 +146,20 @@ actor StreamingService {
         #if DEBUG
         print("[StreamingService] Returning \(result.count) playable URL(s): \(result.map(\.absoluteString))")
         #endif
-        return result
+        return (result, bestQuality)
+    }
+
+    /// Builds a playable URL for a single source (for stream picker selection).
+    func playableURL(for source: OMSSSource) -> URL? {
+        let proxyPath = source.url
+        let urlString: String
+        if proxyPath.hasPrefix("http") {
+            urlString = proxyPath
+        } else {
+            urlString = proxyPath.hasPrefix("/") ? "\(baseURL)\(proxyPath)" : "\(baseURL)/\(proxyPath)"
+        }
+        guard let url = URL(string: urlString) else { return nil }
+        return rewriteLocalhostToBaseHost(url)
     }
 
     /// Rewrites localhost/127.0.0.1 in proxy URLs so Apple TV can reach the Mac running CinePro.

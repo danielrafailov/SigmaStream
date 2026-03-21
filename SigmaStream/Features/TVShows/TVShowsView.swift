@@ -77,65 +77,81 @@ struct TVShowsView: View {
                             onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .topRated) }
                         )
 
-                        TVSeriesMediaRow(
-                            title: "Documentaries",
-                            tvSeries: documentaries,
-                            config: appState.apiConfiguration,
-                            onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
-                            onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .documentaries) }
-                        )
-
-                        TVSeriesMediaRow(
-                            title: "Action & Adventure",
-                            tvSeries: actionAdventure,
-                            config: appState.apiConfiguration,
-                            onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
-                            onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .actionAdventure) }
-                        )
-                        TVSeriesMediaRow(
-                            title: "Comedy",
-                            tvSeries: comedy,
-                            config: appState.apiConfiguration,
-                            onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
-                            onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .comedy) }
-                        )
-                        TVSeriesMediaRow(
-                            title: "Drama",
-                            tvSeries: drama,
-                            config: appState.apiConfiguration,
-                            onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
-                            onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .drama) }
-                        )
-                        TVSeriesMediaRow(
-                            title: "Horror",
-                            tvSeries: horror,
-                            config: appState.apiConfiguration,
-                            onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
-                            onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .horror) }
-                        )
-                        TVSeriesMediaRow(
-                            title: "Romance",
-                            tvSeries: romance,
-                            config: appState.apiConfiguration,
-                            onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
-                            onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .romance) }
-                        )
-                        TVSeriesMediaRow(
-                            title: "Sci-Fi & Fantasy",
-                            tvSeries: sciFiFantasy,
-                            config: appState.apiConfiguration,
-                            onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
-                            onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .sciFiFantasy) }
-                        )
-                        TVSeriesMediaRow(
-                            title: "Thriller",
-                            tvSeries: thriller,
-                            config: appState.apiConfiguration,
-                            onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
-                            onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .thriller) }
-                        )
+                        if !documentaries.isEmpty {
+                            TVSeriesMediaRow(
+                                title: "Documentaries",
+                                tvSeries: documentaries,
+                                config: appState.apiConfiguration,
+                                onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
+                                onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .documentaries) }
+                            )
+                        }
+                        if !actionAdventure.isEmpty {
+                            TVSeriesMediaRow(
+                                title: "Action & Adventure",
+                                tvSeries: actionAdventure,
+                                config: appState.apiConfiguration,
+                                onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
+                                onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .actionAdventure) }
+                            )
+                        }
+                        if !comedy.isEmpty {
+                            TVSeriesMediaRow(
+                                title: "Comedy",
+                                tvSeries: comedy,
+                                config: appState.apiConfiguration,
+                                onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
+                                onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .comedy) }
+                            )
+                        }
+                        if !drama.isEmpty {
+                            TVSeriesMediaRow(
+                                title: "Drama",
+                                tvSeries: drama,
+                                config: appState.apiConfiguration,
+                                onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
+                                onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .drama) }
+                            )
+                        }
+                        if !horror.isEmpty {
+                            TVSeriesMediaRow(
+                                title: "Horror",
+                                tvSeries: horror,
+                                config: appState.apiConfiguration,
+                                onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
+                                onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .horror) }
+                            )
+                        }
+                        if !romance.isEmpty {
+                            TVSeriesMediaRow(
+                                title: "Romance",
+                                tvSeries: romance,
+                                config: appState.apiConfiguration,
+                                onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
+                                onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .romance) }
+                            )
+                        }
+                        if !sciFiFantasy.isEmpty {
+                            TVSeriesMediaRow(
+                                title: "Sci-Fi & Fantasy",
+                                tvSeries: sciFiFantasy,
+                                config: appState.apiConfiguration,
+                                onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
+                                onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .sciFiFantasy) }
+                            )
+                        }
+                        if !thriller.isEmpty {
+                            TVSeriesMediaRow(
+                                title: "Thriller",
+                                tvSeries: thriller,
+                                config: appState.apiConfiguration,
+                                onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
+                                onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .thriller) }
+                            )
+                        }
                     }
                 }
+                .scrollTargetLayout()
                 .padding(.vertical)
             }
             .navigationTitle("")

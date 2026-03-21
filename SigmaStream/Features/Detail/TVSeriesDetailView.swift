@@ -18,7 +18,12 @@ struct TVSeriesDetailView: View {
     @State private var loadedSeason: TVSeason?
     @State private var isLoadingSeason = false
     @State private var playableContent: PlayableContent?
+    @State private var streamQuality: String?
     @State private var isResolvingStream = false
+    @State private var showStreamPicker = false
+    @State private var streamPickerSources: [OMSSSource] = []
+    @State private var streamPickerEpisode: (season: Int, episode: Int, title: String)?
+    @State private var pendingStreamSelection: (source: OMSSSource, season: Int, episode: Int, title: String)?
     @State private var streamError: String?
     @State private var trailerYouTubeKey: String?
     @State private var trailerAlertMessage: String?
@@ -102,7 +107,7 @@ struct TVSeriesDetailView: View {
                                         .frame(maxWidth: contentWidth, alignment: .leading)
                                 }
 
-                                thumbsRow(contentWidth: contentWidth)
+                                thumbsAndButtonsSection(contentWidth: contentWidth)
                                     .padding(.leading, 24)
 
                                 if let streamErr = streamError {
@@ -110,34 +115,6 @@ struct TVSeriesDetailView: View {
                                         .foregroundStyle(.red)
                                         .font(.subheadline)
                                 }
-
-                                VStack(alignment: .leading, spacing: 16) {
-                                    if let first = firstEpisode {
-                                        detailButton(id: "play", icon: "play.fill", title: "Play Episode") {
-                                            Task { await resolveStream(season: first.season, episode: first.episode.episodeNumber, title: first.episode.name) }
-                                        }
-                                        .disabled(isResolvingStream)
-                                    }
-
-                                    detailButton(id: "more", icon: "list.bullet", title: "More Episodes") {
-                                        moreEpisodesSeries = series
-                                    }
-
-                                    if let key = trailerYouTubeKey {
-                                        detailButton(id: "trailer", icon: "play.rectangle.fill", title: "Watch Trailer") {
-                                            openTrailer(key: key)
-                                        }
-                                    }
-
-                                    detailButton(
-                                        id: "mylist",
-                                        icon: appState.myListManager.isSeriesInList(seriesId) ? "minus.circle" : "plus.circle",
-                                        title: appState.myListManager.isSeriesInList(seriesId) ? "Remove from My List" : "Add to My List"
-                                    ) {
-                                        appState.myListManager.toggleSeries(seriesId)
-                                    }
-                                }
-                                .padding(.leading, 24)
                             }
                             .frame(maxWidth: contentWidth, alignment: .leading)
                             .padding(48)
@@ -158,6 +135,25 @@ struct TVSeriesDetailView: View {
             Button("OK") { trailerAlertMessage = nil }
         } message: {
             Text(trailerAlertMessage ?? "")
+        }
+        .sheet(isPresented: $showStreamPicker, onDismiss: {
+            if let pending = pendingStreamSelection {
+                pendingStreamSelection = nil
+                Task { await playSource(pending.source, season: pending.season, episode: pending.episode, title: pending.title) }
+            }
+        }) {
+            StreamPickerView(
+                title: streamPickerEpisode.map { "\(series?.name ?? "Episode") - \($0.title)" } ?? (series?.name ?? "Episode"),
+                sources: streamPickerSources,
+                onSelect: { source in
+                    if let ep = streamPickerEpisode {
+                        pendingStreamSelection = (source, ep.season, ep.episode, ep.title)
+                    }
+                    showStreamPicker = false
+                },
+                onDismiss: { showStreamPicker = false }
+            )
+            .environment(appState)
         }
         .fullScreenCover(item: $playableContent) { content in
             VideoPlayerView(
@@ -214,7 +210,7 @@ struct TVSeriesDetailView: View {
                 Text("\(n) Season\(n == 1 ? "" : "s")")
                     .foregroundStyle(.secondary)
             }
-            Text("HD")
+            Text(streamQuality ?? "HD")
                 .foregroundStyle(.secondary)
             if let rating = series?.voteAverage {
                 HStack(spacing: 4) {
@@ -230,6 +226,45 @@ struct TVSeriesDetailView: View {
         .font(.subheadline)
     }
 
+    @ViewBuilder
+    private func thumbsAndButtonsSection(contentWidth: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            thumbsRow(contentWidth: contentWidth)
+
+            if let first = firstEpisode {
+                detailButton(id: "play", icon: "play.fill", title: "Play Episode") {
+                    Task { await resolveStream(season: first.season, episode: first.episode.episodeNumber, title: first.episode.name) }
+                }
+                .disabled(isResolvingStream)
+
+                detailButton(id: "chooseStream", icon: "list.bullet", title: "Choose Stream") {
+                    Task { await showStreamPicker(season: first.season, episode: first.episode.episodeNumber, title: first.episode.name) }
+                }
+                .disabled(isResolvingStream)
+            }
+
+            detailButton(id: "more", icon: "list.bullet", title: "More Episodes") {
+                moreEpisodesSeries = series
+            }
+
+            if let key = trailerYouTubeKey {
+                detailButton(id: "trailer", icon: "play.rectangle.fill", title: "Watch Trailer") {
+                    openTrailer(key: key)
+                }
+            }
+
+            detailButton(
+                id: "mylist",
+                icon: appState.myListManager.isSeriesInList(seriesId) ? "minus.circle" : "plus.circle",
+                title: appState.myListManager.isSeriesInList(seriesId) ? "Remove from My List" : "Add to My List"
+            ) {
+                appState.myListManager.toggleSeries(seriesId)
+            }
+        }
+        .frame(maxWidth: contentWidth, alignment: .leading)
+        .focusSection()
+    }
+
     private func thumbsRow(contentWidth: CGFloat) -> some View {
         HStack(spacing: 56) {
             Button {
@@ -238,19 +273,11 @@ struct TVSeriesDetailView: View {
                 Image(systemName: appState.likedManager.isSeriesLiked(seriesId) ? "hand.thumbsup.fill" : "hand.thumbsup")
                     .foregroundStyle(focusedThumbId == "up" ? .black : (appState.likedManager.isSeriesLiked(seriesId) ? .white : .secondary))
                     .font(.system(size: 20))
+                    .frame(width: 60, height: 60)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .focused($focusedThumbId, equals: "up")
-
-            Button {
-                appState.likedManager.setSeriesLiked(seriesId, liked: false)
-            } label: {
-                Image(systemName: "hand.thumbsdown")
-                    .foregroundStyle(focusedThumbId == "down" ? .black : .secondary)
-                    .font(.system(size: 20))
-            }
-            .buttonStyle(.plain)
-            .focused($focusedThumbId, equals: "down")
         }
         .frame(maxWidth: contentWidth, alignment: .leading)
     }
@@ -300,15 +327,53 @@ struct TVSeriesDetailView: View {
         defer { isResolvingStream = false }
 
         do {
-            let urls = try await appState.streamingService.playableURLsForEpisode(seriesId: seriesId, season: season, episode: episode)
+            let (urls, quality) = try await appState.streamingService.playableURLsAndQualityForEpisode(seriesId: seriesId, season: season, episode: episode)
             guard !urls.isEmpty else {
                 streamError = "No stream was found"
                 return
             }
-            playableContent = PlayableContent(urls: urls, title: "\(series?.name ?? "Episode") - \(title)", tvSeriesId: seriesId, season: season, episode: episode)
+            if let quality { streamQuality = quality }
+            playableContent = PlayableContent(urls: urls, title: "\(series?.name ?? "Episode") - \(title)", quality: quality, tvSeriesId: seriesId, season: season, episode: episode)
             appState.watchProgressManager.recordEpisode(seriesId: seriesId, season: season, episode: episode)
         } catch {
             streamError = "No stream was found"
+        }
+    }
+
+    private func showStreamPicker(season: Int, episode: Int, title: String) async {
+        guard !isResolvingStream else { return }
+        isResolvingStream = true
+        streamError = nil
+        defer { isResolvingStream = false }
+
+        do {
+            let sources = try await appState.streamingService.sourcesForEpisode(seriesId: seriesId, season: season, episode: episode)
+            let playable = sources.filter { $0.isPlayable }
+            guard !playable.isEmpty else {
+                streamError = "No stream was found"
+                return
+            }
+            if let q = playable.first?.quality { streamQuality = q }
+            await MainActor.run {
+                streamPickerSources = playable
+                streamPickerEpisode = (season, episode, title)
+                showStreamPicker = true
+            }
+        } catch {
+            streamError = "No stream was found"
+        }
+    }
+
+    private func playSource(_ source: OMSSSource, season: Int, episode: Int, title: String) async {
+        guard let url = await appState.streamingService.playableURL(for: source) else {
+            streamError = "Could not load stream"
+            return
+        }
+        if let q = source.quality { streamQuality = q }
+        let content = PlayableContent(urls: [url], title: "\(series?.name ?? "Episode") - \(title)", quality: source.quality, tvSeriesId: seriesId, season: season, episode: episode)
+        await MainActor.run {
+            playableContent = content
+            appState.watchProgressManager.recordEpisode(seriesId: seriesId, season: season, episode: episode)
         }
     }
 }

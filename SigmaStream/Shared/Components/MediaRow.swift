@@ -15,6 +15,7 @@ struct MovieMediaRow: View {
     let config: APIConfiguration?
     let onSelect: (MovieListItem) -> Void
     var onSeeAll: (() -> Void)? = nil
+    var onFocusEnter: (() -> Void)? = nil
     var showMyListContextMenu: Bool = true
 
     @Environment(AppState.self) private var appState
@@ -22,14 +23,36 @@ struct MovieMediaRow: View {
     @State private var scrollPosition = ScrollPosition(idType: String.self)
     @State private var hasInitializedFocus = false
 
+    private struct CarouselItem {
+        let movie: MovieListItem
+        let segment: Int
+        let title: String
+        var focusKey: String { "\(title)_\(movie.id)_\(segment)" }
+    }
+
+    private static let carouselMinCount = 6
+
+    private var useCarousel: Bool {
+        movies.count >= Self.carouselMinCount
+    }
+
+    private var carouselMovieItems: [CarouselItem] {
+        guard !movies.isEmpty else { return [] }
+        if useCarousel {
+            return (0..<2).flatMap { seg in movies.map { CarouselItem(movie: $0, segment: seg, title: title) } }
+        }
+        return movies.map { CarouselItem(movie: $0, segment: 0, title: title) }
+    }
+
     private var firstMovieKey: String? {
-        movies.first.map { "\(title)_\($0.id)" }
+        movies.first.map { "\(title)_\($0.id)_0" }
     }
-    private var lastMovieKey: String? {
-        movies.last.map { "\(title)_\($0.id)" }
-    }
-    private var wrapLeftKey: String { "\(title)_wrapLeft" }
     private var wrapRightKey: String { "\(title)_wrapRight" }
+
+    private func firstCopyKey(for key: String) -> String? {
+        guard key.hasSuffix("_1") else { return nil }
+        return String(key.dropLast(2)) + "_0"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -58,16 +81,11 @@ struct MovieMediaRow: View {
             }
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 20) {
-                    Color.clear
-                        .frame(width: 1, height: 1)
-                        .focused($focusedKey, equals: wrapLeftKey)
-                        .id(wrapLeftKey)
-
-                    ForEach(movies, id: \.id) { movie in
-                        let focusKey = "\(title)_\(movie.id)"
+                HStack(alignment: .top, spacing: 0) {
+                    ForEach(carouselMovieItems, id: \.focusKey) { item in
+                        let movie = item.movie
+                        let focusKey = item.focusKey
                         let isFocused = focusedKey == focusKey
-                        HStack(spacing: 0) {
                         VStack(alignment: .leading, spacing: 8) {
                             Button {
                                 onSelect(movie)
@@ -97,65 +115,73 @@ struct MovieMediaRow: View {
                                 }
                             }
 
-                            if isFocused {
+                            if isFocused, movie.backdropPath != nil {
                                 MediaCardMetadata(
                                     title: movie.title,
                                     date: movie.releaseDate,
-                                    overview: movie.overview
+                                    overview: movie.overview,
+                                    maxDescriptionWidth: mediaCardBackdropWidth
                                 )
                                 .frame(maxWidth: mediaCardBackdropWidth, minHeight: 180, alignment: .topLeading)
                                 .transition(.opacity.combined(with: .move(edge: .top)))
                                 .animation(.easeInOut(duration: 0.2), value: focusedKey)
                             }
                         }
-                            if isFocused {
-                                Color.clear.frame(width: 32)
-                            }
-                        }
+                        .frame(width: (isFocused && movie.backdropPath != nil) ? mediaCardBackdropWidth : mediaCardPosterWidth, alignment: .topLeading)
                         .id(focusKey)
                     }
 
-                    Color.clear
-                        .frame(width: 1, height: 1)
-                        .focused($focusedKey, equals: wrapRightKey)
-                        .id(wrapRightKey)
+                    if useCarousel {
+                        Color.clear
+                            .frame(width: 80, height: 60)
+                            .contentShape(Rectangle())
+                            .focused($focusedKey, equals: wrapRightKey)
+                            .id(wrapRightKey)
+                    }
                 }
                 .scrollTargetLayout()
                 .padding(.horizontal)
             }
-            .scrollPosition($scrollPosition, anchor: .leading)
+            .scrollPosition($scrollPosition, anchor: .center)
             .onChange(of: focusedKey) { oldKey, newKey in
                 guard let key = newKey else { return }
-                if key == wrapRightKey, let first = firstMovieKey {
-                    Task { @MainActor in
-                        scrollPosition.scrollTo(id: first, anchor: .leading)
-                        focusedKey = first
-                    }
-                } else if key == wrapLeftKey {
-                    let cameFromSeeAll = oldKey == "\(title)_seeAll"
-                    let target = (cameFromSeeAll ? firstMovieKey : lastMovieKey) ?? firstMovieKey
-                    if let t = target {
+                let seeAllKey = "\(title)_seeAll"
+                if key != seeAllKey && key != wrapRightKey {
+                    onFocusEnter?()
+                    if let first = firstMovieKey, oldKey == seeAllKey {
                         Task { @MainActor in
-                            if t == lastMovieKey {
-                                scrollPosition.scrollTo(id: t, anchor: .trailing)
-                            } else {
-                                scrollPosition.scrollTo(id: t, anchor: .leading)
-                            }
-                            focusedKey = t
+                            scrollPosition.scrollTo(id: first, anchor: .leading)
+                            focusedKey = first
                         }
+                        return
                     }
-                } else if key != wrapLeftKey && key != wrapRightKey {
-                    scrollPosition.scrollTo(id: key, anchor: .leading)
+                }
+                if useCarousel {
+                    if key == wrapRightKey, let first = firstMovieKey {
+                        Task { @MainActor in
+                            scrollPosition.scrollTo(id: first, anchor: .center)
+                            focusedKey = first
+                        }
+                    } else if let firstCopy = firstCopyKey(for: key) {
+                        Task { @MainActor in
+                            scrollPosition.scrollTo(id: firstCopy, anchor: .center)
+                            focusedKey = firstCopy
+                        }
+                    } else if key != wrapRightKey {
+                        scrollPosition.scrollTo(id: key, anchor: .center)
+                    }
+                } else if key != wrapRightKey {
+                    scrollPosition.scrollTo(id: key, anchor: .center)
                 }
             }
             .onAppear {
                 if !hasInitializedFocus, let first = firstMovieKey {
                     hasInitializedFocus = true
-                    scrollPosition.scrollTo(id: first, anchor: .leading)
+                    scrollPosition.scrollTo(id: first, anchor: .center)
                     focusedKey = first
                 }
             }
-            .defaultFocus($focusedKey, firstMovieKey ?? wrapLeftKey)
+            .defaultFocus($focusedKey, firstMovieKey ?? (useCarousel ? wrapRightKey : nil))
         }
         .focusSection()
         .padding(.bottom, 16)
@@ -169,6 +195,7 @@ struct TVSeriesMediaRow: View {
     let config: APIConfiguration?
     let onSelect: (TVSeriesListItem) -> Void
     var onSeeAll: (() -> Void)? = nil
+    var onFocusEnter: (() -> Void)? = nil
     var showMyListContextMenu: Bool = true
 
     @Environment(AppState.self) private var appState
@@ -176,14 +203,36 @@ struct TVSeriesMediaRow: View {
     @State private var scrollPosition = ScrollPosition(idType: String.self)
     @State private var hasInitializedFocus = false
 
+    private struct TVCarouselItem {
+        let series: TVSeriesListItem
+        let segment: Int
+        let title: String
+        var focusKey: String { "\(title)_\(series.id)_\(segment)" }
+    }
+
+    private static let carouselMinCount = 6
+
+    private var useCarousel: Bool {
+        tvSeries.count >= Self.carouselMinCount
+    }
+
+    private var carouselSeriesItems: [TVCarouselItem] {
+        guard !tvSeries.isEmpty else { return [] }
+        if useCarousel {
+            return (0..<2).flatMap { seg in tvSeries.map { TVCarouselItem(series: $0, segment: seg, title: title) } }
+        }
+        return tvSeries.map { TVCarouselItem(series: $0, segment: 0, title: title) }
+    }
+
     private var firstSeriesKey: String? {
-        tvSeries.first.map { "\(title)_\($0.id)" }
+        tvSeries.first.map { "\(title)_\($0.id)_0" }
     }
-    private var lastSeriesKey: String? {
-        tvSeries.last.map { "\(title)_\($0.id)" }
-    }
-    private var wrapLeftKey: String { "\(title)_wrapLeft" }
     private var wrapRightKey: String { "\(title)_wrapRight" }
+
+    private func firstCopyKey(for key: String) -> String? {
+        guard key.hasSuffix("_1") else { return nil }
+        return String(key.dropLast(2)) + "_0"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -210,18 +259,14 @@ struct TVSeriesMediaRow: View {
                     .id(seeAllKey)
                 }
             }
+            .focusSection()
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 20) {
-                    Color.clear
-                        .frame(width: 1, height: 1)
-                        .focused($focusedKey, equals: wrapLeftKey)
-                        .id(wrapLeftKey)
-
-                    ForEach(tvSeries, id: \.id) { series in
-                        let focusKey = "\(title)_\(series.id)"
+                HStack(alignment: .top, spacing: 0) {
+                    ForEach(carouselSeriesItems, id: \.focusKey) { item in
+                        let series = item.series
+                        let focusKey = item.focusKey
                         let isFocused = focusedKey == focusKey
-                        HStack(spacing: 0) {
                         VStack(alignment: .leading, spacing: 8) {
                             Button {
                                 onSelect(series)
@@ -251,65 +296,73 @@ struct TVSeriesMediaRow: View {
                                 }
                             }
 
-                            if isFocused {
+                            if isFocused, series.backdropPath != nil {
                                 MediaCardMetadata(
                                     title: series.name,
                                     date: series.firstAirDate,
-                                    overview: series.overview
+                                    overview: series.overview,
+                                    maxDescriptionWidth: mediaCardBackdropWidth
                                 )
                                 .frame(maxWidth: mediaCardBackdropWidth, minHeight: 180, alignment: .topLeading)
                                 .transition(.opacity.combined(with: .move(edge: .top)))
                                 .animation(.easeInOut(duration: 0.2), value: focusedKey)
                             }
                         }
-                            if isFocused {
-                                Color.clear.frame(width: 32)
-                            }
-                        }
+                        .frame(width: (isFocused && series.backdropPath != nil) ? mediaCardBackdropWidth : mediaCardPosterWidth, alignment: .topLeading)
                         .id(focusKey)
                     }
 
-                    Color.clear
-                        .frame(width: 1, height: 1)
-                        .focused($focusedKey, equals: wrapRightKey)
-                        .id(wrapRightKey)
+                    if useCarousel {
+                        Color.clear
+                            .frame(width: 80, height: 60)
+                            .contentShape(Rectangle())
+                            .focused($focusedKey, equals: wrapRightKey)
+                            .id(wrapRightKey)
+                    }
                 }
                 .scrollTargetLayout()
                 .padding(.horizontal)
             }
-            .scrollPosition($scrollPosition, anchor: .leading)
+            .scrollPosition($scrollPosition, anchor: .center)
             .onChange(of: focusedKey) { oldKey, newKey in
                 guard let key = newKey else { return }
-                if key == wrapRightKey, let first = firstSeriesKey {
-                    Task { @MainActor in
-                        scrollPosition.scrollTo(id: first, anchor: .leading)
-                        focusedKey = first
-                    }
-                } else if key == wrapLeftKey {
-                    let cameFromSeeAll = oldKey == "\(title)_seeAll"
-                    let target = (cameFromSeeAll ? firstSeriesKey : lastSeriesKey) ?? firstSeriesKey
-                    if let t = target {
+                let seeAllKey = "\(title)_seeAll"
+                if key != seeAllKey && key != wrapRightKey {
+                    onFocusEnter?()
+                    if let first = firstSeriesKey, oldKey == seeAllKey {
                         Task { @MainActor in
-                            if t == lastSeriesKey {
-                                scrollPosition.scrollTo(id: t, anchor: .trailing)
-                            } else {
-                                scrollPosition.scrollTo(id: t, anchor: .leading)
-                            }
-                            focusedKey = t
+                            scrollPosition.scrollTo(id: first, anchor: .leading)
+                            focusedKey = first
                         }
+                        return
                     }
-                } else if key != wrapLeftKey && key != wrapRightKey {
-                    scrollPosition.scrollTo(id: key, anchor: .leading)
+                }
+                if useCarousel {
+                    if key == wrapRightKey, let first = firstSeriesKey {
+                        Task { @MainActor in
+                            scrollPosition.scrollTo(id: first, anchor: .center)
+                            focusedKey = first
+                        }
+                    } else if let firstCopy = firstCopyKey(for: key) {
+                        Task { @MainActor in
+                            scrollPosition.scrollTo(id: firstCopy, anchor: .center)
+                            focusedKey = firstCopy
+                        }
+                    } else if key != wrapRightKey {
+                        scrollPosition.scrollTo(id: key, anchor: .center)
+                    }
+                } else if key != wrapRightKey {
+                    scrollPosition.scrollTo(id: key, anchor: .center)
                 }
             }
             .onAppear {
                 if !hasInitializedFocus, let first = firstSeriesKey {
                     hasInitializedFocus = true
-                    scrollPosition.scrollTo(id: first, anchor: .leading)
+                    scrollPosition.scrollTo(id: first, anchor: .center)
                     focusedKey = first
                 }
             }
-            .defaultFocus($focusedKey, firstSeriesKey ?? wrapLeftKey)
+            .defaultFocus($focusedKey, firstSeriesKey ?? (useCarousel ? wrapRightKey : nil))
         }
         .focusSection()
         .padding(.bottom, 16)
@@ -323,6 +376,12 @@ struct MediaCardMetadata: View {
     let title: String
     let date: Date?
     let overview: String?
+    /// When nil, uses mediaCardBackdropWidth.
+    var maxDescriptionWidth: CGFloat? = nil
+
+    private var effectiveMaxWidth: CGFloat {
+        maxDescriptionWidth ?? mediaCardBackdropWidth
+    }
 
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -349,7 +408,7 @@ struct MediaCardMetadata: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(4)
                     .multilineTextAlignment(.leading)
-                    .frame(maxWidth: mediaCardBackdropWidth, minHeight: 140, alignment: .topLeading)
+                    .frame(maxWidth: effectiveMaxWidth - 48, minHeight: 140, alignment: .topLeading)
             }
         }
     }

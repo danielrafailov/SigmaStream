@@ -81,16 +81,9 @@ actor TMDbService {
 
     /// Fetch from cache or network, store raw Data, decode to T. Use for types that are Decodable but not Encodable.
     private func cached<T: Decodable>(_ key: String, url: URL, as type: T.Type) async throws -> T {
-        #if DEBUG
-        let t0 = CFAbsoluteTimeGetCurrent()
-        #endif
         if let data = diskCache.getData(key) {
             do {
                 let result = try Self.tmdbDecoder.decode(T.self, from: data)
-                #if DEBUG
-                let elapsed = Int((CFAbsoluteTimeGetCurrent() - t0) * 1000)
-                print("[TMDbCache] HIT \(key) in \(elapsed)ms")
-                #endif
                 return result
             } catch {
                 diskCache.removeData(key)
@@ -105,10 +98,6 @@ actor TMDbService {
         }
         diskCache.setData(key, data: data)
         let result = try Self.tmdbDecoder.decode(T.self, from: data)
-        #if DEBUG
-        let elapsed = Int((CFAbsoluteTimeGetCurrent() - t0) * 1000)
-        print("[TMDbCache] MISS \(key) network=\(elapsed)ms")
-        #endif
         return result
     }
 
@@ -162,43 +151,21 @@ actor TMDbService {
 
     /// Get movie details (cached)
     func movieDetails(forMovieId movieId: Int) async throws -> Movie {
-        #if DEBUG
-        let t0 = CFAbsoluteTimeGetCurrent()
-        #endif
         if let cached = movieCache[movieId] {
-            #if DEBUG
-            let elapsed = Int((CFAbsoluteTimeGetCurrent() - t0) * 1000)
-            print("[TMDbService] movieDetails HIT id=\(movieId) in \(elapsed)ms")
-            #endif
             return cached
         }
         let movie = try await client.movies.details(forMovie: movieId)
         movieCache[movieId] = movie
-        #if DEBUG
-        let elapsed = Int((CFAbsoluteTimeGetCurrent() - t0) * 1000)
-        print("[TMDbService] movieDetails MISS id=\(movieId) network=\(elapsed)ms")
-        #endif
         return movie
     }
 
     /// Get TV series details (cached)
     func tvSeriesDetails(forSeriesId seriesId: Int) async throws -> TVSeries {
-        #if DEBUG
-        let t0 = CFAbsoluteTimeGetCurrent()
-        #endif
         if let cached = tvSeriesCache[seriesId] {
-            #if DEBUG
-            let elapsed = Int((CFAbsoluteTimeGetCurrent() - t0) * 1000)
-            print("[TMDbService] tvSeriesDetails HIT id=\(seriesId) in \(elapsed)ms")
-            #endif
             return cached
         }
         let series = try await client.tvSeries.details(forTVSeries: seriesId)
         tvSeriesCache[seriesId] = series
-        #if DEBUG
-        let elapsed = Int((CFAbsoluteTimeGetCurrent() - t0) * 1000)
-        print("[TMDbService] tvSeriesDetails MISS id=\(seriesId) network=\(elapsed)ms")
-        #endif
         return series
     }
 

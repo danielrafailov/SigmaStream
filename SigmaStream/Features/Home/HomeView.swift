@@ -36,7 +36,7 @@ struct HomeView: View {
                             .padding()
                     }
 
-                    if isLoading && trendingMovies.isEmpty {
+                    if trendingMovies.isEmpty && errorMessage == nil {
                         ProgressView("Loading...")
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 60)

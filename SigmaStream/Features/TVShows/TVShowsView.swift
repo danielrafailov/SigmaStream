@@ -48,7 +48,7 @@ struct TVShowsView: View {
                             .padding()
                     }
 
-                    if isLoading && trending.isEmpty {
+                    if trending.isEmpty && errorMessage == nil {
                         ProgressView("Loading...")
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 60)

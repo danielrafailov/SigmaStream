@@ -24,6 +24,7 @@ struct TVSeriesMoreEpisodesView: View {
     @State private var pendingStreamSelection: (source: OMSSSource, season: Int, episode: Int, title: String)?
     @State private var streamError: String?
     @FocusState private var focusedEpisodeId: Int?
+    @FocusState private var focusedSeasonNum: Int?
     @State private var scrollPositionEpisodeId: Int?
 
     private var seasonNumbers: [Int] {
@@ -134,26 +135,34 @@ struct TVSeriesMoreEpisodesView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
                 ForEach(seasonNumbers, id: \.self) { num in
-                    Button {
-                        selectedSeason = num
-                    } label: {
-                        Text("Season \(num)")
-                            .font(.subheadline)
-                            .fontWeight(selectedSeason == num ? .semibold : .regular)
-                            .foregroundStyle(selectedSeason == num ? .black : .white)
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 12)
-                            .background(
-                                Capsule()
-                                    .fill(selectedSeason == num ? Color.white : Color.white.opacity(0.25))
-                            )
-                    }
-                    .buttonStyle(.plain)
+                    seasonButton(num: num)
                 }
             }
             .padding(.vertical, 4)
         }
         .frame(maxWidth: contentWidth, alignment: .leading)
+    }
+
+    private func seasonButton(num: Int) -> some View {
+        let isFocused = focusedSeasonNum == num
+        let isSelected = selectedSeason == num
+        let fillColor: Color = isSelected ? .white : (isFocused ? Color.white.opacity(0.5) : Color.white.opacity(0.25))
+        let textColor: Color = (isSelected || isFocused) ? .black : .white
+
+        return Button {
+            selectedSeason = num
+        } label: {
+            Text("Season \(num)")
+                .font(.subheadline)
+                .fontWeight(isSelected ? .semibold : .regular)
+                .foregroundStyle(textColor)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .background(Capsule().fill(fillColor))
+        }
+        .buttonStyle(.plain)
+        .hoverEffectDisabled(true)
+        .focused($focusedSeasonNum, equals: num)
     }
 
     @ViewBuilder
@@ -212,6 +221,7 @@ struct TVSeriesMoreEpisodesView: View {
             )
         }
         .buttonStyle(.plain)
+        .hoverEffectDisabled(true)
         .buttonBorderShape(.roundedRectangle(radius: 14))
         .focused($focusedEpisodeId, equals: episode.id)
         .disabled(isResolvingStream)

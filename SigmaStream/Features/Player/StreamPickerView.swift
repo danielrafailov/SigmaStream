@@ -82,6 +82,7 @@ struct StreamPickerView: View {
             .clipShape(RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(.plain)
+        .hoverEffectDisabled(true)
         .buttonBorderShape(.roundedRectangle(radius: 12))
         .focused($focusedIndex, equals: index)
     }

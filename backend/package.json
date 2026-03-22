@@ -5,6 +5,7 @@
     "scripts": {
         "dev": "tsx watch src/server.ts",
         "build": "tsc",
+        "test:invincible": "node test-invincible-episodes.mjs",
         "start": "npm run build && node dist/server.js",
         "format": "prettier --write src",
         "clean": "npx rimraf dist"

@@ -403,6 +403,7 @@ struct TVSeriesMoreEpisodesView: View {
         do {
             loadedSeason = try await appState.tmdbService.tvSeasonDetails(seriesId: seriesId, seasonNumber: seasonNumber)
         } catch {
+            loadedSeason = nil
             streamError = error.localizedDescription
         }
     }

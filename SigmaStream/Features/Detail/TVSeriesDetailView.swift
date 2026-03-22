@@ -311,11 +311,13 @@ struct TVSeriesDetailView: View {
 
     private func loadSeason(_ seasonNumber: Int) async {
         isLoadingSeason = true
+        streamError = nil
         defer { isLoadingSeason = false }
 
         do {
             loadedSeason = try await appState.tmdbService.tvSeasonDetails(seriesId: seriesId, seasonNumber: seasonNumber)
         } catch {
+            loadedSeason = nil
             streamError = error.localizedDescription
         }
     }

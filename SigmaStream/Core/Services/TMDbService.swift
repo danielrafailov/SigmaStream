@@ -31,6 +31,35 @@ private struct TMDbPaginatedTVResponse: Decodable {
     let totalPages: Int?
 }
 
+/// Lenient API structs for direct TMDb season fetch (fallback when TMDb package decoding fails)
+private struct TMDbSeasonDetailAPI: Decodable {
+    let id: Int
+    let name: String?
+    let seasonNumber: Int?
+    let overview: String?
+    let airDate: String?
+    let posterPath: String?
+    let episodes: [TMDbEpisodeAPI]?
+
+    var seasonNum: Int { seasonNumber ?? 0 }
+}
+
+private struct TMDbEpisodeAPI: Decodable {
+    let id: Int
+    let name: String?
+    let episodeNumber: Int?
+    let seasonNumber: Int?
+    let overview: String?
+    let airDate: String?
+    let productionCode: String?
+    let stillPath: String?
+    let voteAverage: Double?
+    let voteCount: Int?
+
+    var epNum: Int { episodeNumber ?? 0 }
+    var seasonNum: Int { seasonNumber ?? 0 }
+}
+
 /// Service layer for TMDb API. Configure with your API key before use.
 /// Get a free API key at https://www.themoviedb.org/documentation/api
 actor TMDbService {
@@ -171,10 +200,77 @@ actor TMDbService {
 
     /// Get full season details including episodes
     func tvSeasonDetails(seriesId: Int, seasonNumber: Int) async throws -> TVSeason {
-        try await client.tvSeasons.details(
-            forSeason: seasonNumber,
-            inTVSeries: seriesId,
-            language: nil
+        do {
+            return try await client.tvSeasons.details(
+                forSeason: seasonNumber,
+                inTVSeries: seriesId,
+                language: "en-US"
+            )
+        } catch {
+            if let fallback = await fetchSeasonDirectly(seriesId: seriesId, seasonNumber: seasonNumber) {
+                return fallback
+            }
+            throw error
+        }
+    }
+
+    /// Direct TMDb API fetch for season details (fallback when TMDb package decoding fails)
+    private func fetchSeasonDirectly(seriesId: Int, seasonNumber: Int) async -> TVSeason? {
+        let url = tmdbURL(path: "/tv/\(seriesId)/season/\(seasonNumber)", queryItems: ["language": "en-US"])
+        var request = URLRequest(url: url)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            return nil
+        }
+        guard let api = try? Self.tmdbDecoder.decode(TMDbSeasonDetailAPI.self, from: data) else {
+            return nil
+        }
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+        dateFormatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        let episodes: [TVEpisode]? = api.episodes?.compactMap { ep -> TVEpisode? in
+            let name = ep.name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                ? ep.name! : "Episode \(ep.epNum)"
+            let airDate: Date? = ep.airDate.flatMap { dateFormatter.date(from: $0) }
+            let stillPath: URL? = ep.stillPath.map { path in
+                let s = path.hasPrefix("/") ? path : "/" + path
+                return URL(string: s)
+            }.flatMap { $0 }
+            return TVEpisode(
+                id: ep.id,
+                name: name,
+                episodeNumber: ep.epNum,
+                seasonNumber: ep.seasonNum,
+                overview: ep.overview,
+                airDate: airDate,
+                productionCode: ep.productionCode,
+                stillPath: stillPath,
+                crew: nil,
+                guestStars: nil,
+                voteAverage: ep.voteAverage,
+                voteCount: ep.voteCount
+            )
+        }
+
+        let seasonAirDate: Date? = api.airDate.flatMap { dateFormatter.date(from: $0) }
+        let posterPath: URL? = api.posterPath.map { path in
+            let s = path.hasPrefix("/") ? path : "/" + path
+            return URL(string: s)
+        }.flatMap { $0 }
+        let seasonName = api.name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? api.name! : "Season \(api.seasonNum)"
+
+        return TVSeason(
+            id: api.id,
+            name: seasonName,
+            seasonNumber: api.seasonNum,
+            overview: api.overview,
+            airDate: seasonAirDate,
+            posterPath: posterPath,
+            episodes: episodes
         )
     }
 

@@ -1,12 +1,12 @@
 {
   "images" : [
     {
-      "filename" : "Sigma.png",
+      "filename" : "black.png",
       "idiom" : "tv",
       "scale" : "1x"
     },
     {
-      "filename" : "Sigma 1.png",
+      "filename" : "black 1.png",
       "idiom" : "tv",
       "scale" : "2x"
     }

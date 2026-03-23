@@ -74,13 +74,7 @@ actor StreamingService {
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await session.data(for: request)
-        } catch {
-            throw error
-        }
+        let (data, response) = try await session.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw StreamingError.invalidResponse
@@ -143,7 +137,7 @@ actor StreamingService {
         return rewriteLocalhostToBaseHost(url)
     }
 
-    /// Rewrites localhost/127.0.0.1 in proxy URLs so Apple TV can reach the Mac running CinePro.
+    /// Rewrites localhost/127.0.0.1 in proxy URLs so clients reach the same host as `baseURL` (Mac, LAN IP, or HTTPS deploy).
     private func rewriteLocalhostToBaseHost(_ url: URL) -> URL {
         guard url.host == "localhost" || url.host == "127.0.0.1",
               let base = URL(string: baseURL), let baseHost = base.host else {
@@ -151,8 +145,10 @@ actor StreamingService {
         }
         var comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
         comps?.host = baseHost
-        comps?.port = base.port ?? 3000
         comps?.scheme = base.scheme ?? "http"
+        // Only use an explicit port when `baseURL` has one (e.g. http://192.168.x.x:3000).
+        // For https://host (implicit 443), `base.port` is nil — do not default to 3000 or AVPlayer uses the wrong port.
+        comps?.port = base.port
         let rewritten = comps?.url ?? url
         return rewritten
     }

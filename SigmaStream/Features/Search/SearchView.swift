@@ -104,11 +104,9 @@ struct SearchView: View {
         errorMessage = nil
 
         do {
-            async let moviesTask = appState.tmdbService.searchMovies(query: query)
-            async let tvTask = appState.tmdbService.searchTVSeries(query: query)
-
-            movies = try await moviesTask
-            tvSeries = try await tvTask
+            let result = try await appState.tmdbService.searchMoviesTVIncludingPersonCast(query: query)
+            movies = result.movies
+            tvSeries = result.tvSeries
         } catch {
             if !Task.isCancelled {
                 errorMessage = error.localizedDescription

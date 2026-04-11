@@ -178,6 +178,143 @@ actor TMDbService {
         return response.results
     }
 
+    /// Max rows returned per media type after merging title + person cast (keeps UI and payloads bounded).
+    private static let searchMergedResultsCap = 80
+
+    /// Title search for movies and TV, merged with **cast** credits for the top person match (e.g. actor name queries).
+    /// Results are **deduped by id** and ordered by **popularity** (then vote count), not title-search order first.
+    func searchMoviesTVIncludingPersonCast(query: String, page: Int? = nil) async throws -> (movies: [MovieListItem], tvSeries: [TVSeriesListItem]) {
+        async let titleMovies = searchMovies(query: query, page: page)
+        async let titleTV = searchTVSeries(query: query, page: page)
+
+        var fromPersonMovies: [MovieListItem] = []
+        var fromPersonTV: [TVSeriesListItem] = []
+
+        do {
+            let peopleResponse = try await client.search.searchPeople(query: query, filter: nil, page: page, language: nil)
+            guard let topPerson = peopleResponse.results.first else {
+                let (m, t) = try await (titleMovies, titleTV)
+                return (
+                    movies: Self.sortMoviesByPopularity(m).prefix(Self.searchMergedResultsCap).map { $0 },
+                    tvSeries: Self.sortTVByPopularity(t).prefix(Self.searchMergedResultsCap).map { $0 }
+                )
+            }
+            let credits = try await client.people.combinedCredits(forPerson: topPerson.id)
+            for credit in credits.cast {
+                switch credit {
+                case .movie(let c):
+                    fromPersonMovies.append(Self.movieListItem(from: c))
+                case .tvSeries(let c):
+                    fromPersonTV.append(Self.tvSeriesListItem(from: c))
+                }
+            }
+        } catch {
+            // Person search or credits are optional; title results still matter.
+        }
+
+        let (titleMovieList, titleTVList) = try await (titleMovies, titleTV)
+        let mergedMovies = Self.mergeMoviesPreferringRicherMetadata(title: titleMovieList, personCast: fromPersonMovies)
+        let mergedTV = Self.mergeTVPreferringRicherMetadata(title: titleTVList, personCast: fromPersonTV)
+
+        return (
+            movies: Self.sortMoviesByPopularity(mergedMovies).prefix(Self.searchMergedResultsCap).map { $0 },
+            tvSeries: Self.sortTVByPopularity(mergedTV).prefix(Self.searchMergedResultsCap).map { $0 }
+        )
+    }
+
+    private static func moviePopularitySortKey(_ m: MovieListItem) -> (Double, Int) {
+        (m.popularity ?? 0, m.voteCount ?? 0)
+    }
+
+    private static func tvPopularitySortKey(_ s: TVSeriesListItem) -> (Double, Int) {
+        (s.popularity ?? 0, s.voteCount ?? 0)
+    }
+
+    private static func sortMoviesByPopularity(_ items: [MovieListItem]) -> [MovieListItem] {
+        items.sorted {
+            let a = moviePopularitySortKey($0)
+            let b = moviePopularitySortKey($1)
+            if a.0 != b.0 { return a.0 > b.0 }
+            return a.1 > b.1
+        }
+    }
+
+    private static func sortTVByPopularity(_ items: [TVSeriesListItem]) -> [TVSeriesListItem] {
+        items.sorted {
+            let a = tvPopularitySortKey($0)
+            let b = tvPopularitySortKey($1)
+            if a.0 != b.0 { return a.0 > b.0 }
+            return a.1 > b.1
+        }
+    }
+
+    /// One row per id; when title and cast both return the same title, keep the version with higher popularity (then votes).
+    private static func mergeMoviesPreferringRicherMetadata(title: [MovieListItem], personCast: [MovieListItem]) -> [MovieListItem] {
+        var bestById: [Int: MovieListItem] = [:]
+        for m in title + personCast {
+            guard let existing = bestById[m.id] else {
+                bestById[m.id] = m
+                continue
+            }
+            let newKey = moviePopularitySortKey(m)
+            let oldKey = moviePopularitySortKey(existing)
+            if newKey > oldKey { bestById[m.id] = m }
+        }
+        return Array(bestById.values)
+    }
+
+    private static func mergeTVPreferringRicherMetadata(title: [TVSeriesListItem], personCast: [TVSeriesListItem]) -> [TVSeriesListItem] {
+        var bestById: [Int: TVSeriesListItem] = [:]
+        for s in title + personCast {
+            guard let existing = bestById[s.id] else {
+                bestById[s.id] = s
+                continue
+            }
+            let newKey = tvPopularitySortKey(s)
+            let oldKey = tvPopularitySortKey(existing)
+            if newKey > oldKey { bestById[s.id] = s }
+        }
+        return Array(bestById.values)
+    }
+
+    private static func movieListItem(from credit: MovieCastCredit) -> MovieListItem {
+        MovieListItem(
+            id: credit.id,
+            title: credit.title,
+            originalTitle: credit.originalTitle,
+            originalLanguage: credit.originalLanguage,
+            overview: credit.overview,
+            genreIDs: credit.genreIDs,
+            releaseDate: credit.releaseDate,
+            posterPath: credit.posterPath,
+            backdropPath: credit.backdropPath,
+            popularity: credit.popularity,
+            voteAverage: credit.voteAverage,
+            voteCount: credit.voteCount,
+            hasVideo: credit.hasVideo,
+            isAdultOnly: credit.isAdultOnly
+        )
+    }
+
+    private static func tvSeriesListItem(from credit: TVSeriesCastCredit) -> TVSeriesListItem {
+        TVSeriesListItem(
+            id: credit.id,
+            name: credit.name,
+            originalName: credit.originalName,
+            originalLanguage: credit.originalLanguage,
+            overview: credit.overview,
+            genreIDs: credit.genreIDs,
+            firstAirDate: credit.firstAirDate,
+            originCountries: credit.originCountries,
+            posterPath: credit.posterPath,
+            backdropPath: credit.backdropPath,
+            popularity: credit.popularity,
+            voteAverage: credit.voteAverage,
+            voteCount: credit.voteCount,
+            isAdultOnly: credit.isAdultOnly
+        )
+    }
+
     /// Get movie details (cached)
     func movieDetails(forMovieId movieId: Int) async throws -> Movie {
         if let cached = movieCache[movieId] {

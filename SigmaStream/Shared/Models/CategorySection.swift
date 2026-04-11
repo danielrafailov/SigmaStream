@@ -8,11 +8,12 @@
 import Foundation
 import TMDb
 
-/// Represents a category section for movies (e.g. Trending, Popular, Documentaries, Genres).
+/// Represents a category section for movies (e.g. Trending, Popular, genres, discover filters).
 enum MovieCategory: String, CaseIterable {
-    case trendingToday = "Trending Today"
+    case trendingToday = "Trending"
     case popular = "Popular"
-    case topRated = "Top Rated"
+    case criticallyAcclaimed = "Critically Acclaimed"
+    case newReleases = "New & Noteworthy"
     case nowPlaying = "Now Playing"
     case upcoming = "Upcoming"
     case documentaries = "Documentaries"
@@ -23,8 +24,17 @@ enum MovieCategory: String, CaseIterable {
     case romance = "Romance"
     case sciFi = "Sci-Fi"
     case thriller = "Thriller"
+    case crime = "Crime"
+    case animation = "Animation"
+    case family = "Family"
+    case mystery = "Mystery"
+    case fantasy = "Fantasy"
+    case war = "War"
+    case western = "Western"
+    case history = "History"
+    case basedOnBooks = "Based on Books"
 
-    /// TMDb genre ID for genre-based categories; nil for non-genre categories.
+    /// TMDb genre ID for genre-based categories; nil for discover/trending/list categories.
     var genreId: Genre.ID? {
         switch self {
         case .documentaries: return 99
@@ -35,16 +45,31 @@ enum MovieCategory: String, CaseIterable {
         case .romance: return 10749
         case .sciFi: return 878
         case .thriller: return 53
+        case .crime: return 80
+        case .animation: return 16
+        case .family: return 10751
+        case .mystery: return 9648
+        case .fantasy: return 14
+        case .war: return 10752
+        case .western: return 37
+        case .history: return 36
         default: return nil
         }
     }
+
+    /// Genre / keyword discover rows (same order on Movies tab and Home).
+    static let catalogDiscoverRows: [MovieCategory] = [
+        .documentaries, .action, .comedy, .drama, .horror, .romance, .sciFi, .thriller,
+        .crime, .animation, .family, .mystery, .fantasy, .war, .western, .history, .basedOnBooks
+    ]
 }
 
 /// Represents a category section for TV series.
 enum TVCategory: String, CaseIterable {
-    case trendingToday = "Trending Today"
+    case trendingToday = "Trending"
     case popular = "Popular"
-    case topRated = "Top Rated"
+    case criticallyAcclaimed = "Critically Acclaimed"
+    case newReleases = "New & Noteworthy"
     case documentaries = "Documentaries"
     case actionAdventure = "Action & Adventure"
     case comedy = "Comedy"
@@ -53,8 +78,13 @@ enum TVCategory: String, CaseIterable {
     case romance = "Romance"
     case sciFiFantasy = "Sci-Fi & Fantasy"
     case thriller = "Thriller"
+    case crime = "Crime"
+    case animation = "Animation"
+    case family = "Family"
+    case kids = "Kids"
+    case mystery = "Mystery"
+    case basedOnBooks = "Based on Books"
 
-    /// TMDb genre ID for genre-based categories; nil for non-genre categories.
     var genreId: Genre.ID? {
         switch self {
         case .documentaries: return 99
@@ -65,7 +95,17 @@ enum TVCategory: String, CaseIterable {
         case .romance: return 10749
         case .sciFiFantasy: return 10765
         case .thriller: return 53
+        case .crime: return 80
+        case .animation: return 16
+        case .family: return 10751
+        case .kids: return 10762
+        case .mystery: return 9648
         default: return nil
         }
     }
+
+    static let catalogDiscoverRows: [TVCategory] = [
+        .documentaries, .actionAdventure, .comedy, .drama, .horror, .romance, .sciFiFantasy, .thriller,
+        .crime, .animation, .family, .kids, .mystery, .basedOnBooks
+    ]
 }

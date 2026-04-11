@@ -447,11 +447,70 @@ actor TMDbService {
         return response.results
     }
 
-    /// Fetch top rated movies
-    func topRatedMovies(page: Int? = nil) async throws -> [MovieListItem] {
+    /// TMDb `discover` date format (UTC calendar day).
+    private static func tmdbDiscoverDate(daysFromToday: Int) -> String {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(secondsFromGMT: 0) ?? TimeZone.current
+        let base = cal.startOfDay(for: Date())
+        let d = cal.date(byAdding: .day, value: daysFromToday, to: base) ?? base
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(secondsFromGMT: 0)
+        return f.string(from: d)
+    }
+
+    /// Keyword "based on novel or book" on TMDb (common discover filter).
+    private static let basedOnBookKeywordId = "818"
+
+    /// Movies first released in roughly the last 45 days (popularity order).
+    func recentReleaseMovies(page: Int? = nil) async throws -> [MovieListItem] {
         let p = page ?? 1
-        let url = tmdbURL(path: "/movie/top_rated", queryItems: ["page": "\(p)"])
-        let response: TMDbPaginatedMovieResponse = try await cached("top_rated_movies_\(p)", url: url, as: TMDbPaginatedMovieResponse.self)
+        let from = Self.tmdbDiscoverDate(daysFromToday: -45)
+        let url = tmdbURL(path: "/discover/movie", queryItems: [
+            "primary_release_date.gte": from,
+            "sort_by": "popularity.desc",
+            "page": "\(p)"
+        ])
+        let response: TMDbPaginatedMovieResponse = try await cached("movies_new_\(from)_\(p)", url: url, as: TMDbPaginatedMovieResponse.self)
+        return response.results
+    }
+
+    /// TV whose first air date is in roughly the last 45 days.
+    func recentReleaseTVSeries(page: Int? = nil) async throws -> [TVSeriesListItem] {
+        let p = page ?? 1
+        let from = Self.tmdbDiscoverDate(daysFromToday: -45)
+        let url = tmdbURL(path: "/discover/tv", queryItems: [
+            "first_air_date.gte": from,
+            "sort_by": "popularity.desc",
+            "page": "\(p)"
+        ])
+        let response: TMDbPaginatedTVResponse = try await cached("tv_new_\(from)_\(p)", url: url, as: TMDbPaginatedTVResponse.self)
+        return response.results
+    }
+
+    /// Strong ratings with enough votes to avoid one-off 10.0 titles.
+    func criticallyAcclaimedMovies(page: Int? = nil) async throws -> [MovieListItem] {
+        let p = page ?? 1
+        let url = tmdbURL(path: "/discover/movie", queryItems: [
+            "vote_average.gte": "7.5",
+            "vote_count.gte": "250",
+            "sort_by": "vote_average.desc",
+            "page": "\(p)"
+        ])
+        let response: TMDbPaginatedMovieResponse = try await cached("movies_acclaimed_\(p)", url: url, as: TMDbPaginatedMovieResponse.self)
+        return response.results
+    }
+
+    func criticallyAcclaimedTVSeries(page: Int? = nil) async throws -> [TVSeriesListItem] {
+        let p = page ?? 1
+        let url = tmdbURL(path: "/discover/tv", queryItems: [
+            "vote_average.gte": "7.5",
+            "vote_count.gte": "150",
+            "sort_by": "vote_average.desc",
+            "page": "\(p)"
+        ])
+        let response: TMDbPaginatedTVResponse = try await cached("tv_acclaimed_\(p)", url: url, as: TMDbPaginatedTVResponse.self)
         return response.results
     }
 
@@ -478,14 +537,6 @@ actor TMDbService {
         let p = page ?? 1
         let url = tmdbURL(path: "/tv/popular", queryItems: ["page": "\(p)"])
         let response: TMDbPaginatedTVResponse = try await cached("popular_tv_\(p)", url: url, as: TMDbPaginatedTVResponse.self)
-        return response.results
-    }
-
-    /// Fetch top rated TV series (via discover with vote average sort)
-    func topRatedTVSeries(page: Int? = nil) async throws -> [TVSeriesListItem] {
-        let p = page ?? 1
-        let url = tmdbURL(path: "/discover/tv", queryItems: ["sort_by": "vote_average.desc", "page": "\(p)"])
-        let response: TMDbPaginatedTVResponse = try await cached("top_rated_tv_\(p)", url: url, as: TMDbPaginatedTVResponse.self)
         return response.results
     }
 
@@ -537,24 +588,31 @@ actor TMDbService {
 
     /// Load movies for a category (used by See All). Returns (items, hasMore) for pagination.
     func moviesPaginated(for category: MovieCategory, page: Int) async throws -> (items: [MovieListItem], hasMore: Bool) {
-        if let genreId = category.genreId {
-            let cacheKey = "movies_genre_\(genreId)_\(page)"
-            let url = tmdbURL(path: "/discover/movie", queryItems: ["with_genres": "\(genreId)", "sort_by": "popularity.desc", "page": "\(page)"])
-            let response: TMDbPaginatedMovieResponse = try await cached(cacheKey, url: url, as: TMDbPaginatedMovieResponse.self)
-            let totalPages = response.totalPages ?? page
-            return (response.results, page < totalPages)
-        }
         switch category {
         case .trendingToday:
-            let items = try await trendingMovies()
+            let items = try await trendingMovies(inTimeWindow: .day)
             return (items, false)
         case .popular:
             let url = tmdbURL(path: "/discover/movie", queryItems: ["sort_by": "popularity.desc", "page": "\(page)"])
             let response: TMDbPaginatedMovieResponse = try await cached("popular_movies_\(page)", url: url, as: TMDbPaginatedMovieResponse.self)
             return (response.results, page < (response.totalPages ?? page))
-        case .topRated:
-            let url = tmdbURL(path: "/movie/top_rated", queryItems: ["page": "\(page)"])
-            let response: TMDbPaginatedMovieResponse = try await cached("top_rated_movies_\(page)", url: url, as: TMDbPaginatedMovieResponse.self)
+        case .criticallyAcclaimed:
+            let url = tmdbURL(path: "/discover/movie", queryItems: [
+                "vote_average.gte": "7.5",
+                "vote_count.gte": "250",
+                "sort_by": "vote_average.desc",
+                "page": "\(page)"
+            ])
+            let response: TMDbPaginatedMovieResponse = try await cached("movies_acclaimed_\(page)", url: url, as: TMDbPaginatedMovieResponse.self)
+            return (response.results, page < (response.totalPages ?? page))
+        case .newReleases:
+            let from = Self.tmdbDiscoverDate(daysFromToday: -45)
+            let url = tmdbURL(path: "/discover/movie", queryItems: [
+                "primary_release_date.gte": from,
+                "sort_by": "popularity.desc",
+                "page": "\(page)"
+            ])
+            let response: TMDbPaginatedMovieResponse = try await cached("movies_new_\(from)_\(page)", url: url, as: TMDbPaginatedMovieResponse.self)
             return (response.results, page < (response.totalPages ?? page))
         case .nowPlaying:
             let url = tmdbURL(path: "/movie/now_playing", queryItems: ["page": "\(page)"])
@@ -564,33 +622,70 @@ actor TMDbService {
             let url = tmdbURL(path: "/movie/upcoming", queryItems: ["page": "\(page)"])
             let response: TMDbPaginatedMovieResponse = try await cached("upcoming_movies_\(page)", url: url, as: TMDbPaginatedMovieResponse.self)
             return (response.results, page < (response.totalPages ?? page))
-        case .documentaries, .action, .comedy, .drama, .horror, .romance, .sciFi, .thriller:
-            fatalError("Genre categories handled above")
+        case .basedOnBooks:
+            let url = tmdbURL(path: "/discover/movie", queryItems: [
+                "with_keywords": Self.basedOnBookKeywordId,
+                "sort_by": "popularity.desc",
+                "page": "\(page)"
+            ])
+            let response: TMDbPaginatedMovieResponse = try await cached("movies_book_\(page)", url: url, as: TMDbPaginatedMovieResponse.self)
+            return (response.results, page < (response.totalPages ?? page))
+        default:
+            guard let genreId = category.genreId else {
+                preconditionFailure("MovieCategory must map to discover: \(category)")
+            }
+            let cacheKey = "movies_genre_\(genreId)_\(page)"
+            let url = tmdbURL(path: "/discover/movie", queryItems: ["with_genres": "\(genreId)", "sort_by": "popularity.desc", "page": "\(page)"])
+            let response: TMDbPaginatedMovieResponse = try await cached(cacheKey, url: url, as: TMDbPaginatedMovieResponse.self)
+            let totalPages = response.totalPages ?? page
+            return (response.results, page < totalPages)
         }
     }
 
     /// Load TV series for a category (used by See All). Returns (items, hasMore) for pagination.
     func tvSeriesPaginated(for category: TVCategory, page: Int) async throws -> (items: [TVSeriesListItem], hasMore: Bool) {
-        if let genreId = category.genreId {
-            let cacheKey = "tv_genre_\(genreId)_\(page)"
-            let url = tmdbURL(path: "/discover/tv", queryItems: ["with_genres": "\(genreId)", "sort_by": "popularity.desc", "page": "\(page)"])
-            let response: TMDbPaginatedTVResponse = try await cached(cacheKey, url: url, as: TMDbPaginatedTVResponse.self)
-            return (response.results, page < (response.totalPages ?? page))
-        }
         switch category {
         case .trendingToday:
-            let items = try await trendingTVSeries()
+            let items = try await trendingTVSeries(inTimeWindow: .day)
             return (items, false)
         case .popular:
             let url = tmdbURL(path: "/tv/popular", queryItems: ["page": "\(page)"])
             let response: TMDbPaginatedTVResponse = try await cached("popular_tv_\(page)", url: url, as: TMDbPaginatedTVResponse.self)
             return (response.results, page < (response.totalPages ?? page))
-        case .topRated:
-            let url = tmdbURL(path: "/discover/tv", queryItems: ["sort_by": "vote_average.desc", "page": "\(page)"])
-            let response: TMDbPaginatedTVResponse = try await cached("top_rated_tv_\(page)", url: url, as: TMDbPaginatedTVResponse.self)
+        case .criticallyAcclaimed:
+            let url = tmdbURL(path: "/discover/tv", queryItems: [
+                "vote_average.gte": "7.5",
+                "vote_count.gte": "150",
+                "sort_by": "vote_average.desc",
+                "page": "\(page)"
+            ])
+            let response: TMDbPaginatedTVResponse = try await cached("tv_acclaimed_\(page)", url: url, as: TMDbPaginatedTVResponse.self)
             return (response.results, page < (response.totalPages ?? page))
-        case .documentaries, .actionAdventure, .comedy, .drama, .horror, .romance, .sciFiFantasy, .thriller:
-            fatalError("Genre categories handled above")
+        case .newReleases:
+            let from = Self.tmdbDiscoverDate(daysFromToday: -45)
+            let url = tmdbURL(path: "/discover/tv", queryItems: [
+                "first_air_date.gte": from,
+                "sort_by": "popularity.desc",
+                "page": "\(page)"
+            ])
+            let response: TMDbPaginatedTVResponse = try await cached("tv_new_\(from)_\(page)", url: url, as: TMDbPaginatedTVResponse.self)
+            return (response.results, page < (response.totalPages ?? page))
+        case .basedOnBooks:
+            let url = tmdbURL(path: "/discover/tv", queryItems: [
+                "with_keywords": Self.basedOnBookKeywordId,
+                "sort_by": "popularity.desc",
+                "page": "\(page)"
+            ])
+            let response: TMDbPaginatedTVResponse = try await cached("tv_book_\(page)", url: url, as: TMDbPaginatedTVResponse.self)
+            return (response.results, page < (response.totalPages ?? page))
+        default:
+            guard let genreId = category.genreId else {
+                preconditionFailure("TVCategory must map to discover: \(category)")
+            }
+            let cacheKey = "tv_genre_\(genreId)_\(page)"
+            let url = tmdbURL(path: "/discover/tv", queryItems: ["with_genres": "\(genreId)", "sort_by": "popularity.desc", "page": "\(page)"])
+            let response: TMDbPaginatedTVResponse = try await cached(cacheKey, url: url, as: TMDbPaginatedTVResponse.self)
+            return (response.results, page < (response.totalPages ?? page))
         }
     }
 }

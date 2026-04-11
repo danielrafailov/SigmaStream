@@ -24,15 +24,9 @@ struct TVShowsView: View {
     @Environment(AppState.self) private var appState
     @State private var trending: [TVSeriesListItem] = []
     @State private var popular: [TVSeriesListItem] = []
-    @State private var topRated: [TVSeriesListItem] = []
-    @State private var documentaries: [TVSeriesListItem] = []
-    @State private var actionAdventure: [TVSeriesListItem] = []
-    @State private var comedy: [TVSeriesListItem] = []
-    @State private var drama: [TVSeriesListItem] = []
-    @State private var horror: [TVSeriesListItem] = []
-    @State private var romance: [TVSeriesListItem] = []
-    @State private var sciFiFantasy: [TVSeriesListItem] = []
-    @State private var thriller: [TVSeriesListItem] = []
+    @State private var criticallyAcclaimed: [TVSeriesListItem] = []
+    @State private var newReleases: [TVSeriesListItem] = []
+    @State private var extraSections: [(TVCategory, [TVSeriesListItem])] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var selectedSeries: TVSeriesSelection?
@@ -53,101 +47,15 @@ struct TVShowsView: View {
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 60)
                     } else {
-                        TVSeriesMediaRow(
-                            title: "Trending Today",
-                            tvSeries: trending,
-                            config: appState.apiConfiguration,
-                            onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
-                            onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .trendingToday) }
-                        )
+                        tvRow(title: TVCategory.trendingToday.rawValue, series: trending, category: .trendingToday)
+                        tvRow(title: TVCategory.popular.rawValue, series: popular, category: .popular)
+                        tvRow(title: TVCategory.criticallyAcclaimed.rawValue, series: criticallyAcclaimed, category: .criticallyAcclaimed)
+                        tvRow(title: TVCategory.newReleases.rawValue, series: newReleases, category: .newReleases)
 
-                        TVSeriesMediaRow(
-                            title: "Popular",
-                            tvSeries: popular,
-                            config: appState.apiConfiguration,
-                            onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
-                            onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .popular) }
-                        )
-
-                        TVSeriesMediaRow(
-                            title: "Top Rated",
-                            tvSeries: topRated,
-                            config: appState.apiConfiguration,
-                            onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
-                            onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .topRated) }
-                        )
-
-                        if !documentaries.isEmpty {
-                            TVSeriesMediaRow(
-                                title: "Documentaries",
-                                tvSeries: documentaries,
-                                config: appState.apiConfiguration,
-                                onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
-                                onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .documentaries) }
-                            )
-                        }
-                        if !actionAdventure.isEmpty {
-                            TVSeriesMediaRow(
-                                title: "Action & Adventure",
-                                tvSeries: actionAdventure,
-                                config: appState.apiConfiguration,
-                                onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
-                                onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .actionAdventure) }
-                            )
-                        }
-                        if !comedy.isEmpty {
-                            TVSeriesMediaRow(
-                                title: "Comedy",
-                                tvSeries: comedy,
-                                config: appState.apiConfiguration,
-                                onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
-                                onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .comedy) }
-                            )
-                        }
-                        if !drama.isEmpty {
-                            TVSeriesMediaRow(
-                                title: "Drama",
-                                tvSeries: drama,
-                                config: appState.apiConfiguration,
-                                onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
-                                onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .drama) }
-                            )
-                        }
-                        if !horror.isEmpty {
-                            TVSeriesMediaRow(
-                                title: "Horror",
-                                tvSeries: horror,
-                                config: appState.apiConfiguration,
-                                onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
-                                onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .horror) }
-                            )
-                        }
-                        if !romance.isEmpty {
-                            TVSeriesMediaRow(
-                                title: "Romance",
-                                tvSeries: romance,
-                                config: appState.apiConfiguration,
-                                onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
-                                onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .romance) }
-                            )
-                        }
-                        if !sciFiFantasy.isEmpty {
-                            TVSeriesMediaRow(
-                                title: "Sci-Fi & Fantasy",
-                                tvSeries: sciFiFantasy,
-                                config: appState.apiConfiguration,
-                                onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
-                                onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .sciFiFantasy) }
-                            )
-                        }
-                        if !thriller.isEmpty {
-                            TVSeriesMediaRow(
-                                title: "Thriller",
-                                tvSeries: thriller,
-                                config: appState.apiConfiguration,
-                                onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) },
-                                onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: .thriller) }
-                            )
+                        ForEach(extraSections, id: \.0) { cat, items in
+                            if !items.isEmpty {
+                                tvRow(title: cat.rawValue, series: items, category: cat)
+                            }
                         }
                     }
                 }
@@ -164,9 +72,19 @@ struct TVShowsView: View {
             .task(id: shouldLoad) {
                 guard shouldLoad else { return }
                 await loadData()
-                onLoadComplete?()
             }
         }
+    }
+
+    @ViewBuilder
+    private func tvRow(title: String, series: [TVSeriesListItem], category: TVCategory) -> some View {
+        TVSeriesMediaRow(
+            title: title,
+            tvSeries: series,
+            config: appState.apiConfiguration,
+            onSelect: { s in selectedSeries = TVSeriesSelection(id: s.id) },
+            onSeeAll: { categoryForSeeAll = TVCategorySeeAll(category: category) }
+        )
     }
 
     private func loadData() async {
@@ -175,39 +93,35 @@ struct TVShowsView: View {
         errorMessage = nil
 
         do {
-            // Phase 1: Load first 3 lists so user sees content quickly
-            async let trendingTask = appState.tmdbService.trendingTVSeries()
+            async let trendingTask = appState.tmdbService.trendingTVSeries(inTimeWindow: .day)
             async let popularTask = appState.tmdbService.popularTVSeries()
-            async let topRatedTask = appState.tmdbService.topRatedTVSeries()
+            async let acclaimedTask = appState.tmdbService.criticallyAcclaimedTVSeries()
+            async let newTask = appState.tmdbService.recentReleaseTVSeries()
 
             trending = try await trendingTask
             popular = try await popularTask
-            topRated = try await topRatedTask
+            criticallyAcclaimed = try await acclaimedTask
+            newReleases = try await newTask
             isLoading = false
 
-            // Phase 2: Load documentaries in background
-            documentaries = try await appState.tmdbService.documentaryTVSeries()
-
-            // Phase 3: Load genre lists in background
-            async let actionAdventureTask = appState.tmdbService.tvSeriesPaginated(for: .actionAdventure, page: 1)
-            async let comedyTask = appState.tmdbService.tvSeriesPaginated(for: .comedy, page: 1)
-            async let dramaTask = appState.tmdbService.tvSeriesPaginated(for: .drama, page: 1)
-            async let horrorTask = appState.tmdbService.tvSeriesPaginated(for: .horror, page: 1)
-            async let romanceTask = appState.tmdbService.tvSeriesPaginated(for: .romance, page: 1)
-            async let sciFiFantasyTask = appState.tmdbService.tvSeriesPaginated(for: .sciFiFantasy, page: 1)
-            async let thrillerTask = appState.tmdbService.tvSeriesPaginated(for: .thriller, page: 1)
-
-            actionAdventure = try await actionAdventureTask.items
-            comedy = try await comedyTask.items
-            drama = try await dramaTask.items
-            horror = try await horrorTask.items
-            romance = try await romanceTask.items
-            sciFiFantasy = try await sciFiFantasyTask.items
-            thriller = try await thrillerTask.items
+            var pairs: [(TVCategory, [TVSeriesListItem])] = []
+            await withTaskGroup(of: (TVCategory, [TVSeriesListItem]).self) { group in
+                for cat in TVCategory.catalogDiscoverRows {
+                    group.addTask {
+                        let items = (try? await appState.tmdbService.tvSeriesPaginated(for: cat, page: 1).items) ?? []
+                        return (cat, items)
+                    }
+                }
+                for await p in group {
+                    pairs.append(p)
+                }
+            }
+            extraSections = TVCategory.catalogDiscoverRows.compactMap { c in pairs.first { $0.0 == c } }
         } catch {
             errorMessage = error.localizedDescription
             isLoading = false
         }
+        onLoadComplete?()
     }
 }
 

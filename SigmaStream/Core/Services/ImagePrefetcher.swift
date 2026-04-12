@@ -16,9 +16,11 @@ enum ImagePrefetcher {
         return URLSession(configuration: config)
     }()
 
-    /// Fire-and-forget GETs so responses populate `URLCache` (used by `AsyncImage`).
+    /// Fire-and-forget GETs so responses populate `URLCache` (used by shelf remote image views / system image loads).
     static func prefetch(urls: [URL]) {
+        var seen = Set<URL>()
         for url in urls {
+            guard seen.insert(url).inserted else { continue }
             var request = URLRequest(url: url)
             request.cachePolicy = .returnCacheDataElseLoad
             session.dataTask(with: request) { _, _, _ in }.resume()

@@ -188,7 +188,7 @@ struct ForYouView: View {
                                     )
                                     .frame(maxWidth: mediaCardBackdropWidth)
                                     .transition(.opacity)
-                                    .animation(.easeInOut(duration: 0.2), value: focusedMovieId)
+                                    .animation(.easeInOut(duration: 0.2), value: isFocused)
                                 }
                             }
                             if isFocused { Color.clear.frame(width: 32) }
@@ -247,7 +247,7 @@ struct ForYouView: View {
                                     )
                                     .frame(maxWidth: mediaCardBackdropWidth)
                                     .transition(.opacity)
-                                    .animation(.easeInOut(duration: 0.2), value: focusedSeriesId)
+                                    .animation(.easeInOut(duration: 0.2), value: isFocused)
                                 }
                             }
                             if isFocused { Color.clear.frame(width: 32) }
@@ -306,7 +306,7 @@ struct ForYouView: View {
                                     )
                                     .frame(maxWidth: mediaCardBackdropWidth)
                                     .transition(.opacity)
-                                    .animation(.easeInOut(duration: 0.2), value: continueWatchingMovieFocusedId)
+                                    .animation(.easeInOut(duration: 0.2), value: isFocused)
                                 }
                             }
                             if isFocused { Color.clear.frame(width: 32) }
@@ -365,7 +365,7 @@ struct ForYouView: View {
                                     )
                                     .frame(maxWidth: mediaCardBackdropWidth)
                                     .transition(.opacity)
-                                    .animation(.easeInOut(duration: 0.2), value: continueWatchingTVFocusedId)
+                                    .animation(.easeInOut(duration: 0.2), value: isFocused)
                                 }
                             }
                             if isFocused { Color.clear.frame(width: 32) }
@@ -637,7 +637,7 @@ struct ForYouView: View {
                                         )
                                         .frame(maxWidth: mediaCardBackdropWidth, minHeight: 120, alignment: .topLeading)
                                         .transition(.opacity)
-                                        .animation(.easeInOut(duration: 0.2), value: likedMovieFocusedId)
+                                        .animation(.easeInOut(duration: 0.2), value: isFocused)
                                     }
                                 }
                                 if isFocused { Color.clear.frame(width: 32) }
@@ -688,7 +688,7 @@ struct ForYouView: View {
                                         )
                                         .frame(maxWidth: mediaCardBackdropWidth, minHeight: 120, alignment: .topLeading)
                                         .transition(.opacity)
-                                        .animation(.easeInOut(duration: 0.2), value: likedSeriesFocusedId)
+                                        .animation(.easeInOut(duration: 0.2), value: isFocused)
                                     }
                                 }
                                 if isFocused { Color.clear.frame(width: 32) }

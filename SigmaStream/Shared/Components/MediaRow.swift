@@ -8,6 +8,10 @@
 import SwiftUI
 import TMDb
 
+private enum MediaRowPrefetch {
+    static let rowItemCap = 14
+}
+
 /// Horizontal scrolling row of movie cards.
 struct MovieMediaRow: View {
     let title: String
@@ -30,7 +34,8 @@ struct MovieMediaRow: View {
         var focusKey: String { "\(title)_\(movie.id)_\(segment)" }
     }
 
-    private static let carouselMinCount = 6
+    /// Carousel duplicates every item (2× `ForEach` children) and showed up as heavy `DynamicViewList` / layout work in profiling; keep disabled.
+    private static let carouselMinCount = Int.max
 
     private var useCarousel: Bool {
         movies.count >= Self.carouselMinCount
@@ -210,13 +215,16 @@ struct MovieMediaRow: View {
 
     private func prefetchMovieRowImages() {
         guard let config else { return }
-        let backdropW = Int(mediaCardBackdropWidth)
+        let backdropIdeal = ImageURLBuilder.clampedIdealWidth(
+            Int(mediaCardBackdropWidth),
+            cap: ImageURLBuilder.shelfBackdropIdealWidthCap
+        )
         var urls: [URL] = []
-        for m in movies.prefix(22) {
+        for m in movies.prefix(MediaRowPrefetch.rowItemCap) {
             if let u = ImageURLBuilder.posterURL(for: m.posterPath, config: config, idealWidth: 342) {
                 urls.append(u)
             }
-            if let u = ImageURLBuilder.backdropURL(for: m.backdropPath, config: config, idealWidth: backdropW) {
+            if let u = ImageURLBuilder.backdropURL(for: m.backdropPath, config: config, idealWidth: backdropIdeal) {
                 urls.append(u)
             }
         }
@@ -237,7 +245,10 @@ struct MovieMediaRow: View {
         guard key != seeAllKey, key != wrapRightKey else { return }
         guard let idx = carouselMovieItems.firstIndex(where: { $0.focusKey == key }) else { return }
         guard let config else { return }
-        let backdropW = Int(mediaCardBackdropWidth)
+        let backdropIdeal = ImageURLBuilder.clampedIdealWidth(
+            Int(mediaCardBackdropWidth),
+            cap: ImageURLBuilder.shelfBackdropIdealWidthCap
+        )
         let lo = max(0, idx - 1)
         let hi = min(carouselMovieItems.count - 1, idx + 1)
         var urls: [URL] = []
@@ -246,7 +257,7 @@ struct MovieMediaRow: View {
             if let u = ImageURLBuilder.posterURL(for: m.posterPath, config: config, idealWidth: 342) {
                 urls.append(u)
             }
-            if let u = ImageURLBuilder.backdropURL(for: m.backdropPath, config: config, idealWidth: backdropW) {
+            if let u = ImageURLBuilder.backdropURL(for: m.backdropPath, config: config, idealWidth: backdropIdeal) {
                 urls.append(u)
             }
         }
@@ -276,7 +287,7 @@ struct TVSeriesMediaRow: View {
         var focusKey: String { "\(title)_\(series.id)_\(segment)" }
     }
 
-    private static let carouselMinCount = 6
+    private static let carouselMinCount = Int.max
 
     private var useCarousel: Bool {
         tvSeries.count >= Self.carouselMinCount
@@ -456,13 +467,16 @@ struct TVSeriesMediaRow: View {
 
     private func prefetchTVRowImages() {
         guard let config else { return }
-        let backdropW = Int(mediaCardBackdropWidth)
+        let backdropIdeal = ImageURLBuilder.clampedIdealWidth(
+            Int(mediaCardBackdropWidth),
+            cap: ImageURLBuilder.shelfBackdropIdealWidthCap
+        )
         var urls: [URL] = []
-        for s in tvSeries.prefix(22) {
+        for s in tvSeries.prefix(MediaRowPrefetch.rowItemCap) {
             if let u = ImageURLBuilder.posterURL(for: s.posterPath, config: config, idealWidth: 342) {
                 urls.append(u)
             }
-            if let u = ImageURLBuilder.backdropURL(for: s.backdropPath, config: config, idealWidth: backdropW) {
+            if let u = ImageURLBuilder.backdropURL(for: s.backdropPath, config: config, idealWidth: backdropIdeal) {
                 urls.append(u)
             }
         }
@@ -483,7 +497,10 @@ struct TVSeriesMediaRow: View {
         guard key != seeAllKey, key != wrapRightKey else { return }
         guard let idx = carouselSeriesItems.firstIndex(where: { $0.focusKey == key }) else { return }
         guard let config else { return }
-        let backdropW = Int(mediaCardBackdropWidth)
+        let backdropIdeal = ImageURLBuilder.clampedIdealWidth(
+            Int(mediaCardBackdropWidth),
+            cap: ImageURLBuilder.shelfBackdropIdealWidthCap
+        )
         let lo = max(0, idx - 1)
         let hi = min(carouselSeriesItems.count - 1, idx + 1)
         var urls: [URL] = []
@@ -492,7 +509,7 @@ struct TVSeriesMediaRow: View {
             if let u = ImageURLBuilder.posterURL(for: s.posterPath, config: config, idealWidth: 342) {
                 urls.append(u)
             }
-            if let u = ImageURLBuilder.backdropURL(for: s.backdropPath, config: config, idealWidth: backdropW) {
+            if let u = ImageURLBuilder.backdropURL(for: s.backdropPath, config: config, idealWidth: backdropIdeal) {
                 urls.append(u)
             }
         }

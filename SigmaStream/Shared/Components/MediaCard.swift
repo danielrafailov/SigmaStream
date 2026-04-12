@@ -73,20 +73,22 @@ struct MediaCard: View {
         if useBackdrop {
             return ImageURLBuilder.posterURL(for: posterPath, config: config, idealWidth: idealWidth)
         }
-        let width = isFocused ? 500 : idealWidth
+        let width = isFocused ? ImageURLBuilder.shelfPosterFocusedIdealWidth : idealWidth
         return ImageURLBuilder.posterURL(for: posterPath, config: config, idealWidth: width)
     }
 
     private var backdropURL: URL? {
         guard useBackdrop, let backdropPath else { return nil }
-        return ImageURLBuilder.backdropURL(for: backdropPath, config: config, idealWidth: Int(backdropWidth))
+        let requested = Int(backdropWidth)
+        let capped = ImageURLBuilder.clampedIdealWidth(requested, cap: ImageURLBuilder.shelfBackdropIdealWidthCap)
+        return ImageURLBuilder.backdropURL(for: backdropPath, config: config, idealWidth: capped)
     }
 
     /// Drives frame animation (same intent as previous `imageURL` animation).
     private var layoutAnimationID: String {
         if alwaysPoster { return "poster_\(idealWidth)" }
         if useBackdrop { return "backdrop" }
-        let width = isFocused ? 500 : idealWidth
+        let width = isFocused ? ImageURLBuilder.shelfPosterFocusedIdealWidth : idealWidth
         return "poster_\(width)"
     }
 
@@ -106,7 +108,7 @@ struct MediaCard: View {
                 ZStack {
                     if let pURL = basePosterURL {
                         // Fit full poster inside 16:9 (fill was over-cropping / too zoomed).
-                        posterAsync(url: pURL, aspect: 2 / 3, contentMode: .fit, showProgressOnEmpty: false)
+                        posterCached(url: pURL, aspect: 2 / 3, contentMode: .fit, maxPixelSize: 640)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .background {
                                 Rectangle()
@@ -115,15 +117,16 @@ struct MediaCard: View {
                     } else {
                         posterPlaceholder
                     }
-                    backdropAsync(url: bURL)
+                    backdropCached(url: bURL)
                 }
             } else if let pURL = basePosterURL {
-                posterAsync(url: pURL, aspect: 2 / 3, contentMode: .fill, showProgressOnEmpty: true)
+                posterCached(url: pURL, aspect: 2 / 3, contentMode: .fill, maxPixelSize: isFocused ? 720 : 520)
             } else {
                 posterPlaceholder
             }
         }
         .modifier(CardFrameModifier(alwaysPoster: alwaysPoster, useBackdrop: useBackdrop, backdropWidth: backdropWidth, posterWidth: posterWidth, posterHeight: posterHeight))
+        .animation(.easeInOut(duration: 0.12), value: layoutAnimationID)
         .clipShape(RoundedRectangle(cornerRadius: mediaPosterCornerRadius, style: .continuous))
         .overlay {
             if isFocused {
@@ -131,7 +134,6 @@ struct MediaCard: View {
                     .stroke(Color.white, lineWidth: 3)
             }
         }
-        .animation(.easeInOut(duration: 0.15), value: layoutAnimationID)
         .onChange(of: useBackdrop) { _, new in
             if !new { backdropOpacity = 0 }
         }
@@ -141,50 +143,27 @@ struct MediaCard: View {
     }
 
     @ViewBuilder
-    private func posterAsync(url: URL, aspect: CGFloat, contentMode: ContentMode, showProgressOnEmpty: Bool) -> some View {
-        AsyncImage(url: url) { phase in
-            switch phase {
-            case .success(let image):
-                image
-                    .resizable()
-                    .aspectRatio(aspect, contentMode: contentMode)
-            case .failure:
-                posterPlaceholder
-            case .empty:
-                posterPlaceholder
-                    .overlay {
-                        if showProgressOnEmpty {
-                            ProgressView()
-                        }
-                    }
-            @unknown default:
-                posterPlaceholder
-            }
-        }
+    private func posterCached(url: URL, aspect: CGFloat, contentMode: ContentMode, maxPixelSize: Int) -> some View {
+        ShelfPosterRemoteImage(
+            url: url,
+            maxPixelSize: maxPixelSize,
+            aspectRatio: aspect,
+            contentMode: contentMode
+        )
     }
 
     @ViewBuilder
-    private func backdropAsync(url: URL) -> some View {
-        AsyncImage(url: url) { phase in
-            switch phase {
-            case .success(let image):
-                image
-                    .resizable()
-                    .aspectRatio(16 / 9, contentMode: .fill)
-                    .opacity(backdropOpacity)
-                    .onAppear {
-                        withAnimation(.easeInOut(duration: 0.22)) {
-                            backdropOpacity = 1
-                        }
-                    }
-            case .failure:
-                EmptyView()
-            case .empty:
-                EmptyView()
-            @unknown default:
-                EmptyView()
+    private func backdropCached(url: URL) -> some View {
+        ShelfBackdropRemoteImage(
+            url: url,
+            maxPixelSize: 900,
+            onImageReady: {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    backdropOpacity = 1
+                }
             }
-        }
+        )
+        .opacity(backdropOpacity)
     }
 
     private var posterPlaceholder: some View {

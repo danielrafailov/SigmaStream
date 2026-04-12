@@ -130,7 +130,7 @@ struct MyListView: View {
                                 )
                                 .frame(maxWidth: mediaCardBackdropWidth)
                                 .transition(.opacity)
-                                .animation(.easeInOut(duration: 0.2), value: focusedMovieId)
+                                .animation(.easeInOut(duration: 0.2), value: isFocused)
                             }
                         }
                             if isFocused {
@@ -196,7 +196,7 @@ struct MyListView: View {
                                 )
                                 .frame(maxWidth: mediaCardBackdropWidth)
                                 .transition(.opacity)
-                                .animation(.easeInOut(duration: 0.2), value: focusedSeriesId)
+                                .animation(.easeInOut(duration: 0.2), value: isFocused)
                             }
                         }
                             if isFocused {

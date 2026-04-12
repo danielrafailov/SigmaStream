@@ -11,6 +11,15 @@ import TMDb
 /// Helper for building TMDb image URLs from API configuration.
 enum ImageURLBuilder {
 
+    /// Shelves rarely need assets wider than TMDb’s `w780` profile; caps decode size and bandwidth.
+    static let shelfBackdropIdealWidthCap = 780
+    /// Focused poster bump without requesting oversized stills.
+    static let shelfPosterFocusedIdealWidth = 400
+
+    static func clampedIdealWidth(_ requested: Int, cap: Int) -> Int {
+        min(max(1, requested), cap)
+    }
+
     /// Build poster URL for a given path and configuration.
     /// Returns nil if config or path is nil.
     static func posterURL(

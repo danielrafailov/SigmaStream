@@ -46,6 +46,8 @@ struct HomeView: View {
     @State private var tvExtraSections: [(TVCategory, [TVSeriesListItem])] = []
 
     @State private var isLoading = false
+    /// When true, core catalog shelves (trending/popular/…) may render even while genre rows or personal data still load.
+    @State private var catalogFirstPaintReady = false
     @State private var errorMessage: String?
     @State private var selectedMovie: MovieSelection?
     @State private var selectedSeries: TVSeriesSelection?
@@ -62,7 +64,7 @@ struct HomeView: View {
                             .padding()
                     }
 
-                    if trendingMovies.isEmpty && errorMessage == nil {
+                    if !catalogFirstPaintReady && errorMessage == nil {
                         ProgressView("Loading...")
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 60)
@@ -238,6 +240,7 @@ struct HomeView: View {
     private func loadData() async {
         guard !isLoading else { return }
         isLoading = true
+        catalogFirstPaintReady = false
         errorMessage = nil
 
         do {
@@ -252,46 +255,56 @@ struct HomeView: View {
             async let moviesUpcoming = appState.tmdbService.upcomingMovies()
             async let moviesNowPlaying = appState.tmdbService.nowPlayingMovies()
 
-            trendingMovies = try await moviesTrending
-            trendingTV = try await tvTrending
-            popularMovies = try await moviesPopular
-            popularTV = try await tvPopular
-            acclaimedMovies = try await moviesAcclaimed
-            acclaimedTV = try await tvAcclaimed
-            newMovies = try await moviesNew
-            newTV = try await tvNew
-            upcomingMovies = try await moviesUpcoming
-            nowPlayingMovies = try await moviesNowPlaying
+            let (
+                tM, tTV, pM, pTV,
+                aM, aTV, nM, nTV,
+                uM, npM
+            ) = try await (
+                moviesTrending, tvTrending, moviesPopular, tvPopular,
+                moviesAcclaimed, tvAcclaimed, moviesNew, tvNew,
+                moviesUpcoming, moviesNowPlaying
+            )
 
-            var moviePairs: [(MovieCategory, [MovieListItem])] = []
-            await withTaskGroup(of: (MovieCategory, [MovieListItem]).self) { group in
-                for cat in MovieCategory.catalogDiscoverRows {
-                    group.addTask {
-                        let items = (try? await appState.tmdbService.moviesPaginated(for: cat, page: 1).items) ?? []
-                        return (cat, items)
-                    }
-                }
-                for await p in group { moviePairs.append(p) }
-            }
-            movieExtraSections = MovieCategory.catalogDiscoverRows.compactMap { c in moviePairs.first { $0.0 == c } }
+            trendingMovies = tM
+            trendingTV = tTV
+            popularMovies = pM
+            popularTV = pTV
+            acclaimedMovies = aM
+            acclaimedTV = aTV
+            newMovies = nM
+            newTV = nTV
+            upcomingMovies = uM
+            nowPlayingMovies = npM
 
-            var tvPairs: [(TVCategory, [TVSeriesListItem])] = []
-            await withTaskGroup(of: (TVCategory, [TVSeriesListItem]).self) { group in
-                for cat in TVCategory.catalogDiscoverRows {
-                    group.addTask {
-                        let items = (try? await appState.tmdbService.tvSeriesPaginated(for: cat, page: 1).items) ?? []
-                        return (cat, items)
-                    }
+            catalogFirstPaintReady = true
+
+            let (movieList, tvList, _) = await PerformanceSignposts.interval(log: PerformanceSignposts.homeLoad, name: "ExtrasAndPersonal") {
+                async let movieExtrasRows = ConcurrentCatalogDiscoverFetch.mapLimited(
+                    items: MovieCategory.catalogDiscoverRows,
+                    name: "HomeMovieDiscover"
+                ) { cat in
+                    let items = (try? await appState.tmdbService.moviesPaginated(for: cat, page: 1).items) ?? []
+                    return (cat, items)
                 }
-                for await p in group { tvPairs.append(p) }
+                async let tvExtrasRows = ConcurrentCatalogDiscoverFetch.mapLimited(
+                    items: TVCategory.catalogDiscoverRows,
+                    name: "HomeTVDiscover"
+                ) { cat in
+                    let items = (try? await appState.tmdbService.tvSeriesPaginated(for: cat, page: 1).items) ?? []
+                    return (cat, items)
+                }
+                async let personalVoid: Void = refreshPersonalContent()
+                return await (movieExtrasRows, tvExtrasRows, personalVoid)
             }
-            tvExtraSections = TVCategory.catalogDiscoverRows.compactMap { c in tvPairs.first { $0.0 == c } }
+
+            movieExtraSections = MovieCategory.catalogDiscoverRows.compactMap { c in movieList.first { $0.0 == c } }
+            tvExtraSections = TVCategory.catalogDiscoverRows.compactMap { c in tvList.first { $0.0 == c } }
         } catch {
             errorMessage = error.localizedDescription
+            catalogFirstPaintReady = true
         }
 
         isLoading = false
-        await refreshPersonalContent()
         onLoadComplete?()
     }
 

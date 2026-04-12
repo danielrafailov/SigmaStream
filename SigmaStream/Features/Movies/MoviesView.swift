@@ -30,6 +30,7 @@ struct MoviesView: View {
     @State private var upcoming: [MovieListItem] = []
     @State private var extraSections: [(MovieCategory, [MovieListItem])] = []
     @State private var isLoading = false
+    @State private var catalogCoreReady = false
     @State private var errorMessage: String?
     @State private var selectedMovie: MovieSelection?
     @State private var categoryForSeeAll: MovieCategorySeeAll?
@@ -44,7 +45,7 @@ struct MoviesView: View {
                             .padding()
                     }
 
-                    if trending.isEmpty && errorMessage == nil {
+                    if !catalogCoreReady && errorMessage == nil {
                         ProgressView("Loading...")
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 60)
@@ -94,6 +95,7 @@ struct MoviesView: View {
     private func loadData() async {
         guard !isLoading else { return }
         isLoading = true
+        catalogCoreReady = false
         errorMessage = nil
 
         do {
@@ -104,31 +106,31 @@ struct MoviesView: View {
             async let upcomingTask = appState.tmdbService.upcomingMovies()
             async let nowPlayingTask = appState.tmdbService.nowPlayingMovies()
 
-            trending = try await trendingTask
-            popular = try await popularTask
-            criticallyAcclaimed = try await acclaimedTask
-            newReleases = try await newTask
-            upcoming = try await upcomingTask
-            nowPlaying = try await nowPlayingTask
-            isLoading = false
+            let (t, p, a, n, u, np) = try await (trendingTask, popularTask, acclaimedTask, newTask, upcomingTask, nowPlayingTask)
 
-            var pairs: [(MovieCategory, [MovieListItem])] = []
-            await withTaskGroup(of: (MovieCategory, [MovieListItem]).self) { group in
-                for cat in MovieCategory.catalogDiscoverRows {
-                    group.addTask {
-                        let items = (try? await appState.tmdbService.moviesPaginated(for: cat, page: 1).items) ?? []
-                        return (cat, items)
-                    }
-                }
-                for await p in group {
-                    pairs.append(p)
+            trending = t
+            popular = p
+            criticallyAcclaimed = a
+            newReleases = n
+            upcoming = u
+            nowPlaying = np
+            catalogCoreReady = true
+
+            let pairs = await PerformanceSignposts.interval(log: PerformanceSignposts.moviesTabLoad, name: "MoviesTabDiscover") {
+                await ConcurrentCatalogDiscoverFetch.mapLimited(
+                    items: MovieCategory.catalogDiscoverRows,
+                    name: "MoviesTabDiscover"
+                ) { cat in
+                    let items = (try? await appState.tmdbService.moviesPaginated(for: cat, page: 1).items) ?? []
+                    return (cat, items)
                 }
             }
             extraSections = MovieCategory.catalogDiscoverRows.compactMap { c in pairs.first { $0.0 == c } }
         } catch {
             errorMessage = error.localizedDescription
-            isLoading = false
+            catalogCoreReady = true
         }
+        isLoading = false
         onLoadComplete?()
     }
 }

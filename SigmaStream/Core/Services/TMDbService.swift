@@ -148,6 +148,30 @@ actor TMDbService {
         }
     }
 
+    /// Dedupe and order upcoming rows by **popularity** (then vote count, then sooner release).
+    private static func mergeUpcomingMovieLists(_ a: [MovieListItem], _ b: [MovieListItem]) -> [MovieListItem] {
+        let cal = utcDateOnlyCalendar
+        var seen = Set<Int>()
+        var combined: [MovieListItem] = []
+        for m in a + b {
+            guard !seen.contains(m.id) else { continue }
+            seen.insert(m.id)
+            combined.append(m)
+        }
+        combined.sort { lhs, rhs in
+            let pl = lhs.popularity ?? 0
+            let pr = rhs.popularity ?? 0
+            if pl != pr { return pl > pr }
+            let vl = lhs.voteCount ?? 0
+            let vr = rhs.voteCount ?? 0
+            if vl != vr { return vl > vr }
+            let dl = lhs.releaseDate.map { cal.startOfDay(for: $0) } ?? .distantFuture
+            let dr = rhs.releaseDate.map { cal.startOfDay(for: $0) } ?? .distantFuture
+            return dl < dr
+        }
+        return combined
+    }
+
     /// Fetch movie videos (trailers). Returns first YouTube trailer or nil.
     func movieTrailerYouTubeKey(movieId: Int) async throws -> String? {
         let url = tmdbURL(path: "/movie/\(movieId)/videos")
@@ -566,12 +590,72 @@ actor TMDbService {
         return response.results
     }
 
-    /// Fetch upcoming movies
+    /// Discover movies with primary release strictly after today (UTC). No vote floor so future titles with few votes still appear.
+    private func fetchDiscoverUpcomingPage(page: Int, fromDate: String) async throws -> TMDbPaginatedMovieResponse {
+        let url = tmdbURL(path: "/discover/movie", queryItems: [
+            "primary_release_date.gte": fromDate,
+            "sort_by": "popularity.desc",
+            "page": "\(page)"
+        ])
+        return try await cached(
+            "movies_discover_upcoming_v3_\(fromDate)_\(page)",
+            url: url,
+            as: TMDbPaginatedMovieResponse.self
+        )
+    }
+
+    /// Merges `/movie/upcoming` with discover. Page 1 pulls several discover pages so the row is not limited to one API page before filtering.
+    private func upcomingMoviesMergedPage(page: Int) async throws -> (items: [MovieListItem], hasMore: Bool) {
+        let officialURL = tmdbURL(path: "/movie/upcoming", queryItems: ["page": "\(page)"])
+        let officialResponse: TMDbPaginatedMovieResponse = try await cached(
+            "upcoming_movies_raw_\(page)",
+            url: officialURL,
+            as: TMDbPaginatedMovieResponse.self
+        )
+        let from = Self.tmdbDiscoverDate(daysFromToday: 1)
+        let officialFiltered = Self.filterMoviesReleasedInFuture(officialResponse.results)
+
+        let discoverFlat: [MovieListItem]
+        let discoverTotalPages: Int
+
+        if page == 1 {
+            let firstDiscover = try await fetchDiscoverUpcomingPage(page: 1, fromDate: from)
+            discoverTotalPages = firstDiscover.totalPages ?? 1
+            var collected = firstDiscover.results
+            await withTaskGroup(of: [MovieListItem].self) { group in
+                for p in 2...8 {
+                    group.addTask {
+                        (try? await self.fetchDiscoverUpcomingPage(page: p, fromDate: from).results) ?? []
+                    }
+                }
+                for await chunk in group {
+                    collected.append(contentsOf: chunk)
+                }
+            }
+            discoverFlat = collected
+        } else {
+            let discoverResponse = try await fetchDiscoverUpcomingPage(page: page, fromDate: from)
+            discoverFlat = discoverResponse.results
+            discoverTotalPages = discoverResponse.totalPages ?? page
+        }
+
+        let discoverFiltered = Self.filterMoviesReleasedInFuture(discoverFlat)
+        let merged = Self.mergeUpcomingMovieLists(officialFiltered, discoverFiltered)
+        let tpOfficial = officialResponse.totalPages ?? page
+        let hasMore: Bool
+        if page == 1 {
+            hasMore = tpOfficial > 1 || discoverTotalPages > 8
+        } else {
+            hasMore = page < max(tpOfficial, discoverTotalPages)
+        }
+        return (merged, hasMore)
+    }
+
+    /// Fetch upcoming movies (merged sources; capped for horizontal rows).
     func upcomingMovies(page: Int? = nil) async throws -> [MovieListItem] {
         let p = page ?? 1
-        let url = tmdbURL(path: "/movie/upcoming", queryItems: ["page": "\(p)"])
-        let response: TMDbPaginatedMovieResponse = try await cached("upcoming_movies_\(p)", url: url, as: TMDbPaginatedMovieResponse.self)
-        return Self.filterMoviesReleasedInFuture(response.results)
+        let (items, _) = try await upcomingMoviesMergedPage(page: p)
+        return Array(items.prefix(20))
     }
 
     /// Fetch documentary movies (TMDb genre ID 99)
@@ -637,10 +721,7 @@ actor TMDbService {
             let response: TMDbPaginatedMovieResponse = try await cached("now_playing_movies_\(page)", url: url, as: TMDbPaginatedMovieResponse.self)
             return (response.results, page < (response.totalPages ?? page))
         case .upcoming:
-            let url = tmdbURL(path: "/movie/upcoming", queryItems: ["page": "\(page)"])
-            let response: TMDbPaginatedMovieResponse = try await cached("upcoming_movies_\(page)", url: url, as: TMDbPaginatedMovieResponse.self)
-            let items = Self.filterMoviesReleasedInFuture(response.results)
-            return (items, page < (response.totalPages ?? page))
+            return try await upcomingMoviesMergedPage(page: page)
         case .basedOnBooks:
             let url = tmdbURL(path: "/discover/movie", queryItems: [
                 "with_keywords": Self.basedOnBookKeywordId,

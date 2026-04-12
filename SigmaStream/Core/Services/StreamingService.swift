@@ -91,7 +91,8 @@ actor StreamingService {
         }
 
         do {
-            return try JSONDecoder().decode(OMSSSourceResponse.self, from: data)
+            let decoded = try JSONDecoder().decode(OMSSSourceResponse.self, from: data)
+            return decoded
         } catch {
             throw StreamingError.decodeFailed(error)
         }

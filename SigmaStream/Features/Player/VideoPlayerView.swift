@@ -6,6 +6,7 @@
 //
 
 import AVKit
+import Foundation
 import SwiftUI
 
 private enum StreamStatus: Equatable {

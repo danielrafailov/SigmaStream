@@ -43,6 +43,15 @@ async function main() {
         `[Server] env replica=${process.env.RAILWAY_REPLICA_ID ?? 'n/a'} deployment=${process.env.RAILWAY_DEPLOYMENT_ID ?? 'n/a'}`,
     );
 
+    const tmdbApiKey = process.env.TMDB_API_KEY?.trim();
+    if (!tmdbApiKey) {
+        console.error(
+            '[Server] TMDB_API_KEY is not set. In Railway: open this backend service → Variables → add TMDB_API_KEY (your TMDb API v3 auth key). ' +
+                'Use the same environment (e.g. Production) as the deployment. Redeploy after saving.',
+        );
+        process.exit(1);
+    }
+
     const server = new OMSSServer({
         name: 'CinePro',
         version: '1.0.0',
@@ -66,9 +75,9 @@ async function main() {
             }
         },
 
-        // TMDB
+        // TMDB (OMSS also reads process.env.TMDB_API_KEY; we pass explicitly after guard above)
         tmdb: {
-            apiKey: process.env.TMDB_API_KEY!,
+            apiKey: tmdbApiKey,
             cacheTTL: 24 * 60 * 60 // 24h
         },
 

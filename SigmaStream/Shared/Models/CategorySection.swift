@@ -18,6 +18,7 @@ enum MovieCategory: String, CaseIterable {
     case upcoming = "Upcoming"
     case documentaries = "Documentaries"
     case action = "Action"
+    case racing = "Racing"
     case comedy = "Comedy"
     case drama = "Drama"
     case horror = "Horror"
@@ -57,7 +58,7 @@ enum MovieCategory: String, CaseIterable {
 
     /// Genre / keyword discover rows (same order on Movies tab and Home).
     static let catalogDiscoverRows: [MovieCategory] = [
-        .documentaries, .action, .comedy, .drama, .horror, .sciFi, .thriller,
+        .documentaries, .action, .racing, .comedy, .drama, .horror, .sciFi, .thriller,
         .crime, .animation, .family, .mystery, .fantasy, .war, .western, .history, .basedOnBooks
     ]
 }
@@ -70,6 +71,7 @@ enum TVCategory: String, CaseIterable {
     case newReleases = "New & Noteworthy"
     case documentaries = "Documentaries"
     case actionAdventure = "Action & Adventure"
+    case racing = "Racing"
     case comedy = "Comedy"
     case drama = "Drama"
     case horror = "Horror"
@@ -101,7 +103,7 @@ enum TVCategory: String, CaseIterable {
     }
 
     static let catalogDiscoverRows: [TVCategory] = [
-        .documentaries, .actionAdventure, .comedy, .drama, .horror, .sciFiFantasy, .thriller,
+        .documentaries, .actionAdventure, .racing, .comedy, .drama, .horror, .sciFiFantasy, .thriller,
         .crime, .animation, .family, .kids, .mystery, .basedOnBooks
     ]
 }

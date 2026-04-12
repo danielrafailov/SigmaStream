@@ -544,6 +544,10 @@ actor TMDbService {
     /// Keyword "based on novel or book" on TMDb (common discover filter).
     private static let basedOnBookKeywordId = "818"
 
+    /// TMDb keyword "racing" (no dedicated genre); discover uses `with_keywords`.
+    /// See https://www.themoviedb.org/keyword/10039-racing
+    private static let racingKeywordId = "10039"
+
     /// Movies first released in roughly the last 45 days (popularity order).
     func recentReleaseMovies(page: Int? = nil) async throws -> [MovieListItem] {
         let p = page ?? 1
@@ -816,6 +820,22 @@ actor TMDbService {
             )
             let response: TMDbPaginatedMovieResponse = try await cached("movies_book_orig_en_\(page)", url: url, as: TMDbPaginatedMovieResponse.self)
             return (Self.filterShelfMoviesRequireBackdrop(response.results), page < (response.totalPages ?? page))
+        case .racing:
+            let url = tmdbURL(
+                path: "/discover/movie",
+                queryItems: Self.discoverMovieQueryItems([
+                    "with_keywords": Self.racingKeywordId,
+                    "sort_by": "popularity.desc",
+                    "page": "\(page)"
+                ])
+            )
+            let response: TMDbPaginatedMovieResponse = try await cached(
+                "movies_racing_kw_orig_en_\(page)",
+                url: url,
+                as: TMDbPaginatedMovieResponse.self
+            )
+            let totalPages = response.totalPages ?? page
+            return (Self.filterShelfMoviesRequireBackdrop(response.results), page < totalPages)
         default:
             guard let genreId = category.genreId else {
                 preconditionFailure("MovieCategory must map to discover: \(category)")
@@ -883,6 +903,22 @@ actor TMDbService {
             )
             let response: TMDbPaginatedTVResponse = try await cached("tv_book_orig_en_\(page)", url: url, as: TMDbPaginatedTVResponse.self)
             return (Self.filterShelfTVSeriesRequireBackdrop(response.results), page < (response.totalPages ?? page))
+        case .racing:
+            let url = tmdbURL(
+                path: "/discover/tv",
+                queryItems: Self.discoverTVQueryItems([
+                    "with_keywords": Self.racingKeywordId,
+                    "sort_by": "popularity.desc",
+                    "page": "\(page)"
+                ])
+            )
+            let response: TMDbPaginatedTVResponse = try await cached(
+                "tv_racing_kw_orig_en_\(page)",
+                url: url,
+                as: TMDbPaginatedTVResponse.self
+            )
+            let totalPages = response.totalPages ?? page
+            return (Self.filterShelfTVSeriesRequireBackdrop(response.results), page < totalPages)
         default:
             guard let genreId = category.genreId else {
                 preconditionFailure("TVCategory must map to discover: \(category)")

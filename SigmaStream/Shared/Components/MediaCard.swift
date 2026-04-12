@@ -21,6 +21,11 @@ let mediaCardPosterWidth: CGFloat = posterHeight * (2.0 / 3.0)
 /// Extended description width: wide poster + spacing + one poster (aligns with 2nd poster).
 let mediaCardExtendedDescriptionWidth: CGFloat = mediaCardBackdropWidth + 20 + mediaCardPosterWidth
 
+/// Gap between adjacent posters in horizontal rows and category grids (Netflix-style).
+let mediaPosterSpacing: CGFloat = 10
+
+private let mediaPosterCornerRadius: CGFloat = 10
+
 /// Poster-only card for movies and TV shows (Netflix-style).
 /// When focused: shows wider backdrop (16:9) with height locked to poster height. When unfocused: shows poster (2:3).
 struct MediaCard: View {
@@ -116,10 +121,10 @@ struct MediaCard: View {
             }
         }
         .modifier(CardFrameModifier(alwaysPoster: alwaysPoster, useBackdrop: useBackdrop, backdropWidth: backdropWidth, posterWidth: posterWidth, posterHeight: posterHeight))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .clipShape(RoundedRectangle(cornerRadius: mediaPosterCornerRadius, style: .continuous))
         .overlay {
             if isFocused {
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: mediaPosterCornerRadius, style: .continuous)
                     .stroke(Color.white, lineWidth: 3)
             }
         }

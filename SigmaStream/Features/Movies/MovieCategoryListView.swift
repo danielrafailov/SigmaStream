@@ -21,7 +21,7 @@ struct MovieCategoryListView: View {
     @FocusState private var focusedMovieId: Int?
 
     private let columns = 5
-    private let gridSpacing: CGFloat = 6
+    private let gridSpacing: CGFloat = mediaPosterSpacing
 
     var body: some View {
         Group {

@@ -69,7 +69,7 @@ struct HomeView: View {
                     } else {
                         personalBlock
 
-                        movieCatalogRow(title: "Trending · Movies", movies: trendingMovies, category: .trendingToday)
+                        movieCatalogRow(title: "Trending Movies", movies: trendingMovies, category: .trendingToday)
                         movieCatalogRow(title: MovieCategory.popular.rawValue, movies: popularMovies, category: .popular)
                         movieCatalogRow(title: MovieCategory.criticallyAcclaimed.rawValue, movies: acclaimedMovies, category: .criticallyAcclaimed)
                         movieCatalogRow(title: MovieCategory.newReleases.rawValue, movies: newMovies, category: .newReleases)
@@ -82,7 +82,7 @@ struct HomeView: View {
                             }
                         }
 
-                        tvCatalogRow(title: "Trending · TV", series: trendingTV, category: .trendingToday)
+                        tvCatalogRow(title: "Trending TV", series: trendingTV, category: .trendingToday)
                         tvCatalogRow(title: TVCategory.popular.rawValue, series: popularTV, category: .popular)
                         tvCatalogRow(title: TVCategory.criticallyAcclaimed.rawValue, series: acclaimedTV, category: .criticallyAcclaimed)
                         tvCatalogRow(title: TVCategory.newReleases.rawValue, series: newTV, category: .newReleases)

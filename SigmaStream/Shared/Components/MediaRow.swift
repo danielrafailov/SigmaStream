@@ -81,7 +81,7 @@ struct MovieMediaRow: View {
             .focusSection()
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 0) {
+                HStack(alignment: .top, spacing: mediaPosterSpacing) {
                     ForEach(carouselMovieItems, id: \.focusKey) { item in
                         let movie = item.movie
                         let focusKey = item.focusKey
@@ -308,7 +308,7 @@ struct TVSeriesMediaRow: View {
             .focusSection()
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 0) {
+                HStack(alignment: .top, spacing: mediaPosterSpacing) {
                     ForEach(carouselSeriesItems, id: \.focusKey) { item in
                         let series = item.series
                         let focusKey = item.focusKey

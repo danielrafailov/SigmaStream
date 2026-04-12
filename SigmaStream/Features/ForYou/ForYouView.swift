@@ -180,7 +180,7 @@ struct ForYouView: View {
                                         Task { await loadAll() }
                                     }
                                 }
-                                if isFocused, movie.backdropPath != nil {
+                                if isFocused {
                                     MediaCardMetadata(
                                         title: movie.title,
                                         date: movie.releaseDate,
@@ -191,7 +191,7 @@ struct ForYouView: View {
                                     .animation(.easeInOut(duration: 0.2), value: focusedMovieId)
                                 }
                             }
-                            if isFocused, movie.backdropPath != nil { Color.clear.frame(width: 32) }
+                            if isFocused { Color.clear.frame(width: 32) }
                         }
                         .id(movie.id)
                     }
@@ -239,7 +239,7 @@ struct ForYouView: View {
                                         Task { await loadAll() }
                                     }
                                 }
-                                if isFocused, series.backdropPath != nil {
+                                if isFocused {
                                     MediaCardMetadata(
                                         title: series.name,
                                         date: series.firstAirDate,
@@ -250,7 +250,7 @@ struct ForYouView: View {
                                     .animation(.easeInOut(duration: 0.2), value: focusedSeriesId)
                                 }
                             }
-                            if isFocused, series.backdropPath != nil { Color.clear.frame(width: 32) }
+                            if isFocused { Color.clear.frame(width: 32) }
                         }
                         .id(series.id)
                     }
@@ -298,7 +298,7 @@ struct ForYouView: View {
                                         Task { await loadAll() }
                                     }
                                 }
-                                if isFocused, movie.backdropPath != nil {
+                                if isFocused {
                                     MediaCardMetadata(
                                         title: movie.title,
                                         date: movie.releaseDate,
@@ -309,7 +309,7 @@ struct ForYouView: View {
                                     .animation(.easeInOut(duration: 0.2), value: continueWatchingMovieFocusedId)
                                 }
                             }
-                            if isFocused, movie.backdropPath != nil { Color.clear.frame(width: 32) }
+                            if isFocused { Color.clear.frame(width: 32) }
                         }
                         .id(movie.id)
                     }
@@ -357,7 +357,7 @@ struct ForYouView: View {
                                         Task { await loadAll() }
                                     }
                                 }
-                                if isFocused, item.backdropPath != nil {
+                                if isFocused {
                                     MediaCardMetadata(
                                         title: item.seriesName,
                                         date: item.firstAirDate,
@@ -368,7 +368,7 @@ struct ForYouView: View {
                                     .animation(.easeInOut(duration: 0.2), value: continueWatchingTVFocusedId)
                                 }
                             }
-                            if isFocused, item.backdropPath != nil { Color.clear.frame(width: 32) }
+                            if isFocused { Color.clear.frame(width: 32) }
                         }
                         .id(item.id)
                     }
@@ -629,7 +629,7 @@ struct ForYouView: View {
                                             Task { await loadAll() }
                                         }
                                     }
-                                    if isFocused, movie.backdropPath != nil {
+                                    if isFocused {
                                         MediaCardMetadata(
                                             title: movie.title,
                                             date: movie.releaseDate,
@@ -640,7 +640,7 @@ struct ForYouView: View {
                                         .animation(.easeInOut(duration: 0.2), value: likedMovieFocusedId)
                                     }
                                 }
-                                if isFocused, movie.backdropPath != nil { Color.clear.frame(width: 32) }
+                                if isFocused { Color.clear.frame(width: 32) }
                             }
                             .id(movie.id)
                         }
@@ -680,7 +680,7 @@ struct ForYouView: View {
                                             Task { await loadAll() }
                                         }
                                     }
-                                    if isFocused, series.backdropPath != nil {
+                                    if isFocused {
                                         MediaCardMetadata(
                                             title: series.name,
                                             date: series.firstAirDate,
@@ -691,7 +691,7 @@ struct ForYouView: View {
                                         .animation(.easeInOut(duration: 0.2), value: likedSeriesFocusedId)
                                     }
                                 }
-                                if isFocused, series.backdropPath != nil { Color.clear.frame(width: 32) }
+                                if isFocused { Color.clear.frame(width: 32) }
                             }
                             .id(series.id)
                         }

@@ -130,6 +130,24 @@ actor TMDbService {
         return result
     }
 
+
+    /// Calendar for comparing TMDb date-only `release_date` values (decoded as UTC midnight) to "today".
+    private static var utcDateOnlyCalendar: Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(secondsFromGMT: 0)!
+        return c
+    }
+
+    /// TMDb `/movie/upcoming` can still return titles that have already released. Keep items whose release day is strictly after today (UTC).
+    private static func filterMoviesReleasedInFuture(_ movies: [MovieListItem]) -> [MovieListItem] {
+        let cal = utcDateOnlyCalendar
+        let todayStart = cal.startOfDay(for: Date())
+        return movies.filter { movie in
+            guard let release = movie.releaseDate else { return false }
+            return cal.startOfDay(for: release) > todayStart
+        }
+    }
+
     /// Fetch movie videos (trailers). Returns first YouTube trailer or nil.
     func movieTrailerYouTubeKey(movieId: Int) async throws -> String? {
         let url = tmdbURL(path: "/movie/\(movieId)/videos")
@@ -553,7 +571,7 @@ actor TMDbService {
         let p = page ?? 1
         let url = tmdbURL(path: "/movie/upcoming", queryItems: ["page": "\(p)"])
         let response: TMDbPaginatedMovieResponse = try await cached("upcoming_movies_\(p)", url: url, as: TMDbPaginatedMovieResponse.self)
-        return response.results
+        return Self.filterMoviesReleasedInFuture(response.results)
     }
 
     /// Fetch documentary movies (TMDb genre ID 99)
@@ -621,7 +639,8 @@ actor TMDbService {
         case .upcoming:
             let url = tmdbURL(path: "/movie/upcoming", queryItems: ["page": "\(page)"])
             let response: TMDbPaginatedMovieResponse = try await cached("upcoming_movies_\(page)", url: url, as: TMDbPaginatedMovieResponse.self)
-            return (response.results, page < (response.totalPages ?? page))
+            let items = Self.filterMoviesReleasedInFuture(response.results)
+            return (items, page < (response.totalPages ?? page))
         case .basedOnBooks:
             let url = tmdbURL(path: "/discover/movie", queryItems: [
                 "with_keywords": Self.basedOnBookKeywordId,

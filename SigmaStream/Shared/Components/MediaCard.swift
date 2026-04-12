@@ -32,6 +32,8 @@ struct MediaCard: View {
     /// When true, always show poster (2:3) even when focused. Used for See All grid.
     var alwaysPoster: Bool = false
 
+    @State private var backdropOpacity: CGFloat = 0
+
     init(posterPath: URL?, backdropPath: URL? = nil, config: APIConfiguration?, idealWidth: Int = 342, isFocused: Bool = false, alwaysPoster: Bool = false) {
         self.posterPath = posterPath
         self.backdropPath = backdropPath
@@ -51,19 +53,33 @@ struct MediaCard: View {
         self.alwaysPoster = false
     }
 
-    private var imageURL: URL? {
+    private var useBackdrop: Bool {
+        !alwaysPoster && isFocused && backdropPath != nil
+    }
+
+    /// Poster URL for the always-visible layer (matches unfocused size when widening to backdrop).
+    private var basePosterURL: URL? {
         if alwaysPoster {
             return ImageURLBuilder.posterURL(for: posterPath, config: config, idealWidth: idealWidth)
         }
-        if isFocused, let backdrop = backdropPath {
-            return ImageURLBuilder.backdropURL(for: backdrop, config: config, idealWidth: Int(backdropWidth))
+        if useBackdrop {
+            return ImageURLBuilder.posterURL(for: posterPath, config: config, idealWidth: idealWidth)
         }
         let width = isFocused ? 500 : idealWidth
         return ImageURLBuilder.posterURL(for: posterPath, config: config, idealWidth: width)
     }
 
-    private var useBackdrop: Bool {
-        !alwaysPoster && isFocused && backdropPath != nil
+    private var backdropURL: URL? {
+        guard useBackdrop, let backdropPath else { return nil }
+        return ImageURLBuilder.backdropURL(for: backdropPath, config: config, idealWidth: Int(backdropWidth))
+    }
+
+    /// Drives frame animation (same intent as previous `imageURL` animation).
+    private var layoutAnimationID: String {
+        if alwaysPoster { return "poster_\(idealWidth)" }
+        if useBackdrop { return "backdrop" }
+        let width = isFocused ? 500 : idealWidth
+        return "poster_\(width)"
     }
 
     /// Backdrop width to maintain 16:9 with height = posterHeight.
@@ -78,26 +94,23 @@ struct MediaCard: View {
 
     var body: some View {
         Group {
-            if let url = imageURL {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(useBackdrop ? 16/9 : 2/3, contentMode: .fill)
-                    case .failure:
-                        posterPlaceholder
-                    case .empty:
-                        posterPlaceholder
-                            .overlay {
-                                ProgressView()
+            if useBackdrop, let bURL = backdropURL {
+                ZStack {
+                    if let pURL = basePosterURL {
+                        // Fit full poster inside 16:9 (fill was over-cropping / too zoomed).
+                        posterAsync(url: pURL, aspect: 2 / 3, contentMode: .fit, showProgressOnEmpty: false)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background {
+                                Rectangle()
+                                    .fill(.black.opacity(0.35))
                             }
-                    @unknown default:
+                    } else {
                         posterPlaceholder
                     }
+                    backdropAsync(url: bURL)
                 }
-                .id(url)
-                .transition(.opacity)
+            } else if let pURL = basePosterURL {
+                posterAsync(url: pURL, aspect: 2 / 3, contentMode: .fill, showProgressOnEmpty: true)
             } else {
                 posterPlaceholder
             }
@@ -110,7 +123,60 @@ struct MediaCard: View {
                     .stroke(Color.white, lineWidth: 3)
             }
         }
-        .animation(.easeInOut(duration: 0.25), value: imageURL)
+        .animation(.easeInOut(duration: 0.25), value: layoutAnimationID)
+        .onChange(of: useBackdrop) { _, new in
+            if !new { backdropOpacity = 0 }
+        }
+        .onChange(of: backdropURL?.absoluteString) { _, _ in
+            backdropOpacity = 0
+        }
+    }
+
+    @ViewBuilder
+    private func posterAsync(url: URL, aspect: CGFloat, contentMode: ContentMode, showProgressOnEmpty: Bool) -> some View {
+        AsyncImage(url: url) { phase in
+            switch phase {
+            case .success(let image):
+                image
+                    .resizable()
+                    .aspectRatio(aspect, contentMode: contentMode)
+            case .failure:
+                posterPlaceholder
+            case .empty:
+                posterPlaceholder
+                    .overlay {
+                        if showProgressOnEmpty {
+                            ProgressView()
+                        }
+                    }
+            @unknown default:
+                posterPlaceholder
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func backdropAsync(url: URL) -> some View {
+        AsyncImage(url: url) { phase in
+            switch phase {
+            case .success(let image):
+                image
+                    .resizable()
+                    .aspectRatio(16 / 9, contentMode: .fill)
+                    .opacity(backdropOpacity)
+                    .onAppear {
+                        withAnimation(.easeInOut(duration: 0.22)) {
+                            backdropOpacity = 1
+                        }
+                    }
+            case .failure:
+                EmptyView()
+            case .empty:
+                EmptyView()
+            @unknown default:
+                EmptyView()
+            }
+        }
     }
 
     private var posterPlaceholder: some View {

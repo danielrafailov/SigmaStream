@@ -115,7 +115,7 @@ struct MovieMediaRow: View {
                                 }
                             }
 
-                            if isFocused, movie.backdropPath != nil {
+                            if isFocused {
                                 MediaCardMetadata(
                                     title: movie.title,
                                     date: movie.releaseDate,
@@ -127,7 +127,7 @@ struct MovieMediaRow: View {
                                 .animation(.easeInOut(duration: 0.2), value: focusedKey)
                             }
                         }
-                        .frame(width: (isFocused && movie.backdropPath != nil) ? mediaCardBackdropWidth : mediaCardPosterWidth, alignment: .topLeading)
+                        .frame(width: isFocused ? mediaCardBackdropWidth : mediaCardPosterWidth, alignment: .topLeading)
                         .id(focusKey)
                     }
 
@@ -147,6 +147,14 @@ struct MovieMediaRow: View {
                 set: { scrollPositionId = $0 }
             ), anchor: .leading)
             .onChange(of: focusedKey) { oldKey, newKey in
+                defer {
+                    if let key = newKey {
+                        let seeAllKey = "\(title)_seeAll"
+                        if key != seeAllKey, key != wrapRightKey {
+                            prefetchNeighborMovieImages(focusKey: key)
+                        }
+                    }
+                }
                 if newKey == nil {
                     Task { @MainActor in
                         try? await Task.sleep(for: .milliseconds(200))
@@ -159,11 +167,6 @@ struct MovieMediaRow: View {
                 if key != seeAllKey && key != wrapRightKey {
                     onFocusEnter?()
                     if let first = firstMovieKey, oldKey == seeAllKey {
-                        scrollPositionId = first
-                        focusedKey = first
-                        return
-                    }
-                    if oldKey == nil, key != firstMovieKey, let first = firstMovieKey {
                         scrollPositionId = first
                         focusedKey = first
                         return
@@ -187,11 +190,48 @@ struct MovieMediaRow: View {
                 if let first = firstMovieKey {
                     scrollPositionId = first
                 }
+                prefetchMovieRowImages()
             }
         }
         .defaultFocus($focusedKey, firstMovieKey ?? (useCarousel ? wrapRightKey : nil), priority: .userInitiated)
         .focusSection()
         .padding(.bottom, 16)
+    }
+
+    private func prefetchMovieRowImages() {
+        guard let config else { return }
+        let backdropW = Int(mediaCardBackdropWidth)
+        var urls: [URL] = []
+        for m in movies.prefix(22) {
+            if let u = ImageURLBuilder.posterURL(for: m.posterPath, config: config, idealWidth: 342) {
+                urls.append(u)
+            }
+            if let u = ImageURLBuilder.backdropURL(for: m.backdropPath, config: config, idealWidth: backdropW) {
+                urls.append(u)
+            }
+        }
+        ImagePrefetcher.prefetch(urls: urls)
+    }
+
+    private func prefetchNeighborMovieImages(focusKey key: String) {
+        let seeAllKey = "\(title)_seeAll"
+        guard key != seeAllKey, key != wrapRightKey else { return }
+        guard let idx = carouselMovieItems.firstIndex(where: { $0.focusKey == key }) else { return }
+        guard let config else { return }
+        let backdropW = Int(mediaCardBackdropWidth)
+        let lo = max(0, idx - 2)
+        let hi = min(carouselMovieItems.count - 1, idx + 2)
+        var urls: [URL] = []
+        for i in lo...hi {
+            let m = carouselMovieItems[i].movie
+            if let u = ImageURLBuilder.posterURL(for: m.posterPath, config: config, idealWidth: 342) {
+                urls.append(u)
+            }
+            if let u = ImageURLBuilder.backdropURL(for: m.backdropPath, config: config, idealWidth: backdropW) {
+                urls.append(u)
+            }
+        }
+        ImagePrefetcher.prefetch(urls: urls)
     }
 }
 
@@ -302,7 +342,7 @@ struct TVSeriesMediaRow: View {
                                 }
                             }
 
-                            if isFocused, series.backdropPath != nil {
+                            if isFocused {
                                 MediaCardMetadata(
                                     title: series.name,
                                     date: series.firstAirDate,
@@ -314,7 +354,7 @@ struct TVSeriesMediaRow: View {
                                 .animation(.easeInOut(duration: 0.2), value: focusedKey)
                             }
                         }
-                        .frame(width: (isFocused && series.backdropPath != nil) ? mediaCardBackdropWidth : mediaCardPosterWidth, alignment: .topLeading)
+                        .frame(width: isFocused ? mediaCardBackdropWidth : mediaCardPosterWidth, alignment: .topLeading)
                         .id(focusKey)
                     }
 
@@ -334,6 +374,14 @@ struct TVSeriesMediaRow: View {
                 set: { scrollPositionId = $0 }
             ), anchor: .leading)
             .onChange(of: focusedKey) { oldKey, newKey in
+                defer {
+                    if let key = newKey {
+                        let seeAllKey = "\(title)_seeAll"
+                        if key != seeAllKey, key != wrapRightKey {
+                            prefetchNeighborTVImages(focusKey: key)
+                        }
+                    }
+                }
                 if newKey == nil {
                     Task { @MainActor in
                         try? await Task.sleep(for: .milliseconds(200))
@@ -346,11 +394,6 @@ struct TVSeriesMediaRow: View {
                 if key != seeAllKey && key != wrapRightKey {
                     onFocusEnter?()
                     if let first = firstSeriesKey, oldKey == seeAllKey {
-                        scrollPositionId = first
-                        focusedKey = first
-                        return
-                    }
-                    if oldKey == nil, key != firstSeriesKey, let first = firstSeriesKey {
                         scrollPositionId = first
                         focusedKey = first
                         return
@@ -374,11 +417,48 @@ struct TVSeriesMediaRow: View {
                 if let first = firstSeriesKey {
                     scrollPositionId = first
                 }
+                prefetchTVRowImages()
             }
         }
         .defaultFocus($focusedKey, firstSeriesKey ?? (useCarousel ? wrapRightKey : nil), priority: .userInitiated)
         .focusSection()
         .padding(.bottom, 16)
+    }
+
+    private func prefetchTVRowImages() {
+        guard let config else { return }
+        let backdropW = Int(mediaCardBackdropWidth)
+        var urls: [URL] = []
+        for s in tvSeries.prefix(22) {
+            if let u = ImageURLBuilder.posterURL(for: s.posterPath, config: config, idealWidth: 342) {
+                urls.append(u)
+            }
+            if let u = ImageURLBuilder.backdropURL(for: s.backdropPath, config: config, idealWidth: backdropW) {
+                urls.append(u)
+            }
+        }
+        ImagePrefetcher.prefetch(urls: urls)
+    }
+
+    private func prefetchNeighborTVImages(focusKey key: String) {
+        let seeAllKey = "\(title)_seeAll"
+        guard key != seeAllKey, key != wrapRightKey else { return }
+        guard let idx = carouselSeriesItems.firstIndex(where: { $0.focusKey == key }) else { return }
+        guard let config else { return }
+        let backdropW = Int(mediaCardBackdropWidth)
+        let lo = max(0, idx - 2)
+        let hi = min(carouselSeriesItems.count - 1, idx + 2)
+        var urls: [URL] = []
+        for i in lo...hi {
+            let s = carouselSeriesItems[i].series
+            if let u = ImageURLBuilder.posterURL(for: s.posterPath, config: config, idealWidth: 342) {
+                urls.append(u)
+            }
+            if let u = ImageURLBuilder.backdropURL(for: s.backdropPath, config: config, idealWidth: backdropW) {
+                urls.append(u)
+            }
+        }
+        ImagePrefetcher.prefetch(urls: urls)
     }
 }
 

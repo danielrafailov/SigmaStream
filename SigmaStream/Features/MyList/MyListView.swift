@@ -122,7 +122,7 @@ struct MyListView: View {
                                 }
                             }
 
-                            if isFocused, movie.backdropPath != nil {
+                            if isFocused {
                                 MediaCardMetadata(
                                     title: movie.title,
                                     date: movie.releaseDate,
@@ -133,7 +133,7 @@ struct MyListView: View {
                                 .animation(.easeInOut(duration: 0.2), value: focusedMovieId)
                             }
                         }
-                            if isFocused, movie.backdropPath != nil {
+                            if isFocused {
                                 Color.clear.frame(width: 32)
                             }
                         }
@@ -188,7 +188,7 @@ struct MyListView: View {
                                 }
                             }
 
-                            if isFocused, series.backdropPath != nil {
+                            if isFocused {
                                 MediaCardMetadata(
                                     title: series.name,
                                     date: series.firstAirDate,
@@ -199,7 +199,7 @@ struct MyListView: View {
                                 .animation(.easeInOut(duration: 0.2), value: focusedSeriesId)
                             }
                         }
-                            if isFocused, series.backdropPath != nil {
+                            if isFocused {
                                 Color.clear.frame(width: 32)
                             }
                         }

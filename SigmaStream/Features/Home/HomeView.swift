@@ -69,11 +69,6 @@ struct HomeView: View {
                     } else {
                         personalBlock
 
-                        Text("Movies")
-                            .font(.title)
-                            .fontWeight(.bold)
-                            .padding(.horizontal)
-
                         movieCatalogRow(title: "Trending · Movies", movies: trendingMovies, category: .trendingToday)
                         movieCatalogRow(title: MovieCategory.popular.rawValue, movies: popularMovies, category: .popular)
                         movieCatalogRow(title: MovieCategory.criticallyAcclaimed.rawValue, movies: acclaimedMovies, category: .criticallyAcclaimed)
@@ -86,11 +81,6 @@ struct HomeView: View {
                                 movieCatalogRow(title: cat.rawValue, movies: items, category: cat)
                             }
                         }
-
-                        Text("TV Shows")
-                            .font(.title)
-                            .fontWeight(.bold)
-                            .padding(.horizontal)
 
                         tvCatalogRow(title: "Trending · TV", series: trendingTV, category: .trendingToday)
                         tvCatalogRow(title: TVCategory.popular.rawValue, series: popularTV, category: .popular)

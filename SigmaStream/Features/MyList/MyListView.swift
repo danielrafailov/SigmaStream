@@ -129,7 +129,7 @@ struct MyListView: View {
                                     overview: movie.overview
                                 )
                                 .frame(maxWidth: mediaCardBackdropWidth)
-                                .transition(.opacity.combined(with: .move(edge: .top)))
+                                .transition(.opacity)
                                 .animation(.easeInOut(duration: 0.2), value: focusedMovieId)
                             }
                         }
@@ -195,7 +195,7 @@ struct MyListView: View {
                                     overview: series.overview
                                 )
                                 .frame(maxWidth: mediaCardBackdropWidth)
-                                .transition(.opacity.combined(with: .move(edge: .top)))
+                                .transition(.opacity)
                                 .animation(.easeInOut(duration: 0.2), value: focusedSeriesId)
                             }
                         }

@@ -187,7 +187,7 @@ struct ForYouView: View {
                                         overview: movie.overview
                                     )
                                     .frame(maxWidth: mediaCardBackdropWidth)
-                                    .transition(.opacity.combined(with: .move(edge: .top)))
+                                    .transition(.opacity)
                                     .animation(.easeInOut(duration: 0.2), value: focusedMovieId)
                                 }
                             }
@@ -246,7 +246,7 @@ struct ForYouView: View {
                                         overview: series.overview
                                     )
                                     .frame(maxWidth: mediaCardBackdropWidth)
-                                    .transition(.opacity.combined(with: .move(edge: .top)))
+                                    .transition(.opacity)
                                     .animation(.easeInOut(duration: 0.2), value: focusedSeriesId)
                                 }
                             }
@@ -305,7 +305,7 @@ struct ForYouView: View {
                                         overview: movie.overview
                                     )
                                     .frame(maxWidth: mediaCardBackdropWidth)
-                                    .transition(.opacity.combined(with: .move(edge: .top)))
+                                    .transition(.opacity)
                                     .animation(.easeInOut(duration: 0.2), value: continueWatchingMovieFocusedId)
                                 }
                             }
@@ -364,7 +364,7 @@ struct ForYouView: View {
                                         overview: item.overview
                                     )
                                     .frame(maxWidth: mediaCardBackdropWidth)
-                                    .transition(.opacity.combined(with: .move(edge: .top)))
+                                    .transition(.opacity)
                                     .animation(.easeInOut(duration: 0.2), value: continueWatchingTVFocusedId)
                                 }
                             }
@@ -636,7 +636,7 @@ struct ForYouView: View {
                                             overview: movie.overview
                                         )
                                         .frame(maxWidth: mediaCardBackdropWidth, minHeight: 120, alignment: .topLeading)
-                                        .transition(.opacity.combined(with: .move(edge: .top)))
+                                        .transition(.opacity)
                                         .animation(.easeInOut(duration: 0.2), value: likedMovieFocusedId)
                                     }
                                 }
@@ -687,7 +687,7 @@ struct ForYouView: View {
                                             overview: series.overview
                                         )
                                         .frame(maxWidth: mediaCardBackdropWidth, minHeight: 120, alignment: .topLeading)
-                                        .transition(.opacity.combined(with: .move(edge: .top)))
+                                        .transition(.opacity)
                                         .animation(.easeInOut(duration: 0.2), value: likedSeriesFocusedId)
                                     }
                                 }

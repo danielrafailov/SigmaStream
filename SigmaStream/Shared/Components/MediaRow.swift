@@ -21,6 +21,7 @@ struct MovieMediaRow: View {
     @Environment(AppState.self) private var appState
     @FocusState private var focusedKey: String?
     @State private var scrollPositionId: String?
+    @State private var neighborPrefetchTask: Task<Void, Never>?
 
     private struct CarouselItem {
         let movie: MovieListItem
@@ -127,8 +128,8 @@ struct MovieMediaRow: View {
                                     maxDescriptionWidth: mediaCardBackdropWidth
                                 )
                                 .frame(maxWidth: mediaCardBackdropWidth, minHeight: 180, alignment: .topLeading)
-                                .transition(.opacity.combined(with: .move(edge: .top)))
-                                .animation(.easeInOut(duration: 0.2), value: focusedKey)
+                                .transition(.opacity)
+                                .animation(.easeOut(duration: 0.12), value: isFocused)
                             }
                         }
                         .frame(width: isFocused ? mediaCardBackdropWidth : mediaCardPosterWidth, alignment: .topLeading)
@@ -153,17 +154,11 @@ struct MovieMediaRow: View {
                 set: { scrollPositionId = $0 }
             ), anchor: .leading)
             .onChange(of: focusedKey) { oldKey, newKey in
-                defer {
-                    if let key = newKey {
-                        let seeAllKey = "\(title)_seeAll"
-                        if key != seeAllKey, key != wrapRightKey {
-                            prefetchNeighborMovieImages(focusKey: key)
-                        }
-                    }
-                }
                 if newKey == nil {
+                    neighborPrefetchTask?.cancel()
+                    neighborPrefetchTask = nil
                     Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(200))
+                        try? await Task.sleep(for: .milliseconds(100))
                         scrollPositionId = nil
                     }
                     return
@@ -175,6 +170,7 @@ struct MovieMediaRow: View {
                     if let first = firstMovieKey, oldKey == seeAllKey {
                         scrollPositionId = first
                         focusedKey = first
+                        scheduleNeighborPrefetch(focusKey: first)
                         return
                     }
                 }
@@ -182,14 +178,18 @@ struct MovieMediaRow: View {
                     if key == wrapRightKey, let first = firstMovieKey {
                         scrollPositionId = first
                         focusedKey = first
+                        scheduleNeighborPrefetch(focusKey: first)
                     } else if let firstCopy = firstCopyKey(for: key) {
                         scrollPositionId = firstCopy
                         focusedKey = firstCopy
-                    } else if key != wrapRightKey {
+                        scheduleNeighborPrefetch(focusKey: firstCopy)
+                    } else if key != wrapRightKey, key != seeAllKey {
                         scrollPositionId = key
+                        scheduleNeighborPrefetch(focusKey: key)
                     }
-                } else if key != wrapRightKey {
+                } else if key != wrapRightKey, key != seeAllKey {
                     scrollPositionId = key
+                    scheduleNeighborPrefetch(focusKey: key)
                 }
             }
             .onAppear {
@@ -197,6 +197,10 @@ struct MovieMediaRow: View {
                     scrollPositionId = first
                 }
                 prefetchMovieRowImages()
+            }
+            .onDisappear {
+                neighborPrefetchTask?.cancel()
+                neighborPrefetchTask = nil
             }
         }
         .defaultFocus($focusedKey, firstMovieKey ?? (useCarousel ? wrapRightKey : nil), priority: .userInitiated)
@@ -219,14 +223,23 @@ struct MovieMediaRow: View {
         ImagePrefetcher.prefetch(urls: urls)
     }
 
+    private func scheduleNeighborPrefetch(focusKey key: String) {
+        neighborPrefetchTask?.cancel()
+        neighborPrefetchTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(80))
+            guard !Task.isCancelled else { return }
+            prefetchNeighborMovieImages(focusKey: key)
+        }
+    }
+
     private func prefetchNeighborMovieImages(focusKey key: String) {
         let seeAllKey = "\(title)_seeAll"
         guard key != seeAllKey, key != wrapRightKey else { return }
         guard let idx = carouselMovieItems.firstIndex(where: { $0.focusKey == key }) else { return }
         guard let config else { return }
         let backdropW = Int(mediaCardBackdropWidth)
-        let lo = max(0, idx - 2)
-        let hi = min(carouselMovieItems.count - 1, idx + 2)
+        let lo = max(0, idx - 1)
+        let hi = min(carouselMovieItems.count - 1, idx + 1)
         var urls: [URL] = []
         for i in lo...hi {
             let m = carouselMovieItems[i].movie
@@ -254,6 +267,7 @@ struct TVSeriesMediaRow: View {
     @Environment(AppState.self) private var appState
     @FocusState private var focusedKey: String?
     @State private var scrollPositionId: String?
+    @State private var neighborPrefetchTask: Task<Void, Never>?
 
     private struct TVCarouselItem {
         let series: TVSeriesListItem
@@ -360,8 +374,8 @@ struct TVSeriesMediaRow: View {
                                     maxDescriptionWidth: mediaCardBackdropWidth
                                 )
                                 .frame(maxWidth: mediaCardBackdropWidth, minHeight: 180, alignment: .topLeading)
-                                .transition(.opacity.combined(with: .move(edge: .top)))
-                                .animation(.easeInOut(duration: 0.2), value: focusedKey)
+                                .transition(.opacity)
+                                .animation(.easeOut(duration: 0.12), value: isFocused)
                             }
                         }
                         .frame(width: isFocused ? mediaCardBackdropWidth : mediaCardPosterWidth, alignment: .topLeading)
@@ -386,17 +400,11 @@ struct TVSeriesMediaRow: View {
                 set: { scrollPositionId = $0 }
             ), anchor: .leading)
             .onChange(of: focusedKey) { oldKey, newKey in
-                defer {
-                    if let key = newKey {
-                        let seeAllKey = "\(title)_seeAll"
-                        if key != seeAllKey, key != wrapRightKey {
-                            prefetchNeighborTVImages(focusKey: key)
-                        }
-                    }
-                }
                 if newKey == nil {
+                    neighborPrefetchTask?.cancel()
+                    neighborPrefetchTask = nil
                     Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(200))
+                        try? await Task.sleep(for: .milliseconds(100))
                         scrollPositionId = nil
                     }
                     return
@@ -408,6 +416,7 @@ struct TVSeriesMediaRow: View {
                     if let first = firstSeriesKey, oldKey == seeAllKey {
                         scrollPositionId = first
                         focusedKey = first
+                        scheduleNeighborTVPrefetch(focusKey: first)
                         return
                     }
                 }
@@ -415,14 +424,18 @@ struct TVSeriesMediaRow: View {
                     if key == wrapRightKey, let first = firstSeriesKey {
                         scrollPositionId = first
                         focusedKey = first
+                        scheduleNeighborTVPrefetch(focusKey: first)
                     } else if let firstCopy = firstCopyKey(for: key) {
                         scrollPositionId = firstCopy
                         focusedKey = firstCopy
-                    } else if key != wrapRightKey {
+                        scheduleNeighborTVPrefetch(focusKey: firstCopy)
+                    } else if key != wrapRightKey, key != seeAllKey {
                         scrollPositionId = key
+                        scheduleNeighborTVPrefetch(focusKey: key)
                     }
-                } else if key != wrapRightKey {
+                } else if key != wrapRightKey, key != seeAllKey {
                     scrollPositionId = key
+                    scheduleNeighborTVPrefetch(focusKey: key)
                 }
             }
             .onAppear {
@@ -430,6 +443,10 @@ struct TVSeriesMediaRow: View {
                     scrollPositionId = first
                 }
                 prefetchTVRowImages()
+            }
+            .onDisappear {
+                neighborPrefetchTask?.cancel()
+                neighborPrefetchTask = nil
             }
         }
         .defaultFocus($focusedKey, firstSeriesKey ?? (useCarousel ? wrapRightKey : nil), priority: .userInitiated)
@@ -452,14 +469,23 @@ struct TVSeriesMediaRow: View {
         ImagePrefetcher.prefetch(urls: urls)
     }
 
+    private func scheduleNeighborTVPrefetch(focusKey key: String) {
+        neighborPrefetchTask?.cancel()
+        neighborPrefetchTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(80))
+            guard !Task.isCancelled else { return }
+            prefetchNeighborTVImages(focusKey: key)
+        }
+    }
+
     private func prefetchNeighborTVImages(focusKey key: String) {
         let seeAllKey = "\(title)_seeAll"
         guard key != seeAllKey, key != wrapRightKey else { return }
         guard let idx = carouselSeriesItems.firstIndex(where: { $0.focusKey == key }) else { return }
         guard let config else { return }
         let backdropW = Int(mediaCardBackdropWidth)
-        let lo = max(0, idx - 2)
-        let hi = min(carouselSeriesItems.count - 1, idx + 2)
+        let lo = max(0, idx - 1)
+        let hi = min(carouselSeriesItems.count - 1, idx + 1)
         var urls: [URL] = []
         for i in lo...hi {
             let s = carouselSeriesItems[i].series

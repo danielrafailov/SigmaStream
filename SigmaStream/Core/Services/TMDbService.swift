@@ -172,6 +172,42 @@ actor TMDbService {
         return combined
     }
 
+    // MARK: - English original-language catalog (shelves; search APIs stay unfiltered)
+
+    private static let catalogOriginalLanguageEnglishCode = "en"
+
+    /// TMDb discover movie: restrict to original language English (ISO 639-1).
+    private static func discoverMovieQueryItems(_ base: [String: String]) -> [String: String] {
+        var q = base
+        q["with_original_language"] = catalogOriginalLanguageEnglishCode
+        return q
+    }
+
+    /// TMDb discover TV: restrict to original language English (ISO 639-1).
+    private static func discoverTVQueryItems(_ base: [String: String]) -> [String: String] {
+        var q = base
+        q["with_original_language"] = catalogOriginalLanguageEnglishCode
+        return q
+    }
+
+    /// Trending / list endpoints without discover language params.
+    private static func filterMovieListOriginalLanguageEnglish(_ movies: [MovieListItem]) -> [MovieListItem] {
+        movies.filter { ($0.originalLanguage ?? "").lowercased() == catalogOriginalLanguageEnglishCode }
+    }
+
+    private static func filterTVListOriginalLanguageEnglish(_ series: [TVSeriesListItem]) -> [TVSeriesListItem] {
+        series.filter { ($0.originalLanguage ?? "").lowercased() == catalogOriginalLanguageEnglishCode }
+    }
+
+    /// Category rows use the wide 16:9 backdrop when focused; drop items with no backdrop.
+    private static func filterShelfMoviesRequireBackdrop(_ movies: [MovieListItem]) -> [MovieListItem] {
+        movies.filter { $0.backdropPath != nil }
+    }
+
+    private static func filterShelfTVSeriesRequireBackdrop(_ series: [TVSeriesListItem]) -> [TVSeriesListItem] {
+        series.filter { $0.backdropPath != nil }
+    }
+
     /// Fetch movie videos (trailers). Returns first YouTube trailer or nil.
     func movieTrailerYouTubeKey(movieId: Int) async throws -> String? {
         let url = tmdbURL(path: "/movie/\(movieId)/videos")
@@ -195,17 +231,20 @@ actor TMDbService {
     /// Fetch popular movies
     func popularMovies(page: Int? = nil) async throws -> [MovieListItem] {
         let p = page ?? 1
-        let url = tmdbURL(path: "/discover/movie", queryItems: ["sort_by": "popularity.desc", "page": "\(p)"])
-        let response: TMDbPaginatedMovieResponse = try await cached("popular_movies_\(p)", url: url, as: TMDbPaginatedMovieResponse.self)
-        return response.results
+        let url = tmdbURL(
+            path: "/discover/movie",
+            queryItems: Self.discoverMovieQueryItems(["sort_by": "popularity.desc", "page": "\(p)"])
+        )
+        let response: TMDbPaginatedMovieResponse = try await cached("popular_movies_orig_en_\(p)", url: url, as: TMDbPaginatedMovieResponse.self)
+        return Self.filterShelfMoviesRequireBackdrop(response.results)
     }
 
     /// Fetch trending movies
     func trendingMovies(inTimeWindow: TrendingTimeWindowFilterType = .day) async throws -> [MovieListItem] {
         let window = inTimeWindow == .day ? "day" : "week"
         let url = tmdbURL(path: "/trending/movie/\(window)")
-        let response: TMDbPaginatedMovieResponse = try await cached("trending_movies_\(window)", url: url, as: TMDbPaginatedMovieResponse.self)
-        return response.results
+        let response: TMDbPaginatedMovieResponse = try await cached("trending_movies_orig_en_\(window)", url: url, as: TMDbPaginatedMovieResponse.self)
+        return Self.filterShelfMoviesRequireBackdrop(Self.filterMovieListOriginalLanguageEnglish(response.results))
     }
 
     /// Search movies by query
@@ -509,51 +548,63 @@ actor TMDbService {
     func recentReleaseMovies(page: Int? = nil) async throws -> [MovieListItem] {
         let p = page ?? 1
         let from = Self.tmdbDiscoverDate(daysFromToday: -45)
-        let url = tmdbURL(path: "/discover/movie", queryItems: [
-            "primary_release_date.gte": from,
-            "sort_by": "popularity.desc",
-            "page": "\(p)"
-        ])
-        let response: TMDbPaginatedMovieResponse = try await cached("movies_new_\(from)_\(p)", url: url, as: TMDbPaginatedMovieResponse.self)
-        return response.results
+        let url = tmdbURL(
+            path: "/discover/movie",
+            queryItems: Self.discoverMovieQueryItems([
+                "primary_release_date.gte": from,
+                "sort_by": "popularity.desc",
+                "page": "\(p)"
+            ])
+        )
+        let response: TMDbPaginatedMovieResponse = try await cached("movies_new_orig_en_\(from)_\(p)", url: url, as: TMDbPaginatedMovieResponse.self)
+        return Self.filterShelfMoviesRequireBackdrop(response.results)
     }
 
     /// TV whose first air date is in roughly the last 45 days.
     func recentReleaseTVSeries(page: Int? = nil) async throws -> [TVSeriesListItem] {
         let p = page ?? 1
         let from = Self.tmdbDiscoverDate(daysFromToday: -45)
-        let url = tmdbURL(path: "/discover/tv", queryItems: [
-            "first_air_date.gte": from,
-            "sort_by": "popularity.desc",
-            "page": "\(p)"
-        ])
-        let response: TMDbPaginatedTVResponse = try await cached("tv_new_\(from)_\(p)", url: url, as: TMDbPaginatedTVResponse.self)
-        return response.results
+        let url = tmdbURL(
+            path: "/discover/tv",
+            queryItems: Self.discoverTVQueryItems([
+                "first_air_date.gte": from,
+                "sort_by": "popularity.desc",
+                "page": "\(p)"
+            ])
+        )
+        let response: TMDbPaginatedTVResponse = try await cached("tv_new_orig_en_\(from)_\(p)", url: url, as: TMDbPaginatedTVResponse.self)
+        return Self.filterShelfTVSeriesRequireBackdrop(response.results)
     }
 
     /// Strong ratings with enough votes to avoid one-off 10.0 titles.
     func criticallyAcclaimedMovies(page: Int? = nil) async throws -> [MovieListItem] {
         let p = page ?? 1
-        let url = tmdbURL(path: "/discover/movie", queryItems: [
-            "vote_average.gte": "7.5",
-            "vote_count.gte": "250",
-            "sort_by": "vote_average.desc",
-            "page": "\(p)"
-        ])
-        let response: TMDbPaginatedMovieResponse = try await cached("movies_acclaimed_\(p)", url: url, as: TMDbPaginatedMovieResponse.self)
-        return response.results
+        let url = tmdbURL(
+            path: "/discover/movie",
+            queryItems: Self.discoverMovieQueryItems([
+                "vote_average.gte": "7.5",
+                "vote_count.gte": "250",
+                "sort_by": "vote_average.desc",
+                "page": "\(p)"
+            ])
+        )
+        let response: TMDbPaginatedMovieResponse = try await cached("movies_acclaimed_orig_en_\(p)", url: url, as: TMDbPaginatedMovieResponse.self)
+        return Self.filterShelfMoviesRequireBackdrop(response.results)
     }
 
     func criticallyAcclaimedTVSeries(page: Int? = nil) async throws -> [TVSeriesListItem] {
         let p = page ?? 1
-        let url = tmdbURL(path: "/discover/tv", queryItems: [
-            "vote_average.gte": "7.5",
-            "vote_count.gte": "150",
-            "sort_by": "vote_average.desc",
-            "page": "\(p)"
-        ])
-        let response: TMDbPaginatedTVResponse = try await cached("tv_acclaimed_\(p)", url: url, as: TMDbPaginatedTVResponse.self)
-        return response.results
+        let url = tmdbURL(
+            path: "/discover/tv",
+            queryItems: Self.discoverTVQueryItems([
+                "vote_average.gte": "7.5",
+                "vote_count.gte": "150",
+                "sort_by": "vote_average.desc",
+                "page": "\(p)"
+            ])
+        )
+        let response: TMDbPaginatedTVResponse = try await cached("tv_acclaimed_orig_en_\(p)", url: url, as: TMDbPaginatedTVResponse.self)
+        return Self.filterShelfTVSeriesRequireBackdrop(response.results)
     }
 
     /// Fetch movie genres
@@ -570,35 +621,41 @@ actor TMDbService {
     func trendingTVSeries(inTimeWindow: TrendingTimeWindowFilterType = .day) async throws -> [TVSeriesListItem] {
         let window = inTimeWindow == .day ? "day" : "week"
         let url = tmdbURL(path: "/trending/tv/\(window)")
-        let response: TMDbPaginatedTVResponse = try await cached("trending_tv_\(window)", url: url, as: TMDbPaginatedTVResponse.self)
-        return response.results
+        let response: TMDbPaginatedTVResponse = try await cached("trending_tv_orig_en_\(window)", url: url, as: TMDbPaginatedTVResponse.self)
+        return Self.filterShelfTVSeriesRequireBackdrop(Self.filterTVListOriginalLanguageEnglish(response.results))
     }
 
-    /// Fetch popular TV series
+    /// Fetch popular TV series (discover for `with_original_language` parity with movie shelves).
     func popularTVSeries(page: Int? = nil) async throws -> [TVSeriesListItem] {
         let p = page ?? 1
-        let url = tmdbURL(path: "/tv/popular", queryItems: ["page": "\(p)"])
-        let response: TMDbPaginatedTVResponse = try await cached("popular_tv_\(p)", url: url, as: TMDbPaginatedTVResponse.self)
-        return response.results
+        let url = tmdbURL(
+            path: "/discover/tv",
+            queryItems: Self.discoverTVQueryItems(["sort_by": "popularity.desc", "page": "\(p)"])
+        )
+        let response: TMDbPaginatedTVResponse = try await cached("popular_tv_orig_en_\(p)", url: url, as: TMDbPaginatedTVResponse.self)
+        return Self.filterShelfTVSeriesRequireBackdrop(response.results)
     }
 
     /// Fetch now playing movies (currently in theatres)
     func nowPlayingMovies(page: Int? = nil) async throws -> [MovieListItem] {
         let p = page ?? 1
         let url = tmdbURL(path: "/movie/now_playing", queryItems: ["page": "\(p)"])
-        let response: TMDbPaginatedMovieResponse = try await cached("now_playing_movies_\(p)", url: url, as: TMDbPaginatedMovieResponse.self)
-        return response.results
+        let response: TMDbPaginatedMovieResponse = try await cached("now_playing_movies_orig_en_\(p)", url: url, as: TMDbPaginatedMovieResponse.self)
+        return Self.filterShelfMoviesRequireBackdrop(Self.filterMovieListOriginalLanguageEnglish(response.results))
     }
 
     /// Discover movies with primary release strictly after today (UTC). No vote floor so future titles with few votes still appear.
     private func fetchDiscoverUpcomingPage(page: Int, fromDate: String) async throws -> TMDbPaginatedMovieResponse {
-        let url = tmdbURL(path: "/discover/movie", queryItems: [
-            "primary_release_date.gte": fromDate,
-            "sort_by": "popularity.desc",
-            "page": "\(page)"
-        ])
+        let url = tmdbURL(
+            path: "/discover/movie",
+            queryItems: Self.discoverMovieQueryItems([
+                "primary_release_date.gte": fromDate,
+                "sort_by": "popularity.desc",
+                "page": "\(page)"
+            ])
+        )
         return try await cached(
-            "movies_discover_upcoming_v3_\(fromDate)_\(page)",
+            "movies_discover_upcoming_v3_orig_en_\(fromDate)_\(page)",
             url: url,
             as: TMDbPaginatedMovieResponse.self
         )
@@ -608,7 +665,7 @@ actor TMDbService {
     private func upcomingMoviesMergedPage(page: Int) async throws -> (items: [MovieListItem], hasMore: Bool) {
         let officialURL = tmdbURL(path: "/movie/upcoming", queryItems: ["page": "\(page)"])
         let officialResponse: TMDbPaginatedMovieResponse = try await cached(
-            "upcoming_movies_raw_\(page)",
+            "upcoming_movies_raw_orig_en_\(page)",
             url: officialURL,
             as: TMDbPaginatedMovieResponse.self
         )
@@ -641,6 +698,8 @@ actor TMDbService {
 
         let discoverFiltered = Self.filterMoviesReleasedInFuture(discoverFlat)
         let merged = Self.mergeUpcomingMovieLists(officialFiltered, discoverFiltered)
+        let englishOnly = Self.filterMovieListOriginalLanguageEnglish(merged)
+        let shelfReady = Self.filterShelfMoviesRequireBackdrop(englishOnly)
         let tpOfficial = officialResponse.totalPages ?? page
         let hasMore: Bool
         if page == 1 {
@@ -648,7 +707,7 @@ actor TMDbService {
         } else {
             hasMore = page < max(tpOfficial, discoverTotalPages)
         }
-        return (merged, hasMore)
+        return (shelfReady, hasMore)
     }
 
     /// Fetch upcoming movies (merged sources; capped for horizontal rows).
@@ -661,31 +720,45 @@ actor TMDbService {
     /// Fetch documentary movies (TMDb genre ID 99)
     func documentaryMovies(page: Int? = nil) async throws -> [MovieListItem] {
         let p = page ?? 1
-        let url = tmdbURL(path: "/discover/movie", queryItems: ["with_genres": "99", "sort_by": "popularity.desc", "page": "\(p)"])
-        let response: TMDbPaginatedMovieResponse = try await cached("documentary_movies_\(p)", url: url, as: TMDbPaginatedMovieResponse.self)
-        return response.results
+        let url = tmdbURL(
+            path: "/discover/movie",
+            queryItems: Self.discoverMovieQueryItems(["with_genres": "99", "sort_by": "popularity.desc", "page": "\(p)"])
+        )
+        let response: TMDbPaginatedMovieResponse = try await cached("documentary_movies_orig_en_\(p)", url: url, as: TMDbPaginatedMovieResponse.self)
+        return Self.filterShelfMoviesRequireBackdrop(response.results)
     }
 
     /// Fetch documentary TV series (TMDb genre ID 99)
     func documentaryTVSeries(page: Int? = nil) async throws -> [TVSeriesListItem] {
         let p = page ?? 1
-        let url = tmdbURL(path: "/discover/tv", queryItems: ["with_genres": "99", "sort_by": "popularity.desc", "page": "\(p)"])
-        let response: TMDbPaginatedTVResponse = try await cached("documentary_tv_\(p)", url: url, as: TMDbPaginatedTVResponse.self)
-        return response.results
+        let url = tmdbURL(
+            path: "/discover/tv",
+            queryItems: Self.discoverTVQueryItems(["with_genres": "99", "sort_by": "popularity.desc", "page": "\(p)"])
+        )
+        let response: TMDbPaginatedTVResponse = try await cached("documentary_tv_orig_en_\(p)", url: url, as: TMDbPaginatedTVResponse.self)
+        return Self.filterShelfTVSeriesRequireBackdrop(response.results)
     }
 
     /// Fetch movie recommendations (for "Because you watched X").
     func movieRecommendations(forMovieId movieId: Int, page: Int = 1) async throws -> [MovieListItem] {
         let url = tmdbURL(path: "/movie/\(movieId)/recommendations", queryItems: ["page": "\(page)"])
-        let response: TMDbPaginatedMovieResponse = try await cached("movie_recommendations_\(movieId)_\(page)", url: url, as: TMDbPaginatedMovieResponse.self)
-        return response.results
+        let response: TMDbPaginatedMovieResponse = try await cached(
+            "movie_recommendations_orig_en_\(movieId)_\(page)",
+            url: url,
+            as: TMDbPaginatedMovieResponse.self
+        )
+        return Self.filterShelfMoviesRequireBackdrop(Self.filterMovieListOriginalLanguageEnglish(response.results))
     }
 
     /// Fetch TV series recommendations (for "Because you watched X").
     func tvSeriesRecommendations(forSeriesId seriesId: Int, page: Int = 1) async throws -> [TVSeriesListItem] {
         let url = tmdbURL(path: "/tv/\(seriesId)/recommendations", queryItems: ["page": "\(page)"])
-        let response: TMDbPaginatedTVResponse = try await cached("tv_recommendations_\(seriesId)_\(page)", url: url, as: TMDbPaginatedTVResponse.self)
-        return response.results
+        let response: TMDbPaginatedTVResponse = try await cached(
+            "tv_recommendations_orig_en_\(seriesId)_\(page)",
+            url: url,
+            as: TMDbPaginatedTVResponse.self
+        )
+        return Self.filterShelfTVSeriesRequireBackdrop(Self.filterTVListOriginalLanguageEnglish(response.results))
     }
 
     /// Load movies for a category (used by See All). Returns (items, hasMore) for pagination.
@@ -695,50 +768,70 @@ actor TMDbService {
             let items = try await trendingMovies(inTimeWindow: .day)
             return (items, false)
         case .popular:
-            let url = tmdbURL(path: "/discover/movie", queryItems: ["sort_by": "popularity.desc", "page": "\(page)"])
-            let response: TMDbPaginatedMovieResponse = try await cached("popular_movies_\(page)", url: url, as: TMDbPaginatedMovieResponse.self)
-            return (response.results, page < (response.totalPages ?? page))
+            let url = tmdbURL(
+                path: "/discover/movie",
+                queryItems: Self.discoverMovieQueryItems(["sort_by": "popularity.desc", "page": "\(page)"])
+            )
+            let response: TMDbPaginatedMovieResponse = try await cached("popular_movies_orig_en_\(page)", url: url, as: TMDbPaginatedMovieResponse.self)
+            return (Self.filterShelfMoviesRequireBackdrop(response.results), page < (response.totalPages ?? page))
         case .criticallyAcclaimed:
-            let url = tmdbURL(path: "/discover/movie", queryItems: [
-                "vote_average.gte": "7.5",
-                "vote_count.gte": "250",
-                "sort_by": "vote_average.desc",
-                "page": "\(page)"
-            ])
-            let response: TMDbPaginatedMovieResponse = try await cached("movies_acclaimed_\(page)", url: url, as: TMDbPaginatedMovieResponse.self)
-            return (response.results, page < (response.totalPages ?? page))
+            let url = tmdbURL(
+                path: "/discover/movie",
+                queryItems: Self.discoverMovieQueryItems([
+                    "vote_average.gte": "7.5",
+                    "vote_count.gte": "250",
+                    "sort_by": "vote_average.desc",
+                    "page": "\(page)"
+                ])
+            )
+            let response: TMDbPaginatedMovieResponse = try await cached("movies_acclaimed_orig_en_\(page)", url: url, as: TMDbPaginatedMovieResponse.self)
+            return (Self.filterShelfMoviesRequireBackdrop(response.results), page < (response.totalPages ?? page))
         case .newReleases:
             let from = Self.tmdbDiscoverDate(daysFromToday: -45)
-            let url = tmdbURL(path: "/discover/movie", queryItems: [
-                "primary_release_date.gte": from,
-                "sort_by": "popularity.desc",
-                "page": "\(page)"
-            ])
-            let response: TMDbPaginatedMovieResponse = try await cached("movies_new_\(from)_\(page)", url: url, as: TMDbPaginatedMovieResponse.self)
-            return (response.results, page < (response.totalPages ?? page))
+            let url = tmdbURL(
+                path: "/discover/movie",
+                queryItems: Self.discoverMovieQueryItems([
+                    "primary_release_date.gte": from,
+                    "sort_by": "popularity.desc",
+                    "page": "\(page)"
+                ])
+            )
+            let response: TMDbPaginatedMovieResponse = try await cached("movies_new_orig_en_\(from)_\(page)", url: url, as: TMDbPaginatedMovieResponse.self)
+            return (Self.filterShelfMoviesRequireBackdrop(response.results), page < (response.totalPages ?? page))
         case .nowPlaying:
             let url = tmdbURL(path: "/movie/now_playing", queryItems: ["page": "\(page)"])
-            let response: TMDbPaginatedMovieResponse = try await cached("now_playing_movies_\(page)", url: url, as: TMDbPaginatedMovieResponse.self)
-            return (response.results, page < (response.totalPages ?? page))
+            let response: TMDbPaginatedMovieResponse = try await cached("now_playing_movies_orig_en_\(page)", url: url, as: TMDbPaginatedMovieResponse.self)
+            let items = Self.filterShelfMoviesRequireBackdrop(Self.filterMovieListOriginalLanguageEnglish(response.results))
+            return (items, page < (response.totalPages ?? page))
         case .upcoming:
             return try await upcomingMoviesMergedPage(page: page)
         case .basedOnBooks:
-            let url = tmdbURL(path: "/discover/movie", queryItems: [
-                "with_keywords": Self.basedOnBookKeywordId,
-                "sort_by": "popularity.desc",
-                "page": "\(page)"
-            ])
-            let response: TMDbPaginatedMovieResponse = try await cached("movies_book_\(page)", url: url, as: TMDbPaginatedMovieResponse.self)
-            return (response.results, page < (response.totalPages ?? page))
+            let url = tmdbURL(
+                path: "/discover/movie",
+                queryItems: Self.discoverMovieQueryItems([
+                    "with_keywords": Self.basedOnBookKeywordId,
+                    "sort_by": "popularity.desc",
+                    "page": "\(page)"
+                ])
+            )
+            let response: TMDbPaginatedMovieResponse = try await cached("movies_book_orig_en_\(page)", url: url, as: TMDbPaginatedMovieResponse.self)
+            return (Self.filterShelfMoviesRequireBackdrop(response.results), page < (response.totalPages ?? page))
         default:
             guard let genreId = category.genreId else {
                 preconditionFailure("MovieCategory must map to discover: \(category)")
             }
-            let cacheKey = "movies_genre_\(genreId)_\(page)"
-            let url = tmdbURL(path: "/discover/movie", queryItems: ["with_genres": "\(genreId)", "sort_by": "popularity.desc", "page": "\(page)"])
+            let cacheKey = "movies_genre_orig_en_\(genreId)_\(page)"
+            let url = tmdbURL(
+                path: "/discover/movie",
+                queryItems: Self.discoverMovieQueryItems([
+                    "with_genres": "\(genreId)",
+                    "sort_by": "popularity.desc",
+                    "page": "\(page)"
+                ])
+            )
             let response: TMDbPaginatedMovieResponse = try await cached(cacheKey, url: url, as: TMDbPaginatedMovieResponse.self)
             let totalPages = response.totalPages ?? page
-            return (response.results, page < totalPages)
+            return (Self.filterShelfMoviesRequireBackdrop(response.results), page < totalPages)
         }
     }
 
@@ -749,43 +842,62 @@ actor TMDbService {
             let items = try await trendingTVSeries(inTimeWindow: .day)
             return (items, false)
         case .popular:
-            let url = tmdbURL(path: "/tv/popular", queryItems: ["page": "\(page)"])
-            let response: TMDbPaginatedTVResponse = try await cached("popular_tv_\(page)", url: url, as: TMDbPaginatedTVResponse.self)
-            return (response.results, page < (response.totalPages ?? page))
+            let url = tmdbURL(
+                path: "/discover/tv",
+                queryItems: Self.discoverTVQueryItems(["sort_by": "popularity.desc", "page": "\(page)"])
+            )
+            let response: TMDbPaginatedTVResponse = try await cached("popular_tv_orig_en_\(page)", url: url, as: TMDbPaginatedTVResponse.self)
+            return (Self.filterShelfTVSeriesRequireBackdrop(response.results), page < (response.totalPages ?? page))
         case .criticallyAcclaimed:
-            let url = tmdbURL(path: "/discover/tv", queryItems: [
-                "vote_average.gte": "7.5",
-                "vote_count.gte": "150",
-                "sort_by": "vote_average.desc",
-                "page": "\(page)"
-            ])
-            let response: TMDbPaginatedTVResponse = try await cached("tv_acclaimed_\(page)", url: url, as: TMDbPaginatedTVResponse.self)
-            return (response.results, page < (response.totalPages ?? page))
+            let url = tmdbURL(
+                path: "/discover/tv",
+                queryItems: Self.discoverTVQueryItems([
+                    "vote_average.gte": "7.5",
+                    "vote_count.gte": "150",
+                    "sort_by": "vote_average.desc",
+                    "page": "\(page)"
+                ])
+            )
+            let response: TMDbPaginatedTVResponse = try await cached("tv_acclaimed_orig_en_\(page)", url: url, as: TMDbPaginatedTVResponse.self)
+            return (Self.filterShelfTVSeriesRequireBackdrop(response.results), page < (response.totalPages ?? page))
         case .newReleases:
             let from = Self.tmdbDiscoverDate(daysFromToday: -45)
-            let url = tmdbURL(path: "/discover/tv", queryItems: [
-                "first_air_date.gte": from,
-                "sort_by": "popularity.desc",
-                "page": "\(page)"
-            ])
-            let response: TMDbPaginatedTVResponse = try await cached("tv_new_\(from)_\(page)", url: url, as: TMDbPaginatedTVResponse.self)
-            return (response.results, page < (response.totalPages ?? page))
+            let url = tmdbURL(
+                path: "/discover/tv",
+                queryItems: Self.discoverTVQueryItems([
+                    "first_air_date.gte": from,
+                    "sort_by": "popularity.desc",
+                    "page": "\(page)"
+                ])
+            )
+            let response: TMDbPaginatedTVResponse = try await cached("tv_new_orig_en_\(from)_\(page)", url: url, as: TMDbPaginatedTVResponse.self)
+            return (Self.filterShelfTVSeriesRequireBackdrop(response.results), page < (response.totalPages ?? page))
         case .basedOnBooks:
-            let url = tmdbURL(path: "/discover/tv", queryItems: [
-                "with_keywords": Self.basedOnBookKeywordId,
-                "sort_by": "popularity.desc",
-                "page": "\(page)"
-            ])
-            let response: TMDbPaginatedTVResponse = try await cached("tv_book_\(page)", url: url, as: TMDbPaginatedTVResponse.self)
-            return (response.results, page < (response.totalPages ?? page))
+            let url = tmdbURL(
+                path: "/discover/tv",
+                queryItems: Self.discoverTVQueryItems([
+                    "with_keywords": Self.basedOnBookKeywordId,
+                    "sort_by": "popularity.desc",
+                    "page": "\(page)"
+                ])
+            )
+            let response: TMDbPaginatedTVResponse = try await cached("tv_book_orig_en_\(page)", url: url, as: TMDbPaginatedTVResponse.self)
+            return (Self.filterShelfTVSeriesRequireBackdrop(response.results), page < (response.totalPages ?? page))
         default:
             guard let genreId = category.genreId else {
                 preconditionFailure("TVCategory must map to discover: \(category)")
             }
-            let cacheKey = "tv_genre_\(genreId)_\(page)"
-            let url = tmdbURL(path: "/discover/tv", queryItems: ["with_genres": "\(genreId)", "sort_by": "popularity.desc", "page": "\(page)"])
+            let cacheKey = "tv_genre_orig_en_\(genreId)_\(page)"
+            let url = tmdbURL(
+                path: "/discover/tv",
+                queryItems: Self.discoverTVQueryItems([
+                    "with_genres": "\(genreId)",
+                    "sort_by": "popularity.desc",
+                    "page": "\(page)"
+                ])
+            )
             let response: TMDbPaginatedTVResponse = try await cached(cacheKey, url: url, as: TMDbPaginatedTVResponse.self)
-            return (response.results, page < (response.totalPages ?? page))
+            return (Self.filterShelfTVSeriesRequireBackdrop(response.results), page < (response.totalPages ?? page))
         }
     }
 }

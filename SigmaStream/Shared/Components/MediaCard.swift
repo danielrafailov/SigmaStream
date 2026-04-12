@@ -131,7 +131,7 @@ struct MediaCard: View {
                     .stroke(Color.white, lineWidth: 3)
             }
         }
-        .animation(.easeInOut(duration: 0.25), value: layoutAnimationID)
+        .animation(.easeInOut(duration: 0.15), value: layoutAnimationID)
         .onChange(of: useBackdrop) { _, new in
             if !new { backdropOpacity = 0 }
         }

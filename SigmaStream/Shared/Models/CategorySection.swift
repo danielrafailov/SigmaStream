@@ -21,7 +21,6 @@ enum MovieCategory: String, CaseIterable {
     case comedy = "Comedy"
     case drama = "Drama"
     case horror = "Horror"
-    case romance = "Romance"
     case sciFi = "Sci-Fi"
     case thriller = "Thriller"
     case crime = "Crime"
@@ -42,7 +41,6 @@ enum MovieCategory: String, CaseIterable {
         case .comedy: return 35
         case .drama: return 18
         case .horror: return 27
-        case .romance: return 10749
         case .sciFi: return 878
         case .thriller: return 53
         case .crime: return 80
@@ -59,7 +57,7 @@ enum MovieCategory: String, CaseIterable {
 
     /// Genre / keyword discover rows (same order on Movies tab and Home).
     static let catalogDiscoverRows: [MovieCategory] = [
-        .documentaries, .action, .comedy, .drama, .horror, .romance, .sciFi, .thriller,
+        .documentaries, .action, .comedy, .drama, .horror, .sciFi, .thriller,
         .crime, .animation, .family, .mystery, .fantasy, .war, .western, .history, .basedOnBooks
     ]
 }
@@ -75,7 +73,6 @@ enum TVCategory: String, CaseIterable {
     case comedy = "Comedy"
     case drama = "Drama"
     case horror = "Horror"
-    case romance = "Romance"
     case sciFiFantasy = "Sci-Fi & Fantasy"
     case thriller = "Thriller"
     case crime = "Crime"
@@ -92,7 +89,6 @@ enum TVCategory: String, CaseIterable {
         case .comedy: return 35
         case .drama: return 18
         case .horror: return 27
-        case .romance: return 10749
         case .sciFiFantasy: return 10765
         case .thriller: return 53
         case .crime: return 80
@@ -105,7 +101,7 @@ enum TVCategory: String, CaseIterable {
     }
 
     static let catalogDiscoverRows: [TVCategory] = [
-        .documentaries, .actionAdventure, .comedy, .drama, .horror, .romance, .sciFiFantasy, .thriller,
+        .documentaries, .actionAdventure, .comedy, .drama, .horror, .sciFiFantasy, .thriller,
         .crime, .animation, .family, .kids, .mystery, .basedOnBooks
     ]
 }

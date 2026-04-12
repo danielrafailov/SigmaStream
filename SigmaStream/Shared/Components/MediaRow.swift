@@ -90,12 +90,16 @@ struct MovieMediaRow: View {
                             Button {
                                 onSelect(movie)
                             } label: {
-                                MediaCard(
-                                    posterPath: movie.posterPath,
-                                    backdropPath: movie.backdropPath,
-                                    config: config,
-                                    isFocused: isFocused
-                                )
+                                Color.clear
+                                    .frame(width: mediaCardPosterWidth, height: mediaCardPosterDisplayHeight)
+                                    .overlay(alignment: .topLeading) {
+                                        MediaCard(
+                                            posterPath: movie.posterPath,
+                                            backdropPath: movie.backdropPath,
+                                            config: config,
+                                            isFocused: isFocused
+                                        )
+                                    }
                             }
                             .buttonStyle(.plain)
                             .hoverEffectDisabled(true)
@@ -128,6 +132,7 @@ struct MovieMediaRow: View {
                             }
                         }
                         .frame(width: isFocused ? mediaCardBackdropWidth : mediaCardPosterWidth, alignment: .topLeading)
+                        .zIndex(isFocused ? 1 : 0)
                         .id(focusKey)
                     }
 
@@ -142,6 +147,7 @@ struct MovieMediaRow: View {
                 .scrollTargetLayout()
                 .padding(.horizontal)
             }
+            .scrollClipDisabled()
             .scrollPosition(id: Binding(
                 get: { scrollPositionId ?? firstMovieKey },
                 set: { scrollPositionId = $0 }
@@ -317,12 +323,16 @@ struct TVSeriesMediaRow: View {
                             Button {
                                 onSelect(series)
                             } label: {
-                                MediaCard(
-                                    posterPath: series.posterPath,
-                                    backdropPath: series.backdropPath,
-                                    config: config,
-                                    isFocused: isFocused
-                                )
+                                Color.clear
+                                    .frame(width: mediaCardPosterWidth, height: mediaCardPosterDisplayHeight)
+                                    .overlay(alignment: .topLeading) {
+                                        MediaCard(
+                                            posterPath: series.posterPath,
+                                            backdropPath: series.backdropPath,
+                                            config: config,
+                                            isFocused: isFocused
+                                        )
+                                    }
                             }
                             .buttonStyle(.plain)
                             .hoverEffectDisabled(true)
@@ -355,6 +365,7 @@ struct TVSeriesMediaRow: View {
                             }
                         }
                         .frame(width: isFocused ? mediaCardBackdropWidth : mediaCardPosterWidth, alignment: .topLeading)
+                        .zIndex(isFocused ? 1 : 0)
                         .id(focusKey)
                     }
 
@@ -369,6 +380,7 @@ struct TVSeriesMediaRow: View {
                 .scrollTargetLayout()
                 .padding(.horizontal)
             }
+            .scrollClipDisabled()
             .scrollPosition(id: Binding(
                 get: { scrollPositionId ?? firstSeriesKey },
                 set: { scrollPositionId = $0 }

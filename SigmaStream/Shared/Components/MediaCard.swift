@@ -18,6 +18,9 @@ let mediaCardBackdropWidth: CGFloat = posterHeight * (16.0 / 9.0)
 /// Poster width for 2:3 ratio. Exported for layout calculations.
 let mediaCardPosterWidth: CGFloat = posterHeight * (2.0 / 3.0)
 
+/// Lockup height (same as `MediaCard` poster/backdrop height). Exported for shelf slot sizing.
+let mediaCardPosterDisplayHeight: CGFloat = mediaCardPosterWidth * (3.0 / 2.0)
+
 /// Extended description width: wide poster + spacing + one poster (aligns with 2nd poster).
 let mediaCardExtendedDescriptionWidth: CGFloat = mediaCardBackdropWidth + 20 + mediaCardPosterWidth
 

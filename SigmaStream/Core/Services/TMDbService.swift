@@ -208,6 +208,48 @@ actor TMDbService {
         series.filter { $0.backdropPath != nil }
     }
 
+    private static let sexualContentBlockedTerms: [String] = [
+        "porn", "porno", "pornographic", "xxx", "sex", "sexual", "erotic", "softcore", "hardcore", "nsfw"
+    ]
+
+    private static func containsBlockedSexualTerms(_ text: String?) -> Bool {
+        guard let raw = text?.lowercased(), !raw.isEmpty else { return false }
+        return sexualContentBlockedTerms.contains { raw.contains($0) }
+    }
+
+    private static func isFutureDate(_ date: Date?) -> Bool {
+        guard let date else { return false }
+        let cal = utcDateOnlyCalendar
+        let todayStart = cal.startOfDay(for: Date())
+        return cal.startOfDay(for: date) > todayStart
+    }
+
+    private static func isMovieAllowedForApp(_ movie: MovieListItem) -> Bool {
+        if movie.isAdultOnly == true { return false }
+        if containsBlockedSexualTerms(movie.title) || containsBlockedSexualTerms(movie.originalTitle) || containsBlockedSexualTerms(movie.overview) {
+            return false
+        }
+        if isFutureDate(movie.releaseDate) { return false }
+        return true
+    }
+
+    private static func isTVAllowedForApp(_ series: TVSeriesListItem) -> Bool {
+        if series.isAdultOnly == true { return false }
+        if containsBlockedSexualTerms(series.name) || containsBlockedSexualTerms(series.originalName) || containsBlockedSexualTerms(series.overview) {
+            return false
+        }
+        if isFutureDate(series.firstAirDate) { return false }
+        return true
+    }
+
+    private static func appSafeMovies(_ items: [MovieListItem]) -> [MovieListItem] {
+        items.filter(isMovieAllowedForApp(_:))
+    }
+
+    private static func appSafeTVSeries(_ items: [TVSeriesListItem]) -> [TVSeriesListItem] {
+        items.filter(isTVAllowedForApp(_:))
+    }
+
     /// Fetch movie videos (trailers). Returns first YouTube trailer or nil.
     func movieTrailerYouTubeKey(movieId: Int) async throws -> String? {
         let url = tmdbURL(path: "/movie/\(movieId)/videos")
@@ -236,7 +278,7 @@ actor TMDbService {
             queryItems: Self.discoverMovieQueryItems(["sort_by": "popularity.desc", "page": "\(p)"])
         )
         let response: TMDbPaginatedMovieResponse = try await cached("popular_movies_orig_en_\(p)", url: url, as: TMDbPaginatedMovieResponse.self)
-        return Self.filterShelfMoviesRequireBackdrop(response.results)
+        return Self.appSafeMovies(Self.filterShelfMoviesRequireBackdrop(response.results))
     }
 
     /// Fetch trending movies
@@ -244,19 +286,19 @@ actor TMDbService {
         let window = inTimeWindow == .day ? "day" : "week"
         let url = tmdbURL(path: "/trending/movie/\(window)")
         let response: TMDbPaginatedMovieResponse = try await cached("trending_movies_orig_en_\(window)", url: url, as: TMDbPaginatedMovieResponse.self)
-        return Self.filterShelfMoviesRequireBackdrop(Self.filterMovieListOriginalLanguageEnglish(response.results))
+        return Self.appSafeMovies(Self.filterShelfMoviesRequireBackdrop(Self.filterMovieListOriginalLanguageEnglish(response.results)))
     }
 
     /// Search movies by query
     func searchMovies(query: String, page: Int? = nil) async throws -> [MovieListItem] {
         let response = try await client.search.searchMovies(query: query, filter: nil, page: page, language: nil)
-        return response.results
+        return Self.appSafeMovies(response.results)
     }
 
     /// Search TV series by query
     func searchTVSeries(query: String, page: Int? = nil) async throws -> [TVSeriesListItem] {
         let response = try await client.search.searchTVSeries(query: query, filter: nil, page: page, language: nil)
-        return response.results
+        return Self.appSafeTVSeries(response.results)
     }
 
     /// Max rows returned per media type after merging title + person cast (keeps UI and payloads bounded).
@@ -276,8 +318,8 @@ actor TMDbService {
             guard let topPerson = peopleResponse.results.first else {
                 let (m, t) = try await (titleMovies, titleTV)
                 return (
-                    movies: Self.sortMoviesByPopularity(m).prefix(Self.searchMergedResultsCap).map { $0 },
-                    tvSeries: Self.sortTVByPopularity(t).prefix(Self.searchMergedResultsCap).map { $0 }
+                    movies: Self.sortMoviesByPopularity(Self.appSafeMovies(m)).prefix(Self.searchMergedResultsCap).map { $0 },
+                    tvSeries: Self.sortTVByPopularity(Self.appSafeTVSeries(t)).prefix(Self.searchMergedResultsCap).map { $0 }
                 )
             }
             let credits = try await client.people.combinedCredits(forPerson: topPerson.id)
@@ -298,8 +340,8 @@ actor TMDbService {
         let mergedTV = Self.mergeTVPreferringRicherMetadata(title: titleTVList, personCast: fromPersonTV)
 
         return (
-            movies: Self.sortMoviesByPopularity(mergedMovies).prefix(Self.searchMergedResultsCap).map { $0 },
-            tvSeries: Self.sortTVByPopularity(mergedTV).prefix(Self.searchMergedResultsCap).map { $0 }
+            movies: Self.sortMoviesByPopularity(Self.appSafeMovies(mergedMovies)).prefix(Self.searchMergedResultsCap).map { $0 },
+            tvSeries: Self.sortTVByPopularity(Self.appSafeTVSeries(mergedTV)).prefix(Self.searchMergedResultsCap).map { $0 }
         )
     }
 
@@ -541,6 +583,22 @@ actor TMDbService {
         return f.string(from: d)
     }
 
+    /// Format a concrete date for discover date-range filters.
+    private static func tmdbDiscoverDate(year: Int, month: Int, day: Int) -> String {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(secondsFromGMT: 0) ?? TimeZone.current
+        var comps = DateComponents()
+        comps.year = year
+        comps.month = month
+        comps.day = day
+        let date = cal.date(from: comps) ?? Date()
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(secondsFromGMT: 0)
+        return f.string(from: date)
+    }
+
     /// Keyword "based on novel or book" on TMDb (common discover filter).
     private static let basedOnBookKeywordId = "818"
 
@@ -561,7 +619,7 @@ actor TMDbService {
             ])
         )
         let response: TMDbPaginatedMovieResponse = try await cached("movies_new_orig_en_\(from)_\(p)", url: url, as: TMDbPaginatedMovieResponse.self)
-        return Self.filterShelfMoviesRequireBackdrop(response.results)
+        return Self.appSafeMovies(Self.filterShelfMoviesRequireBackdrop(response.results))
     }
 
     /// TV whose first air date is in roughly the last 45 days.
@@ -577,7 +635,7 @@ actor TMDbService {
             ])
         )
         let response: TMDbPaginatedTVResponse = try await cached("tv_new_orig_en_\(from)_\(p)", url: url, as: TMDbPaginatedTVResponse.self)
-        return Self.filterShelfTVSeriesRequireBackdrop(response.results)
+        return Self.appSafeTVSeries(Self.filterShelfTVSeriesRequireBackdrop(response.results))
     }
 
     /// Strong ratings with enough votes to avoid one-off 10.0 titles.
@@ -593,7 +651,7 @@ actor TMDbService {
             ])
         )
         let response: TMDbPaginatedMovieResponse = try await cached("movies_acclaimed_orig_en_\(p)", url: url, as: TMDbPaginatedMovieResponse.self)
-        return Self.filterShelfMoviesRequireBackdrop(response.results)
+        return Self.appSafeMovies(Self.filterShelfMoviesRequireBackdrop(response.results))
     }
 
     func criticallyAcclaimedTVSeries(page: Int? = nil) async throws -> [TVSeriesListItem] {
@@ -608,7 +666,7 @@ actor TMDbService {
             ])
         )
         let response: TMDbPaginatedTVResponse = try await cached("tv_acclaimed_orig_en_\(p)", url: url, as: TMDbPaginatedTVResponse.self)
-        return Self.filterShelfTVSeriesRequireBackdrop(response.results)
+        return Self.appSafeTVSeries(Self.filterShelfTVSeriesRequireBackdrop(response.results))
     }
 
     /// Fetch movie genres
@@ -626,7 +684,7 @@ actor TMDbService {
         let window = inTimeWindow == .day ? "day" : "week"
         let url = tmdbURL(path: "/trending/tv/\(window)")
         let response: TMDbPaginatedTVResponse = try await cached("trending_tv_orig_en_\(window)", url: url, as: TMDbPaginatedTVResponse.self)
-        return Self.filterShelfTVSeriesRequireBackdrop(Self.filterTVListOriginalLanguageEnglish(response.results))
+        return Self.appSafeTVSeries(Self.filterShelfTVSeriesRequireBackdrop(Self.filterTVListOriginalLanguageEnglish(response.results)))
     }
 
     /// Fetch popular TV series (discover for `with_original_language` parity with movie shelves).
@@ -637,7 +695,7 @@ actor TMDbService {
             queryItems: Self.discoverTVQueryItems(["sort_by": "popularity.desc", "page": "\(p)"])
         )
         let response: TMDbPaginatedTVResponse = try await cached("popular_tv_orig_en_\(p)", url: url, as: TMDbPaginatedTVResponse.self)
-        return Self.filterShelfTVSeriesRequireBackdrop(response.results)
+        return Self.appSafeTVSeries(Self.filterShelfTVSeriesRequireBackdrop(response.results))
     }
 
     /// Fetch now playing movies (currently in theatres)
@@ -645,7 +703,7 @@ actor TMDbService {
         let p = page ?? 1
         let url = tmdbURL(path: "/movie/now_playing", queryItems: ["page": "\(p)"])
         let response: TMDbPaginatedMovieResponse = try await cached("now_playing_movies_orig_en_\(p)", url: url, as: TMDbPaginatedMovieResponse.self)
-        return Self.filterShelfMoviesRequireBackdrop(Self.filterMovieListOriginalLanguageEnglish(response.results))
+        return Self.appSafeMovies(Self.filterShelfMoviesRequireBackdrop(Self.filterMovieListOriginalLanguageEnglish(response.results)))
     }
 
     /// Discover movies with primary release strictly after today (UTC). No vote floor so future titles with few votes still appear.
@@ -711,7 +769,7 @@ actor TMDbService {
         } else {
             hasMore = page < max(tpOfficial, discoverTotalPages)
         }
-        return (shelfReady, hasMore)
+        return (Self.appSafeMovies(shelfReady), hasMore)
     }
 
     /// Fetch upcoming movies (merged sources; capped for horizontal rows).
@@ -729,7 +787,7 @@ actor TMDbService {
             queryItems: Self.discoverMovieQueryItems(["with_genres": "99", "sort_by": "popularity.desc", "page": "\(p)"])
         )
         let response: TMDbPaginatedMovieResponse = try await cached("documentary_movies_orig_en_\(p)", url: url, as: TMDbPaginatedMovieResponse.self)
-        return Self.filterShelfMoviesRequireBackdrop(response.results)
+        return Self.appSafeMovies(Self.filterShelfMoviesRequireBackdrop(response.results))
     }
 
     /// Fetch documentary TV series (TMDb genre ID 99)
@@ -740,7 +798,7 @@ actor TMDbService {
             queryItems: Self.discoverTVQueryItems(["with_genres": "99", "sort_by": "popularity.desc", "page": "\(p)"])
         )
         let response: TMDbPaginatedTVResponse = try await cached("documentary_tv_orig_en_\(p)", url: url, as: TMDbPaginatedTVResponse.self)
-        return Self.filterShelfTVSeriesRequireBackdrop(response.results)
+        return Self.appSafeTVSeries(Self.filterShelfTVSeriesRequireBackdrop(response.results))
     }
 
     /// Fetch movie recommendations (for "Because you watched X").
@@ -751,7 +809,7 @@ actor TMDbService {
             url: url,
             as: TMDbPaginatedMovieResponse.self
         )
-        return Self.filterShelfMoviesRequireBackdrop(Self.filterMovieListOriginalLanguageEnglish(response.results))
+        return Self.appSafeMovies(Self.filterShelfMoviesRequireBackdrop(Self.filterMovieListOriginalLanguageEnglish(response.results)))
     }
 
     /// Fetch TV series recommendations (for "Because you watched X").
@@ -762,7 +820,7 @@ actor TMDbService {
             url: url,
             as: TMDbPaginatedTVResponse.self
         )
-        return Self.filterShelfTVSeriesRequireBackdrop(Self.filterTVListOriginalLanguageEnglish(response.results))
+        return Self.appSafeTVSeries(Self.filterShelfTVSeriesRequireBackdrop(Self.filterTVListOriginalLanguageEnglish(response.results)))
     }
 
     /// Load movies for a category (used by See All). Returns (items, hasMore) for pagination.
@@ -777,7 +835,7 @@ actor TMDbService {
                 queryItems: Self.discoverMovieQueryItems(["sort_by": "popularity.desc", "page": "\(page)"])
             )
             let response: TMDbPaginatedMovieResponse = try await cached("popular_movies_orig_en_\(page)", url: url, as: TMDbPaginatedMovieResponse.self)
-            return (Self.filterShelfMoviesRequireBackdrop(response.results), page < (response.totalPages ?? page))
+            return (Self.appSafeMovies(Self.filterShelfMoviesRequireBackdrop(response.results)), page < (response.totalPages ?? page))
         case .criticallyAcclaimed:
             let url = tmdbURL(
                 path: "/discover/movie",
@@ -789,7 +847,7 @@ actor TMDbService {
                 ])
             )
             let response: TMDbPaginatedMovieResponse = try await cached("movies_acclaimed_orig_en_\(page)", url: url, as: TMDbPaginatedMovieResponse.self)
-            return (Self.filterShelfMoviesRequireBackdrop(response.results), page < (response.totalPages ?? page))
+            return (Self.appSafeMovies(Self.filterShelfMoviesRequireBackdrop(response.results)), page < (response.totalPages ?? page))
         case .newReleases:
             let from = Self.tmdbDiscoverDate(daysFromToday: -45)
             let url = tmdbURL(
@@ -801,14 +859,55 @@ actor TMDbService {
                 ])
             )
             let response: TMDbPaginatedMovieResponse = try await cached("movies_new_orig_en_\(from)_\(page)", url: url, as: TMDbPaginatedMovieResponse.self)
-            return (Self.filterShelfMoviesRequireBackdrop(response.results), page < (response.totalPages ?? page))
+            return (Self.appSafeMovies(Self.filterShelfMoviesRequireBackdrop(response.results)), page < (response.totalPages ?? page))
+        case .millennialFavorites:
+            let from = Self.tmdbDiscoverDate(year: 1990, month: 1, day: 1)
+            let to = Self.tmdbDiscoverDate(year: 2010, month: 12, day: 31)
+            let url = tmdbURL(
+                path: "/discover/movie",
+                queryItems: Self.discoverMovieQueryItems([
+                    "primary_release_date.gte": from,
+                    "primary_release_date.lte": to,
+                    "sort_by": "popularity.desc",
+                    "page": "\(page)"
+                ])
+            )
+            let response: TMDbPaginatedMovieResponse = try await cached("movies_millennial_orig_en_\(page)", url: url, as: TMDbPaginatedMovieResponse.self)
+            return (Self.appSafeMovies(Self.filterShelfMoviesRequireBackdrop(response.results)), page < (response.totalPages ?? page))
+        case .genZPicks:
+            let from = Self.tmdbDiscoverDate(year: 2016, month: 1, day: 1)
+            let url = tmdbURL(
+                path: "/discover/movie",
+                queryItems: Self.discoverMovieQueryItems([
+                    "primary_release_date.gte": from,
+                    "primary_release_date.lte": Self.tmdbDiscoverDate(daysFromToday: 0),
+                    "sort_by": "popularity.desc",
+                    "page": "\(page)"
+                ])
+            )
+            let response: TMDbPaginatedMovieResponse = try await cached("movies_genz_orig_en_\(page)", url: url, as: TMDbPaginatedMovieResponse.self)
+            return (Self.appSafeMovies(Self.filterShelfMoviesRequireBackdrop(response.results)), page < (response.totalPages ?? page))
+        case .genXClassics:
+            let from = Self.tmdbDiscoverDate(year: 1975, month: 1, day: 1)
+            let to = Self.tmdbDiscoverDate(year: 1994, month: 12, day: 31)
+            let url = tmdbURL(
+                path: "/discover/movie",
+                queryItems: Self.discoverMovieQueryItems([
+                    "primary_release_date.gte": from,
+                    "primary_release_date.lte": to,
+                    "sort_by": "popularity.desc",
+                    "page": "\(page)"
+                ])
+            )
+            let response: TMDbPaginatedMovieResponse = try await cached("movies_genx_orig_en_\(page)", url: url, as: TMDbPaginatedMovieResponse.self)
+            return (Self.appSafeMovies(Self.filterShelfMoviesRequireBackdrop(response.results)), page < (response.totalPages ?? page))
         case .nowPlaying:
             let url = tmdbURL(path: "/movie/now_playing", queryItems: ["page": "\(page)"])
             let response: TMDbPaginatedMovieResponse = try await cached("now_playing_movies_orig_en_\(page)", url: url, as: TMDbPaginatedMovieResponse.self)
             let items = Self.filterShelfMoviesRequireBackdrop(Self.filterMovieListOriginalLanguageEnglish(response.results))
-            return (items, page < (response.totalPages ?? page))
+            return (Self.appSafeMovies(items), page < (response.totalPages ?? page))
         case .upcoming:
-            return try await upcomingMoviesMergedPage(page: page)
+            return ([], false)
         case .basedOnBooks:
             let url = tmdbURL(
                 path: "/discover/movie",
@@ -819,7 +918,7 @@ actor TMDbService {
                 ])
             )
             let response: TMDbPaginatedMovieResponse = try await cached("movies_book_orig_en_\(page)", url: url, as: TMDbPaginatedMovieResponse.self)
-            return (Self.filterShelfMoviesRequireBackdrop(response.results), page < (response.totalPages ?? page))
+            return (Self.appSafeMovies(Self.filterShelfMoviesRequireBackdrop(response.results)), page < (response.totalPages ?? page))
         case .racing:
             let url = tmdbURL(
                 path: "/discover/movie",
@@ -835,7 +934,7 @@ actor TMDbService {
                 as: TMDbPaginatedMovieResponse.self
             )
             let totalPages = response.totalPages ?? page
-            return (Self.filterShelfMoviesRequireBackdrop(response.results), page < totalPages)
+            return (Self.appSafeMovies(Self.filterShelfMoviesRequireBackdrop(response.results)), page < totalPages)
         default:
             guard let genreId = category.genreId else {
                 preconditionFailure("MovieCategory must map to discover: \(category)")
@@ -851,7 +950,7 @@ actor TMDbService {
             )
             let response: TMDbPaginatedMovieResponse = try await cached(cacheKey, url: url, as: TMDbPaginatedMovieResponse.self)
             let totalPages = response.totalPages ?? page
-            return (Self.filterShelfMoviesRequireBackdrop(response.results), page < totalPages)
+            return (Self.appSafeMovies(Self.filterShelfMoviesRequireBackdrop(response.results)), page < totalPages)
         }
     }
 
@@ -867,7 +966,7 @@ actor TMDbService {
                 queryItems: Self.discoverTVQueryItems(["sort_by": "popularity.desc", "page": "\(page)"])
             )
             let response: TMDbPaginatedTVResponse = try await cached("popular_tv_orig_en_\(page)", url: url, as: TMDbPaginatedTVResponse.self)
-            return (Self.filterShelfTVSeriesRequireBackdrop(response.results), page < (response.totalPages ?? page))
+            return (Self.appSafeTVSeries(Self.filterShelfTVSeriesRequireBackdrop(response.results)), page < (response.totalPages ?? page))
         case .criticallyAcclaimed:
             let url = tmdbURL(
                 path: "/discover/tv",
@@ -879,7 +978,7 @@ actor TMDbService {
                 ])
             )
             let response: TMDbPaginatedTVResponse = try await cached("tv_acclaimed_orig_en_\(page)", url: url, as: TMDbPaginatedTVResponse.self)
-            return (Self.filterShelfTVSeriesRequireBackdrop(response.results), page < (response.totalPages ?? page))
+            return (Self.appSafeTVSeries(Self.filterShelfTVSeriesRequireBackdrop(response.results)), page < (response.totalPages ?? page))
         case .newReleases:
             let from = Self.tmdbDiscoverDate(daysFromToday: -45)
             let url = tmdbURL(
@@ -891,7 +990,48 @@ actor TMDbService {
                 ])
             )
             let response: TMDbPaginatedTVResponse = try await cached("tv_new_orig_en_\(from)_\(page)", url: url, as: TMDbPaginatedTVResponse.self)
-            return (Self.filterShelfTVSeriesRequireBackdrop(response.results), page < (response.totalPages ?? page))
+            return (Self.appSafeTVSeries(Self.filterShelfTVSeriesRequireBackdrop(response.results)), page < (response.totalPages ?? page))
+        case .millennialFavorites:
+            let from = Self.tmdbDiscoverDate(year: 1990, month: 1, day: 1)
+            let to = Self.tmdbDiscoverDate(year: 2010, month: 12, day: 31)
+            let url = tmdbURL(
+                path: "/discover/tv",
+                queryItems: Self.discoverTVQueryItems([
+                    "first_air_date.gte": from,
+                    "first_air_date.lte": to,
+                    "sort_by": "popularity.desc",
+                    "page": "\(page)"
+                ])
+            )
+            let response: TMDbPaginatedTVResponse = try await cached("tv_millennial_orig_en_\(page)", url: url, as: TMDbPaginatedTVResponse.self)
+            return (Self.appSafeTVSeries(Self.filterShelfTVSeriesRequireBackdrop(response.results)), page < (response.totalPages ?? page))
+        case .genZPicks:
+            let from = Self.tmdbDiscoverDate(year: 2016, month: 1, day: 1)
+            let url = tmdbURL(
+                path: "/discover/tv",
+                queryItems: Self.discoverTVQueryItems([
+                    "first_air_date.gte": from,
+                    "first_air_date.lte": Self.tmdbDiscoverDate(daysFromToday: 0),
+                    "sort_by": "popularity.desc",
+                    "page": "\(page)"
+                ])
+            )
+            let response: TMDbPaginatedTVResponse = try await cached("tv_genz_orig_en_\(page)", url: url, as: TMDbPaginatedTVResponse.self)
+            return (Self.appSafeTVSeries(Self.filterShelfTVSeriesRequireBackdrop(response.results)), page < (response.totalPages ?? page))
+        case .genXClassics:
+            let from = Self.tmdbDiscoverDate(year: 1975, month: 1, day: 1)
+            let to = Self.tmdbDiscoverDate(year: 1994, month: 12, day: 31)
+            let url = tmdbURL(
+                path: "/discover/tv",
+                queryItems: Self.discoverTVQueryItems([
+                    "first_air_date.gte": from,
+                    "first_air_date.lte": to,
+                    "sort_by": "popularity.desc",
+                    "page": "\(page)"
+                ])
+            )
+            let response: TMDbPaginatedTVResponse = try await cached("tv_genx_orig_en_\(page)", url: url, as: TMDbPaginatedTVResponse.self)
+            return (Self.appSafeTVSeries(Self.filterShelfTVSeriesRequireBackdrop(response.results)), page < (response.totalPages ?? page))
         case .basedOnBooks:
             let url = tmdbURL(
                 path: "/discover/tv",
@@ -902,7 +1042,7 @@ actor TMDbService {
                 ])
             )
             let response: TMDbPaginatedTVResponse = try await cached("tv_book_orig_en_\(page)", url: url, as: TMDbPaginatedTVResponse.self)
-            return (Self.filterShelfTVSeriesRequireBackdrop(response.results), page < (response.totalPages ?? page))
+            return (Self.appSafeTVSeries(Self.filterShelfTVSeriesRequireBackdrop(response.results)), page < (response.totalPages ?? page))
         case .racing:
             let url = tmdbURL(
                 path: "/discover/tv",
@@ -918,7 +1058,7 @@ actor TMDbService {
                 as: TMDbPaginatedTVResponse.self
             )
             let totalPages = response.totalPages ?? page
-            return (Self.filterShelfTVSeriesRequireBackdrop(response.results), page < totalPages)
+            return (Self.appSafeTVSeries(Self.filterShelfTVSeriesRequireBackdrop(response.results)), page < totalPages)
         default:
             guard let genreId = category.genreId else {
                 preconditionFailure("TVCategory must map to discover: \(category)")
@@ -933,7 +1073,7 @@ actor TMDbService {
                 ])
             )
             let response: TMDbPaginatedTVResponse = try await cached(cacheKey, url: url, as: TMDbPaginatedTVResponse.self)
-            return (Self.filterShelfTVSeriesRequireBackdrop(response.results), page < (response.totalPages ?? page))
+            return (Self.appSafeTVSeries(Self.filterShelfTVSeriesRequireBackdrop(response.results)), page < (response.totalPages ?? page))
         }
     }
 }

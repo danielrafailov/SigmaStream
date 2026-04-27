@@ -26,8 +26,10 @@ struct MoviesView: View {
     @State private var popular: [MovieListItem] = []
     @State private var criticallyAcclaimed: [MovieListItem] = []
     @State private var newReleases: [MovieListItem] = []
+    @State private var millennialFavorites: [MovieListItem] = []
+    @State private var genZPicks: [MovieListItem] = []
+    @State private var genXClassics: [MovieListItem] = []
     @State private var nowPlaying: [MovieListItem] = []
-    @State private var upcoming: [MovieListItem] = []
     @State private var extraSections: [(MovieCategory, [MovieListItem])] = []
     @State private var isLoading = false
     @State private var catalogCoreReady = false
@@ -52,9 +54,11 @@ struct MoviesView: View {
                     } else {
                         movieRow(title: MovieCategory.trendingToday.rawValue, movies: trending, category: .trendingToday)
                         movieRow(title: MovieCategory.popular.rawValue, movies: popular, category: .popular)
-                        movieRow(title: MovieCategory.criticallyAcclaimed.rawValue, movies: criticallyAcclaimed, category: .criticallyAcclaimed)
                         movieRow(title: MovieCategory.newReleases.rawValue, movies: newReleases, category: .newReleases)
-                        movieRow(title: MovieCategory.upcoming.rawValue, movies: upcoming, category: .upcoming)
+                        movieRow(title: MovieCategory.criticallyAcclaimed.rawValue, movies: criticallyAcclaimed, category: .criticallyAcclaimed)
+                        movieRow(title: MovieCategory.millennialFavorites.rawValue, movies: millennialFavorites, category: .millennialFavorites)
+                        movieRow(title: MovieCategory.genZPicks.rawValue, movies: genZPicks, category: .genZPicks)
+                        movieRow(title: MovieCategory.genXClassics.rawValue, movies: genXClassics, category: .genXClassics)
                         movieRow(title: MovieCategory.nowPlaying.rawValue, movies: nowPlaying, category: .nowPlaying)
 
                         ForEach(extraSections, id: \.0) { cat, items in
@@ -103,16 +107,20 @@ struct MoviesView: View {
             async let popularTask = appState.tmdbService.popularMovies()
             async let acclaimedTask = appState.tmdbService.criticallyAcclaimedMovies()
             async let newTask = appState.tmdbService.recentReleaseMovies()
-            async let upcomingTask = appState.tmdbService.upcomingMovies()
+            async let millennialTask = appState.tmdbService.moviesPaginated(for: .millennialFavorites, page: 1).items
+            async let genZTask = appState.tmdbService.moviesPaginated(for: .genZPicks, page: 1).items
+            async let genXTask = appState.tmdbService.moviesPaginated(for: .genXClassics, page: 1).items
             async let nowPlayingTask = appState.tmdbService.nowPlayingMovies()
 
-            let (t, p, a, n, u, np) = try await (trendingTask, popularTask, acclaimedTask, newTask, upcomingTask, nowPlayingTask)
+            let (t, p, a, n, millennial, genZ, genX, np) = try await (trendingTask, popularTask, acclaimedTask, newTask, millennialTask, genZTask, genXTask, nowPlayingTask)
 
             trending = t
             popular = p
             criticallyAcclaimed = a
             newReleases = n
-            upcoming = u
+            millennialFavorites = millennial
+            genZPicks = genZ
+            genXClassics = genX
             nowPlaying = np
             catalogCoreReady = true
 

@@ -12,26 +12,29 @@ import TMDb
 enum MovieCategory: String, CaseIterable {
     case trendingToday = "Trending"
     case popular = "Popular"
-    case criticallyAcclaimed = "Critically Acclaimed"
     case newReleases = "New & Noteworthy"
+    case criticallyAcclaimed = "Critically Acclaimed"
+    case millennialFavorites = "Millennial Favorites"
+    case genZPicks = "Gen Z Picks"
+    case genXClassics = "Gen X Classics"
     case nowPlaying = "Now Playing"
     case upcoming = "Upcoming"
-    case documentaries = "Documentaries"
     case action = "Action"
-    case racing = "Racing"
     case comedy = "Comedy"
     case drama = "Drama"
-    case horror = "Horror"
-    case sciFi = "Sci-Fi"
     case thriller = "Thriller"
+    case sciFi = "Sci-Fi"
     case crime = "Crime"
-    case animation = "Animation"
     case family = "Family"
-    case mystery = "Mystery"
+    case animation = "Animation"
+    case documentaries = "Documentaries"
+    case horror = "Horror"
     case fantasy = "Fantasy"
+    case mystery = "Mystery"
+    case history = "History"
     case war = "War"
     case western = "Western"
-    case history = "History"
+    case racing = "Racing"
     case basedOnBooks = "Based on Books"
 
     /// TMDb genre ID for genre-based categories; nil for discover/trending/list categories.
@@ -58,8 +61,9 @@ enum MovieCategory: String, CaseIterable {
 
     /// Genre / keyword discover rows (same order on Movies tab and Home).
     static let catalogDiscoverRows: [MovieCategory] = [
-        .documentaries, .action, .racing, .comedy, .drama, .horror, .sciFi, .thriller,
-        .crime, .animation, .family, .mystery, .fantasy, .war, .western, .history, .basedOnBooks
+        .action, .comedy, .drama, .thriller, .sciFi,
+        .crime, .family, .animation, .documentaries, .horror,
+        .fantasy, .mystery, .history, .war, .western, .racing, .basedOnBooks
     ]
 }
 
@@ -67,21 +71,24 @@ enum MovieCategory: String, CaseIterable {
 enum TVCategory: String, CaseIterable {
     case trendingToday = "Trending"
     case popular = "Popular"
-    case criticallyAcclaimed = "Critically Acclaimed"
     case newReleases = "New & Noteworthy"
-    case documentaries = "Documentaries"
+    case criticallyAcclaimed = "Critically Acclaimed"
+    case millennialFavorites = "Millennial Favorites"
+    case genZPicks = "Gen Z Picks"
+    case genXClassics = "Gen X Classics"
     case actionAdventure = "Action & Adventure"
-    case racing = "Racing"
     case comedy = "Comedy"
     case drama = "Drama"
-    case horror = "Horror"
-    case sciFiFantasy = "Sci-Fi & Fantasy"
     case thriller = "Thriller"
+    case sciFiFantasy = "Sci-Fi & Fantasy"
     case crime = "Crime"
-    case animation = "Animation"
     case family = "Family"
+    case animation = "Animation"
+    case documentaries = "Documentaries"
+    case horror = "Horror"
     case kids = "Kids"
     case mystery = "Mystery"
+    case racing = "Racing"
     case basedOnBooks = "Based on Books"
 
     var genreId: Genre.ID? {
@@ -103,7 +110,8 @@ enum TVCategory: String, CaseIterable {
     }
 
     static let catalogDiscoverRows: [TVCategory] = [
-        .documentaries, .actionAdventure, .racing, .comedy, .drama, .horror, .sciFiFantasy, .thriller,
-        .crime, .animation, .family, .kids, .mystery, .basedOnBooks
+        .actionAdventure, .comedy, .drama, .thriller, .sciFiFantasy,
+        .crime, .family, .animation, .documentaries, .horror,
+        .kids, .mystery, .racing, .basedOnBooks
     ]
 }

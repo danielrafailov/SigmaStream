@@ -27,7 +27,7 @@ struct VideoPlayerView: View {
     @State private var endObserver: NSObjectProtocol?
     @State private var streamStatus: StreamStatus?
 
-    private let loadTimeout: TimeInterval = 10
+    private let loadTimeout: TimeInterval = 20
     private let failedMessageDuration: TimeInterval = 0.8
     private let pollInterval: TimeInterval = 0.2
     private let foundMessageDuration: TimeInterval = 0.15
@@ -98,6 +98,7 @@ struct VideoPlayerView: View {
             guard let item = newPlayer.currentItem else { continue }
             switch item.status {
             case .failed:
+                let message = playbackFailureMessage(for: item, url: url)
                 await MainActor.run {
                     streamStatus = .failed(index: currentURLIndex + 1)
                 }
@@ -107,7 +108,7 @@ struct VideoPlayerView: View {
                     currentURLIndex += 1
                     if currentURLIndex >= urls.count {
                         streamStatus = nil
-                        loadError = "No stream was found"
+                        loadError = message
                     }
                 }
                 return
@@ -141,9 +142,27 @@ struct VideoPlayerView: View {
             currentURLIndex += 1
             if currentURLIndex >= urls.count {
                 streamStatus = nil
-                loadError = "No stream was found"
+                loadError = "No stream was found (timed out while loading)"
             }
         }
+    }
+
+    private func playbackFailureMessage(for item: AVPlayerItem, url: URL) -> String {
+        if let err = item.error {
+            return "Stream failed: \(err.localizedDescription)"
+        }
+        if let log = item.errorLog(),
+           let event = log.events.last {
+            if let statusCode = event.errorStatusCode as Int?,
+               statusCode != 0 {
+                return "Stream failed (HTTP \(statusCode))"
+            }
+            if let errorComment = event.errorComment,
+               !errorComment.isEmpty {
+                return "Stream failed: \(errorComment)"
+            }
+        }
+        return "No stream was found for \(url.host ?? "this source")"
     }
 
     @ViewBuilder
@@ -198,9 +217,11 @@ struct VideoPlayerView: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 48))
                         .foregroundStyle(.yellow)
-                    Text("No stream was found")
+                    Text(message)
                         .font(.title2)
                         .fontWeight(.semibold)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 40)
                     HStack(spacing: 16) {
                         Button("Retry") {
                             loadError = nil

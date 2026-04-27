@@ -33,7 +33,9 @@ struct HomeView: View {
     @State private var popularMovies: [MovieListItem] = []
     @State private var acclaimedMovies: [MovieListItem] = []
     @State private var newMovies: [MovieListItem] = []
-    @State private var upcomingMovies: [MovieListItem] = []
+    @State private var millennialMovies: [MovieListItem] = []
+    @State private var genZMovies: [MovieListItem] = []
+    @State private var genXMovies: [MovieListItem] = []
     @State private var nowPlayingMovies: [MovieListItem] = []
     @State private var movieExtraSections: [(MovieCategory, [MovieListItem])] = []
 
@@ -43,6 +45,9 @@ struct HomeView: View {
     @State private var popularTV: [TVSeriesListItem] = []
     @State private var acclaimedTV: [TVSeriesListItem] = []
     @State private var newTV: [TVSeriesListItem] = []
+    @State private var millennialTV: [TVSeriesListItem] = []
+    @State private var genZTV: [TVSeriesListItem] = []
+    @State private var genXTV: [TVSeriesListItem] = []
     @State private var tvExtraSections: [(TVCategory, [TVSeriesListItem])] = []
 
     @State private var isLoading = false
@@ -73,9 +78,11 @@ struct HomeView: View {
 
                         movieCatalogRow(title: "Trending Movies", movies: trendingMovies, category: .trendingToday)
                         movieCatalogRow(title: MovieCategory.popular.rawValue, movies: popularMovies, category: .popular)
-                        movieCatalogRow(title: MovieCategory.criticallyAcclaimed.rawValue, movies: acclaimedMovies, category: .criticallyAcclaimed)
                         movieCatalogRow(title: MovieCategory.newReleases.rawValue, movies: newMovies, category: .newReleases)
-                        movieCatalogRow(title: MovieCategory.upcoming.rawValue, movies: upcomingMovies, category: .upcoming)
+                        movieCatalogRow(title: MovieCategory.criticallyAcclaimed.rawValue, movies: acclaimedMovies, category: .criticallyAcclaimed)
+                        movieCatalogRow(title: MovieCategory.millennialFavorites.rawValue, movies: millennialMovies, category: .millennialFavorites)
+                        movieCatalogRow(title: MovieCategory.genZPicks.rawValue, movies: genZMovies, category: .genZPicks)
+                        movieCatalogRow(title: MovieCategory.genXClassics.rawValue, movies: genXMovies, category: .genXClassics)
                         movieCatalogRow(title: MovieCategory.nowPlaying.rawValue, movies: nowPlayingMovies, category: .nowPlaying)
 
                         ForEach(movieExtraSections, id: \.0) { cat, items in
@@ -86,8 +93,11 @@ struct HomeView: View {
 
                         tvCatalogRow(title: "Trending TV", series: trendingTV, category: .trendingToday)
                         tvCatalogRow(title: TVCategory.popular.rawValue, series: popularTV, category: .popular)
-                        tvCatalogRow(title: TVCategory.criticallyAcclaimed.rawValue, series: acclaimedTV, category: .criticallyAcclaimed)
                         tvCatalogRow(title: TVCategory.newReleases.rawValue, series: newTV, category: .newReleases)
+                        tvCatalogRow(title: TVCategory.criticallyAcclaimed.rawValue, series: acclaimedTV, category: .criticallyAcclaimed)
+                        tvCatalogRow(title: TVCategory.millennialFavorites.rawValue, series: millennialTV, category: .millennialFavorites)
+                        tvCatalogRow(title: TVCategory.genZPicks.rawValue, series: genZTV, category: .genZPicks)
+                        tvCatalogRow(title: TVCategory.genXClassics.rawValue, series: genXTV, category: .genXClassics)
 
                         ForEach(tvExtraSections, id: \.0) { cat, items in
                             if !items.isEmpty {
@@ -252,17 +262,26 @@ struct HomeView: View {
             async let tvAcclaimed = appState.tmdbService.criticallyAcclaimedTVSeries()
             async let moviesNew = appState.tmdbService.recentReleaseMovies()
             async let tvNew = appState.tmdbService.recentReleaseTVSeries()
-            async let moviesUpcoming = appState.tmdbService.upcomingMovies()
+            async let moviesMillennial = appState.tmdbService.moviesPaginated(for: .millennialFavorites, page: 1).items
+            async let moviesGenZ = appState.tmdbService.moviesPaginated(for: .genZPicks, page: 1).items
+            async let moviesGenX = appState.tmdbService.moviesPaginated(for: .genXClassics, page: 1).items
+            async let tvMillennial = appState.tmdbService.tvSeriesPaginated(for: .millennialFavorites, page: 1).items
+            async let tvGenZ = appState.tmdbService.tvSeriesPaginated(for: .genZPicks, page: 1).items
+            async let tvGenX = appState.tmdbService.tvSeriesPaginated(for: .genXClassics, page: 1).items
             async let moviesNowPlaying = appState.tmdbService.nowPlayingMovies()
 
             let (
                 tM, tTV, pM, pTV,
                 aM, aTV, nM, nTV,
-                uM, npM
+                millennialM, genZM, genXM,
+                millennialTVRows, genZTVRows, genXTVRows,
+                npM
             ) = try await (
                 moviesTrending, tvTrending, moviesPopular, tvPopular,
                 moviesAcclaimed, tvAcclaimed, moviesNew, tvNew,
-                moviesUpcoming, moviesNowPlaying
+                moviesMillennial, moviesGenZ, moviesGenX,
+                tvMillennial, tvGenZ, tvGenX,
+                moviesNowPlaying
             )
 
             trendingMovies = tM
@@ -273,7 +292,12 @@ struct HomeView: View {
             acclaimedTV = aTV
             newMovies = nM
             newTV = nTV
-            upcomingMovies = uM
+            millennialMovies = millennialM
+            genZMovies = genZM
+            genXMovies = genXM
+            millennialTV = millennialTVRows
+            genZTV = genZTVRows
+            genXTV = genXTVRows
             nowPlayingMovies = npM
 
             catalogFirstPaintReady = true

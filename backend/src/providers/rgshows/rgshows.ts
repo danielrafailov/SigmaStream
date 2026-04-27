@@ -58,6 +58,13 @@ export class RgShowsProvider extends BaseProvider {
                 return this.emptyResult('Failed to fetch page', media);
             }
             const resp: RgShowsResponse = data as unknown as RgShowsResponse;
+            const validation = await this.validateStreamChain(resp.stream.url);
+            if (!validation.ok) {
+                return this.emptyResult(
+                    `Rejected stream: ${validation.reason}`,
+                    media
+                );
+            }
 
             const result: ProviderResult = {
                 sources: [
@@ -124,6 +131,96 @@ export class RgShowsProvider extends BaseProvider {
         } catch (error) {
             return null;
         }
+    }
+
+    private async validateStreamChain(
+        streamUrl: string
+    ): Promise<{ ok: boolean; reason?: string }> {
+        try {
+            if (!streamUrl || !streamUrl.includes('.m3u8')) {
+                return { ok: true };
+            }
+
+            const master = await this.fetchText(streamUrl);
+            const childPath = this.firstMediaLine(master);
+            if (!childPath) {
+                return { ok: false, reason: 'master playlist has no media lines' };
+            }
+
+            const childUrl = this.resolveRelativeUrl(streamUrl, childPath);
+            const child = await this.fetchText(childUrl);
+            const segmentPath = this.firstMediaLine(child);
+            if (!segmentPath) {
+                return { ok: false, reason: 'child playlist has no segment lines' };
+            }
+
+            const segmentUrl = this.resolveRelativeUrl(childUrl, segmentPath);
+            const segResp = await axios.get<ArrayBuffer>(segmentUrl, {
+                headers: { ...this.HEADERS, Range: 'bytes=0-15' },
+                timeout: 10000,
+                responseType: 'arraybuffer',
+                validateStatus: () => true
+            });
+
+            if (segResp.status >= 400) {
+                return { ok: false, reason: `segment request failed (${segResp.status})` };
+            }
+
+            const contentType = String(segResp.headers['content-type'] ?? '');
+            const bytes = Buffer.from(segResp.data);
+            if (
+                contentType.toLowerCase().includes('image/') ||
+                this.isPngSignature(bytes)
+            ) {
+                return {
+                    ok: false,
+                    reason: `segment is image payload (${contentType || 'unknown content-type'})`
+                };
+            }
+
+            return { ok: true };
+        } catch (error) {
+            return { ok: false, reason: 'stream validation failed' };
+        }
+    }
+
+    private async fetchText(url: string): Promise<string> {
+        const response = await axios.get<string>(url, {
+            headers: this.HEADERS,
+            timeout: 10000,
+            responseType: 'text'
+        });
+        if (response.status !== 200 || typeof response.data !== 'string') {
+            throw new Error(`failed to fetch text (${response.status})`);
+        }
+        return response.data;
+    }
+
+    private firstMediaLine(playlist: string): string | undefined {
+        const lines = playlist
+            .split('\n')
+            .map((line) => line.trim())
+            .filter((line) => line.length > 0 && !line.startsWith('#'));
+        return lines[0];
+    }
+
+    private resolveRelativeUrl(base: string, maybeRelative: string): string {
+        if (maybeRelative.startsWith('http')) return maybeRelative;
+        return new URL(maybeRelative, base).toString();
+    }
+
+    private isPngSignature(bytes: Buffer): boolean {
+        if (bytes.length < 8) return false;
+        return (
+            bytes[0] === 0x89 &&
+            bytes[1] === 0x50 &&
+            bytes[2] === 0x4e &&
+            bytes[3] === 0x47 &&
+            bytes[4] === 0x0d &&
+            bytes[5] === 0x0a &&
+            bytes[6] === 0x1a &&
+            bytes[7] === 0x0a
+        );
     }
 
     /**

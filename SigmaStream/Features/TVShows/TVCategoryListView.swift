@@ -18,6 +18,7 @@ struct TVCategoryListView: View {
     @State private var isLoadingMore = false
     @State private var errorMessage: String?
     @State private var selectedSeries: TVSeriesSelection?
+    @State private var hasLoadedOnce = false
     @FocusState private var focusedSeriesId: Int?
 
     private let columns = 5
@@ -89,6 +90,8 @@ struct TVCategoryListView: View {
             TVSeriesDetailView(seriesId: selection.id)
         }
         .task {
+            guard !hasLoadedOnce else { return }
+            hasLoadedOnce = true
             await loadInitial()
         }
     }

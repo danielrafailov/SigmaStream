@@ -85,6 +85,7 @@ struct MovieMediaRow: View {
                 }
             }
             .focusSection()
+            .padding(.horizontal)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: mediaPosterSpacing) {
@@ -337,6 +338,7 @@ struct TVSeriesMediaRow: View {
                 }
             }
             .focusSection()
+            .padding(.horizontal)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: mediaPosterSpacing) {

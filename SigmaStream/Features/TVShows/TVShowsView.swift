@@ -26,6 +26,9 @@ struct TVShowsView: View {
     @State private var popular: [TVSeriesListItem] = []
     @State private var criticallyAcclaimed: [TVSeriesListItem] = []
     @State private var newReleases: [TVSeriesListItem] = []
+    @State private var millennialFavorites: [TVSeriesListItem] = []
+    @State private var genZPicks: [TVSeriesListItem] = []
+    @State private var genXClassics: [TVSeriesListItem] = []
     @State private var extraSections: [(TVCategory, [TVSeriesListItem])] = []
     @State private var isLoading = false
     @State private var catalogCoreReady = false
@@ -50,8 +53,11 @@ struct TVShowsView: View {
                     } else {
                         tvRow(title: TVCategory.trendingToday.rawValue, series: trending, category: .trendingToday)
                         tvRow(title: TVCategory.popular.rawValue, series: popular, category: .popular)
-                        tvRow(title: TVCategory.criticallyAcclaimed.rawValue, series: criticallyAcclaimed, category: .criticallyAcclaimed)
                         tvRow(title: TVCategory.newReleases.rawValue, series: newReleases, category: .newReleases)
+                        tvRow(title: TVCategory.criticallyAcclaimed.rawValue, series: criticallyAcclaimed, category: .criticallyAcclaimed)
+                        tvRow(title: TVCategory.millennialFavorites.rawValue, series: millennialFavorites, category: .millennialFavorites)
+                        tvRow(title: TVCategory.genZPicks.rawValue, series: genZPicks, category: .genZPicks)
+                        tvRow(title: TVCategory.genXClassics.rawValue, series: genXClassics, category: .genXClassics)
 
                         ForEach(extraSections, id: \.0) { cat, items in
                             if !items.isEmpty {
@@ -99,13 +105,19 @@ struct TVShowsView: View {
             async let popularTask = appState.tmdbService.popularTVSeries()
             async let acclaimedTask = appState.tmdbService.criticallyAcclaimedTVSeries()
             async let newTask = appState.tmdbService.recentReleaseTVSeries()
+            async let millennialTask = appState.tmdbService.tvSeriesPaginated(for: .millennialFavorites, page: 1).items
+            async let genZTask = appState.tmdbService.tvSeriesPaginated(for: .genZPicks, page: 1).items
+            async let genXTask = appState.tmdbService.tvSeriesPaginated(for: .genXClassics, page: 1).items
 
-            let (t, p, a, n) = try await (trendingTask, popularTask, acclaimedTask, newTask)
+            let (t, p, a, n, millennial, genZ, genX) = try await (trendingTask, popularTask, acclaimedTask, newTask, millennialTask, genZTask, genXTask)
 
             trending = t
             popular = p
             criticallyAcclaimed = a
             newReleases = n
+            millennialFavorites = millennial
+            genZPicks = genZ
+            genXClassics = genX
             catalogCoreReady = true
 
             let pairs = await PerformanceSignposts.interval(log: PerformanceSignposts.tvTabLoad, name: "TVTabDiscover") {

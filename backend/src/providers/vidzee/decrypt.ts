@@ -1,6 +1,8 @@
 import type { StreamUrl } from './vidzee.types.js';
+import { webcrypto } from 'node:crypto';
 
 const KEY = 'YWxvb2tlcGFyYXRoZXdpdGhsYXNzaQ==';
+const cryptoApi = globalThis.crypto ?? webcrypto;
 
 export default async function decrypt(urls: StreamUrl[]): Promise<string[]> {
     const results: string[] = [];
@@ -27,7 +29,7 @@ export default async function decrypt(urls: StreamUrl[]): Promise<string[]> {
                 .padEnd(32, '\0');
             const keyBytes = new TextEncoder().encode(paddedKey);
 
-            const cryptoKey = await crypto.subtle.importKey(
+            const cryptoKey = await cryptoApi.subtle.importKey(
                 'raw',
                 keyBytes,
                 { name: 'AES-CBC' },
@@ -35,7 +37,7 @@ export default async function decrypt(urls: StreamUrl[]): Promise<string[]> {
                 ['decrypt']
             );
 
-            const decryptedBuffer = await crypto.subtle.decrypt(
+            const decryptedBuffer = await cryptoApi.subtle.decrypt(
                 {
                     name: 'AES-CBC',
                     iv

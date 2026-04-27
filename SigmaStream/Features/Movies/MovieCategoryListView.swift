@@ -18,6 +18,7 @@ struct MovieCategoryListView: View {
     @State private var isLoadingMore = false
     @State private var errorMessage: String?
     @State private var selectedMovie: MovieSelection?
+    @State private var hasLoadedOnce = false
     @FocusState private var focusedMovieId: Int?
 
     private let columns = 5
@@ -89,6 +90,8 @@ struct MovieCategoryListView: View {
             MovieDetailView(movieId: selection.id)
         }
         .task {
+            guard !hasLoadedOnce else { return }
+            hasLoadedOnce = true
             await loadInitial()
         }
     }

@@ -28,6 +28,8 @@ struct TVSeriesDetailView: View {
     @State private var trailerYouTubeKey: String?
     @State private var trailerAlertMessage: String?
     @State private var moreEpisodesSeries: TVSeries?
+    @State private var streamResolutionTask: Task<Void, Never>?
+    @State private var streamLookupOverlayMessage: String?
     @FocusState private var focusedButtonId: String?
     @FocusState private var focusedThumbId: String?
 
@@ -168,6 +170,17 @@ struct TVSeriesDetailView: View {
                 }
             )
         }
+        .overlay {
+            if streamLookupOverlayMessage != nil {
+                StreamLookupBlockingOverlay(
+                    headline: "Finding a stream",
+                    message: streamLookupOverlayMessage ?? "",
+                    onCancel: cancelStreamResolution
+                )
+                .allowsHitTesting(true)
+                .zIndex(1000)
+            }
+        }
         .task {
             await loadSeries()
         }
@@ -210,8 +223,10 @@ struct TVSeriesDetailView: View {
                 Text("\(n) Season\(n == 1 ? "" : "s")")
                     .foregroundStyle(.secondary)
             }
-            Text(streamQuality ?? "HD")
-                .foregroundStyle(.secondary)
+            if let q = streamQuality {
+                Text(q)
+                    .foregroundStyle(.secondary)
+            }
             if let rating = series?.voteAverage {
                 HStack(spacing: 4) {
                     Image(systemName: "star.fill")
@@ -233,12 +248,12 @@ struct TVSeriesDetailView: View {
 
             if let first = firstEpisode {
                 detailButton(id: "play", icon: "play.fill", title: "Play Episode") {
-                    Task { await resolveStream(season: first.season, episode: first.episode.episodeNumber, title: first.episode.name) }
+                    startResolveStream(season: first.season, episode: first.episode.episodeNumber, title: first.episode.name)
                 }
                 .disabled(isResolvingStream)
 
                 detailButton(id: "chooseStream", icon: "list.bullet", title: "Choose Stream") {
-                    Task { await showStreamPicker(season: first.season, episode: first.episode.episodeNumber, title: first.episode.name) }
+                    startShowStreamPickerFetch(season: first.season, episode: first.episode.episodeNumber, title: first.episode.name)
                 }
                 .disabled(isResolvingStream)
             }
@@ -322,47 +337,71 @@ struct TVSeriesDetailView: View {
         }
     }
 
-    private func resolveStream(season: Int, episode: Int, title: String) async {
-        guard !isResolvingStream else { return }
-        isResolvingStream = true
-        streamError = nil
-        defer { isResolvingStream = false }
+    private func cancelStreamResolution() {
+        streamResolutionTask?.cancel()
+    }
 
-        do {
-            let (urls, quality) = try await appState.streamingService.playableURLsAndQualityForEpisode(seriesId: seriesId, season: season, episode: episode)
-            guard !urls.isEmpty else {
-                streamError = "No stream was found"
-                return
+    private func startResolveStream(season: Int, episode: Int, title: String) {
+        guard !isResolvingStream else { return }
+        streamResolutionTask?.cancel()
+        streamResolutionTask = Task { @MainActor in
+            isResolvingStream = true
+            streamLookupOverlayMessage = "Searching for streams"
+            streamError = nil
+            defer {
+                isResolvingStream = false
+                streamLookupOverlayMessage = nil
+                streamResolutionTask = nil
             }
-            if let quality { streamQuality = quality }
-            playableContent = PlayableContent(urls: urls, title: "\(series?.name ?? "Episode") - \(title)", quality: quality, tvSeriesId: seriesId, season: season, episode: episode)
-            appState.watchProgressManager.recordEpisode(seriesId: seriesId, season: season, episode: episode)
-        } catch {
-            streamError = "No stream was found"
+            do {
+                try Task.checkCancellation()
+                let (urls, quality) = try await appState.streamingService.playableURLsAndQualityForEpisode(seriesId: seriesId, season: season, episode: episode)
+                try Task.checkCancellation()
+                guard !urls.isEmpty else {
+                    streamError = "No stream was found"
+                    return
+                }
+                if let quality { streamQuality = quality }
+                playableContent = PlayableContent(urls: urls, title: "\(series?.name ?? "Episode") - \(title)", quality: quality, tvSeriesId: seriesId, season: season, episode: episode)
+                appState.watchProgressManager.recordEpisode(seriesId: seriesId, season: season, episode: episode)
+            } catch is CancellationError {
+                return
+            } catch {
+                streamError = "No stream was found"
+            }
         }
     }
 
-    private func showStreamPicker(season: Int, episode: Int, title: String) async {
+    private func startShowStreamPickerFetch(season: Int, episode: Int, title: String) {
         guard !isResolvingStream else { return }
-        isResolvingStream = true
-        streamError = nil
-        defer { isResolvingStream = false }
-
-        do {
-            let sources = try await appState.streamingService.sourcesForEpisode(seriesId: seriesId, season: season, episode: episode)
-            let playable = sources.filter { $0.isPlayable }
-            guard !playable.isEmpty else {
-                streamError = "No stream was found"
-                return
+        streamResolutionTask?.cancel()
+        streamResolutionTask = Task { @MainActor in
+            isResolvingStream = true
+            streamLookupOverlayMessage = "Searching for streams"
+            streamError = nil
+            defer {
+                isResolvingStream = false
+                streamLookupOverlayMessage = nil
+                streamResolutionTask = nil
             }
-            if let q = playable.first?.quality { streamQuality = q }
-            await MainActor.run {
+            do {
+                try Task.checkCancellation()
+                let sources = try await appState.streamingService.sourcesForEpisode(seriesId: seriesId, season: season, episode: episode)
+                try Task.checkCancellation()
+                let playable = sources.filter { $0.isPlayable }
+                guard !playable.isEmpty else {
+                    streamError = "No stream was found"
+                    return
+                }
+                if let q = playable.first?.quality { streamQuality = q }
                 streamPickerSources = playable
                 streamPickerEpisode = (season, episode, title)
                 showStreamPicker = true
+            } catch is CancellationError {
+                return
+            } catch {
+                streamError = "No stream was found"
             }
-        } catch {
-            streamError = "No stream was found"
         }
     }
 

@@ -186,9 +186,11 @@ private struct CardFrameModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         if alwaysPoster {
+            // Filling a fixed parent frame (e.g. See All grid) — do not add a second `aspectRatio` here;
+            // that can collapse or flicker in `LazyVGrid` with focus updates.
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .aspectRatio(2/3, contentMode: .fill)
+                .clipped()
         } else {
             content
                 .frame(width: useBackdrop ? backdropWidth : posterWidth, height: posterHeight)

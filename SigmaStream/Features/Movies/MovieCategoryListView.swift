@@ -103,7 +103,8 @@ struct MovieCategoryListView: View {
         hasMore = true
         do {
             let result = try await appState.tmdbService.moviesPaginated(for: category, page: 1)
-            movies = result.items
+            var seen = Set<Int>()
+            movies = result.items.filter { seen.insert($0.id).inserted }
             hasMore = result.hasMore
         } catch {
             errorMessage = error.localizedDescription
@@ -117,7 +118,8 @@ struct MovieCategoryListView: View {
         let nextPage = currentPage + 1
         do {
             let result = try await appState.tmdbService.moviesPaginated(for: category, page: nextPage)
-            movies.append(contentsOf: result.items)
+            let newItems = result.items.filter { m in !movies.contains(where: { $0.id == m.id }) }
+            movies.append(contentsOf: newItems)
             hasMore = result.hasMore
             currentPage = nextPage
         } catch {

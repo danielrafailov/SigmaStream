@@ -208,13 +208,54 @@ actor TMDbService {
         series.filter { $0.backdropPath != nil }
     }
 
-    private static let sexualContentBlockedTerms: [String] = [
-        "porn", "porno", "pornographic", "xxx", "sex", "sexual", "erotic", "softcore", "hardcore", "nsfw"
+    // MARK: - Adult / explicit text filtering (list-based; no image analysis)
+
+    /// Distinctive phrases in titles or overviews (lowercase; avoid bare "sex" here — use regex below).
+    private static let adultContentPhraseSubstrings: [String] = [
+        "nudity", " full nudity", " nude ", " nude,", "nude)", "nude.",
+        "nudist", "naked", "topless", "bare-breasted", "bare breasted", "striptease", " strip club",
+        "porn", "porno", "pornograph", "pornographic", "porn ", " porn", "adult film", "adult movie",
+        "erotic", "erotica", "softcore", "hardcore", "xxx", " x-rated", "x-rated", "henati", "hentai",
+        "stripper", "stripping for", "peep show", "live sex", "sex scene", "sexual encounter", "sexual relationship",
+        "fetish", "bdsm", "bondage", "dominatrix", "orgy", "orgies", "gangbang", "bukkake", "blowjob",
+        "blow job", "handjob", "hand job", "cumshot", "ejaculat", "masturbat", "dildo", "vibrator",
+        "cunnilingus", "fellatio", "sodomy", "fuck scene", "intercourse", "penetration", "sensual massage",
+        "nsfw", "adults only", "adult only", "sexual content", "sexually explicit", "depicts sex",
+        "incest", "raped", " rape ", " rape.", " rape,", "shemale", "futanari", "loli", "shota", "yuri porn", "yaoi porn",
+        "milf", "onlyfans", "escort", "brothel", "prostitut", "call girl", "happy ending (massage)",
+        "unsimulated sex", "unsimulated"
     ]
 
-    private static func containsBlockedSexualTerms(_ text: String?) -> Bool {
+    /// Whole-word match for common explicit terms (avoids "Sussex" / "Essex" for "sex").
+    private static let adultContentRegex: NSRegularExpression? = {
+        let pattern = #"(?i)\b(fuck|fucking|fucked|fucks|shag|shemale|whore|slut|whores|sluts|cocksucker|cock|dick|dicks|pussy|pussies|cunt|dildo|blowjob|handjob|gangbang|milf|bdsm|hentai|futanari|orgy|orgies|xxx|porn|porno|nude|nudes|naked|topless|erotic|stripper|escort|sex|sexes|raped|rapist|incest|nudity)\b"#
+        return try? NSRegularExpression(pattern: pattern, options: [])
+    }()
+
+    private static func combinedText(_ parts: String?...) -> String {
+        parts.compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    private static func textLikelyAdultOrSexual(_ text: String?) -> Bool {
         guard let raw = text?.lowercased(), !raw.isEmpty else { return false }
-        return sexualContentBlockedTerms.contains { raw.contains($0) }
+        for phrase in adultContentPhraseSubstrings {
+            if raw.contains(phrase) { return true }
+        }
+        if let regex = adultContentRegex {
+            let range = NSRange(raw.startIndex..., in: raw)
+            if regex.firstMatch(in: raw, options: [], range: range) != nil { return true }
+        }
+        return false
+    }
+
+    private static func imagePathStringMightIndicateAdultFromMetadata(_ path: String?) -> Bool {
+        guard let s = path?.lowercased(), s.count > 3 else { return false }
+        // TMDb paths are usually hash-like; image pixels are not analyzed here.
+        return ["porn", "xxx", "nude", "sex", "adult", "erotic", "nsfw", "18+", "18plus"].contains { s.contains($0) }
+    }
+
+    private static func imagePathMightIndicateAdultFromURL(_ url: URL?) -> Bool {
+        imagePathStringMightIndicateAdultFromMetadata(url?.absoluteString)
     }
 
     private static func isFutureDate(_ date: Date?) -> Bool {
@@ -226,18 +267,20 @@ actor TMDbService {
 
     private static func isMovieAllowedForApp(_ movie: MovieListItem) -> Bool {
         if movie.isAdultOnly == true { return false }
-        if containsBlockedSexualTerms(movie.title) || containsBlockedSexualTerms(movie.originalTitle) || containsBlockedSexualTerms(movie.overview) {
-            return false
-        }
+        let text = combinedText(movie.title, movie.originalTitle, movie.overview)
+        if textLikelyAdultOrSexual(text) { return false }
+        if imagePathMightIndicateAdultFromURL(movie.posterPath) { return false }
+        if imagePathMightIndicateAdultFromURL(movie.backdropPath) { return false }
         if isFutureDate(movie.releaseDate) { return false }
         return true
     }
 
     private static func isTVAllowedForApp(_ series: TVSeriesListItem) -> Bool {
         if series.isAdultOnly == true { return false }
-        if containsBlockedSexualTerms(series.name) || containsBlockedSexualTerms(series.originalName) || containsBlockedSexualTerms(series.overview) {
-            return false
-        }
+        let text = combinedText(series.name, series.originalName, series.overview)
+        if textLikelyAdultOrSexual(text) { return false }
+        if imagePathMightIndicateAdultFromURL(series.posterPath) { return false }
+        if imagePathMightIndicateAdultFromURL(series.backdropPath) { return false }
         if isFutureDate(series.firstAirDate) { return false }
         return true
     }
@@ -441,9 +484,13 @@ actor TMDbService {
     /// Get movie details (cached)
     func movieDetails(forMovieId movieId: Int) async throws -> Movie {
         if let cached = movieCache[movieId] {
-            return cached
+            if Self.isMovieDetailAllowedForApp(cached) { return cached }
+            movieCache.removeValue(forKey: movieId)
         }
         let movie = try await client.movies.details(forMovie: movieId)
+        guard Self.isMovieDetailAllowedForApp(movie) else {
+            throw TMDbServiceError.apiError("This title isn’t available.")
+        }
         movieCache[movieId] = movie
         return movie
     }
@@ -451,11 +498,34 @@ actor TMDbService {
     /// Get TV series details (cached)
     func tvSeriesDetails(forSeriesId seriesId: Int) async throws -> TVSeries {
         if let cached = tvSeriesCache[seriesId] {
-            return cached
+            if Self.isTVSeriesDetailAllowedForApp(cached) { return cached }
+            tvSeriesCache.removeValue(forKey: seriesId)
         }
         let series = try await client.tvSeries.details(forTVSeries: seriesId)
+        guard Self.isTVSeriesDetailAllowedForApp(series) else {
+            throw TMDbServiceError.apiError("This title isn’t available.")
+        }
         tvSeriesCache[seriesId] = series
         return series
+    }
+
+    /// Text on full TMDb `Movie` (title, overview, tagline, etc.). Poster art is not analyzed.
+    private static func isMovieDetailAllowedForApp(_ m: Movie) -> Bool {
+        if m.isAdultOnly == true { return false }
+        let text = combinedText(m.title, m.originalTitle, m.overview, m.tagline)
+        if textLikelyAdultOrSexual(text) { return false }
+        if imagePathMightIndicateAdultFromURL(m.posterPath) { return false }
+        if imagePathMightIndicateAdultFromURL(m.backdropPath) { return false }
+        return true
+    }
+
+    private static func isTVSeriesDetailAllowedForApp(_ s: TVSeries) -> Bool {
+        if s.isAdultOnly == true { return false }
+        let text = combinedText(s.name, s.originalName, s.overview, s.tagline)
+        if textLikelyAdultOrSexual(text) { return false }
+        if imagePathMightIndicateAdultFromURL(s.posterPath) { return false }
+        if imagePathMightIndicateAdultFromURL(s.backdropPath) { return false }
+        return true
     }
 
     /// Get full season details including episodes

@@ -45,6 +45,10 @@ private final class PosterMemoryCache {
     }
 }
 
+private func posterMemoryCachedImage(for url: URL) -> UIImage? {
+    PosterMemoryCache.shared.image(for: url)
+}
+
 private func loadShelfRemoteImage(url: URL, maxPixelSize: Int) async -> UIImage? {
     if let cached = PosterMemoryCache.shared.image(for: url) {
         return cached
@@ -93,10 +97,17 @@ struct ShelfPosterRemoteImage: View {
                     }
             }
         }
-        .task(id: url.absoluteString) {
-            await MainActor.run { uiImage = nil }
-            guard let img = await loadShelfRemoteImage(url: url, maxPixelSize: maxPixelSize) else { return }
-            await MainActor.run { uiImage = img }
+        // Reset image state per URL so LazyVGrid cannot show the wrong title’s pixels when cells recycle.
+        .id(url)
+        .task(id: url) {
+            if let mem = posterMemoryCachedImage(for: url) {
+                await MainActor.run { uiImage = mem }
+                return
+            }
+            let img = await loadShelfRemoteImage(url: url, maxPixelSize: maxPixelSize)
+            await MainActor.run {
+                if let img { uiImage = img }
+            }
         }
     }
 }

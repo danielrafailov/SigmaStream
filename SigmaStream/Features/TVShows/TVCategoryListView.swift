@@ -103,7 +103,8 @@ struct TVCategoryListView: View {
         hasMore = true
         do {
             let result = try await appState.tmdbService.tvSeriesPaginated(for: category, page: 1)
-            tvSeries = result.items
+            var seen = Set<Int>()
+            tvSeries = result.items.filter { seen.insert($0.id).inserted }
             hasMore = result.hasMore
         } catch {
             errorMessage = error.localizedDescription
@@ -117,7 +118,8 @@ struct TVCategoryListView: View {
         let nextPage = currentPage + 1
         do {
             let result = try await appState.tmdbService.tvSeriesPaginated(for: category, page: nextPage)
-            tvSeries.append(contentsOf: result.items)
+            let newItems = result.items.filter { s in !tvSeries.contains(where: { $0.id == s.id }) }
+            tvSeries.append(contentsOf: newItems)
             hasMore = result.hasMore
             currentPage = nextPage
         } catch {

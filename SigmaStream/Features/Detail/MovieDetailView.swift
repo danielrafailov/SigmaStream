@@ -23,6 +23,8 @@ struct MovieDetailView: View {
     @State private var pendingStreamSelection: OMSSSource?
     @State private var trailerYouTubeKey: String?
     @State private var trailerAlertMessage: String?
+    @State private var streamResolutionTask: Task<Void, Never>?
+    @State private var streamLookupOverlayMessage: String?
     @FocusState private var focusedButtonId: String?
     @FocusState private var focusedThumbId: String?
 
@@ -137,6 +139,17 @@ struct MovieDetailView: View {
                 }
             )
         }
+        .overlay {
+            if streamLookupOverlayMessage != nil {
+                StreamLookupBlockingOverlay(
+                    headline: "Finding a stream",
+                    message: streamLookupOverlayMessage ?? "",
+                    onCancel: cancelStreamResolution
+                )
+                .allowsHitTesting(true)
+                .zIndex(1000)
+            }
+        }
         .navigationTitle("")
         .task {
             await loadMovie()
@@ -177,8 +190,10 @@ struct MovieDetailView: View {
                 Text("\(runtime) min")
                     .foregroundStyle(.secondary)
             }
-            Text(streamQuality ?? "HD")
-                .foregroundStyle(.secondary)
+            if let q = streamQuality {
+                Text(q)
+                    .foregroundStyle(.secondary)
+            }
             if let rating = movie?.voteAverage {
                 HStack(spacing: 4) {
                     Image(systemName: "star.fill")
@@ -200,12 +215,12 @@ struct MovieDetailView: View {
 
             if isReleased {
                 detailButton(id: "play", icon: "play.fill", title: "Play") {
-                    Task { await resolveStream() }
+                    startResolveStream()
                 }
                 .disabled(isResolvingStream)
 
                 detailButton(id: "chooseStream", icon: "list.bullet", title: "Choose Stream") {
-                    Task { await showStreamPicker() }
+                    startShowStreamPickerFetch()
                 }
                 .disabled(isResolvingStream)
             } else {
@@ -274,47 +289,70 @@ struct MovieDetailView: View {
         }
     }
 
-    private func resolveStream() async {
-        guard !isResolvingStream else { return }
-        isResolvingStream = true
-        streamError = nil
-        defer { isResolvingStream = false }
+    private func cancelStreamResolution() {
+        streamResolutionTask?.cancel()
+    }
 
-        do {
-            let (urls, quality) = try await appState.streamingService.playableURLsAndQualityForMovie(tmdbId: movieId)
-            guard !urls.isEmpty else {
-                streamError = "No stream was found"
-                return
+    private func startResolveStream() {
+        guard !isResolvingStream else { return }
+        streamResolutionTask?.cancel()
+        streamResolutionTask = Task { @MainActor in
+            isResolvingStream = true
+            streamLookupOverlayMessage = "Searching for streams"
+            streamError = nil
+            defer {
+                isResolvingStream = false
+                streamLookupOverlayMessage = nil
+                streamResolutionTask = nil
             }
-            if let quality { streamQuality = quality }
-            let content = PlayableContent(urls: urls, title: movie?.title ?? "Movie", quality: quality, movieId: movieId)
-            playableContent = content
-            appState.watchProgressManager.recordMovie(movieId)
-        } catch {
-            streamError = "No stream was found"
+            do {
+                try Task.checkCancellation()
+                let (urls, quality) = try await appState.streamingService.playableURLsAndQualityForMovie(tmdbId: movieId)
+                try Task.checkCancellation()
+                guard !urls.isEmpty else {
+                    streamError = "No stream was found"
+                    return
+                }
+                if let quality { streamQuality = quality }
+                playableContent = PlayableContent(urls: urls, title: movie?.title ?? "Movie", quality: quality, movieId: movieId)
+                appState.watchProgressManager.recordMovie(movieId)
+            } catch is CancellationError {
+                return
+            } catch {
+                streamError = "No stream was found"
+            }
         }
     }
 
-    private func showStreamPicker() async {
+    private func startShowStreamPickerFetch() {
         guard !isResolvingStream else { return }
-        isResolvingStream = true
-        streamError = nil
-        defer { isResolvingStream = false }
-
-        do {
-            let sources = try await appState.streamingService.sourcesForMovie(tmdbId: movieId)
-            let playable = sources.filter { $0.isPlayable }
-            guard !playable.isEmpty else {
-                streamError = "No stream was found"
-                return
+        streamResolutionTask?.cancel()
+        streamResolutionTask = Task { @MainActor in
+            isResolvingStream = true
+            streamLookupOverlayMessage = "Searching for streams"
+            streamError = nil
+            defer {
+                isResolvingStream = false
+                streamLookupOverlayMessage = nil
+                streamResolutionTask = nil
             }
-            if let q = playable.first?.quality { streamQuality = q }
-            await MainActor.run {
+            do {
+                try Task.checkCancellation()
+                let sources = try await appState.streamingService.sourcesForMovie(tmdbId: movieId)
+                try Task.checkCancellation()
+                let playable = sources.filter { $0.isPlayable }
+                guard !playable.isEmpty else {
+                    streamError = "No stream was found"
+                    return
+                }
+                if let q = playable.first?.quality { streamQuality = q }
                 streamPickerSources = playable
                 showStreamPicker = true
+            } catch is CancellationError {
+                return
+            } catch {
+                streamError = "No stream was found"
             }
-        } catch {
-            streamError = "No stream was found"
         }
     }
 

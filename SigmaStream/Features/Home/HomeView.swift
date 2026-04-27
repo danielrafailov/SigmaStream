@@ -2,7 +2,7 @@
 //  HomeView.swift
 //  SigmaStream
 //
-//  Aggregates For You (personal), Movies tab rows, and TV Shows tab rows.
+//  Home: My List / Liked rows plus Movies and TV catalog shelves. (Continue Watching and Because you watched live under For You only.)
 //
 
 import SwiftUI
@@ -14,16 +14,10 @@ struct HomeView: View {
 
     @Environment(AppState.self) private var appState
 
-    // MARK: - For You (personal)
+    // MARK: - Personal (Home tab: My List + Liked only)
 
-    @State private var becauseYouWatchedTitle: String?
-    @State private var becauseYouWatchedMovies: [MovieListItem] = []
-    @State private var becauseYouWatchedSeries: [TVSeriesListItem] = []
-    @State private var becauseYouWatchedIsMovie = false
     @State private var myListMovies: [MovieListItem] = []
     @State private var myListSeries: [TVSeriesListItem] = []
-    @State private var continueWatchingMovies: [MovieListItem] = []
-    @State private var continueWatchingTV: [TVSeriesListItem] = []
     @State private var likedMovies: [MovieListItem] = []
     @State private var likedSeries: [TVSeriesListItem] = []
 
@@ -126,9 +120,6 @@ struct HomeView: View {
                 guard shouldLoad else { return }
                 await loadData()
             }
-            .onReceive(NotificationCenter.default.publisher(for: WatchProgressManager.continueWatchingDidChange)) { _ in
-                Task { await refreshPersonalContent() }
-            }
             .onChange(of: appState.myListManager.movieIds.count) { _, _ in
                 Task { await refreshPersonalContent() }
             }
@@ -149,8 +140,6 @@ struct HomeView: View {
     @ViewBuilder
     private var personalBlock: some View {
         Group {
-            becauseYouWatchedBlock
-
             if !myListMovies.isEmpty {
                 MovieMediaRow(
                     title: "My List",
@@ -167,22 +156,6 @@ struct HomeView: View {
                     onSelect: { selectedSeries = TVSeriesSelection(id: $0.id) }
                 )
             }
-            if !continueWatchingMovies.isEmpty {
-                MovieMediaRow(
-                    title: "Continue Watching",
-                    movies: continueWatchingMovies,
-                    config: appState.apiConfiguration,
-                    onSelect: { selectedMovie = MovieSelection(id: $0.id) }
-                )
-            }
-            if !continueWatchingTV.isEmpty {
-                TVSeriesMediaRow(
-                    title: "Continue Watching (TV)",
-                    tvSeries: continueWatchingTV,
-                    config: appState.apiConfiguration,
-                    onSelect: { selectedSeries = TVSeriesSelection(id: $0.id) }
-                )
-            }
             if !likedMovies.isEmpty {
                 MovieMediaRow(
                     title: "Liked Movies",
@@ -195,27 +168,6 @@ struct HomeView: View {
                 TVSeriesMediaRow(
                     title: "Liked TV",
                     tvSeries: likedSeries,
-                    config: appState.apiConfiguration,
-                    onSelect: { selectedSeries = TVSeriesSelection(id: $0.id) }
-                )
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var becauseYouWatchedBlock: some View {
-        if let title = becauseYouWatchedTitle {
-            if becauseYouWatchedIsMovie, !becauseYouWatchedMovies.isEmpty {
-                MovieMediaRow(
-                    title: "Because you watched \(title)",
-                    movies: becauseYouWatchedMovies,
-                    config: appState.apiConfiguration,
-                    onSelect: { selectedMovie = MovieSelection(id: $0.id) }
-                )
-            } else if !becauseYouWatchedIsMovie, !becauseYouWatchedSeries.isEmpty {
-                TVSeriesMediaRow(
-                    title: "Because you watched \(title)",
-                    tvSeries: becauseYouWatchedSeries,
                     config: appState.apiConfiguration,
                     onSelect: { selectedSeries = TVSeriesSelection(id: $0.id) }
                 )
@@ -333,65 +285,8 @@ struct HomeView: View {
     }
 
     private func refreshPersonalContent() async {
-        await loadBecauseYouWatched()
         await loadMyListMapped()
-        await loadContinueWatchingMapped()
         await loadLikedMapped()
-    }
-
-    private func loadBecauseYouWatched() async {
-        becauseYouWatchedTitle = nil
-        becauseYouWatchedMovies = []
-        becauseYouWatchedSeries = []
-
-        let lastMovie = appState.watchProgressManager.watchedMovies.first
-        let lastEpisode = appState.watchProgressManager.watchedEpisodes.first
-
-        var sourceId = 0
-        var sourceTitle: String?
-        var isMovie = false
-
-        if let movie = lastMovie, let episode = lastEpisode {
-            if movie.lastWatchedAt >= episode.lastWatchedAt {
-                guard let details = try? await appState.tmdbService.movieDetails(forMovieId: movie.movieId) else { return }
-                sourceId = movie.movieId
-                sourceTitle = details.title
-                isMovie = true
-            } else {
-                guard let details = try? await appState.tmdbService.tvSeriesDetails(forSeriesId: episode.seriesId) else { return }
-                sourceId = episode.seriesId
-                sourceTitle = details.name
-                isMovie = false
-            }
-        } else if let movie = lastMovie,
-                  let details = try? await appState.tmdbService.movieDetails(forMovieId: movie.movieId) {
-            sourceId = movie.movieId
-            sourceTitle = details.title
-            isMovie = true
-        } else if let episode = lastEpisode,
-                  let details = try? await appState.tmdbService.tvSeriesDetails(forSeriesId: episode.seriesId) {
-            sourceId = episode.seriesId
-            sourceTitle = details.name
-            isMovie = false
-        } else {
-            return
-        }
-
-        guard let title = sourceTitle, !title.isEmpty else { return }
-
-        do {
-            if isMovie {
-                let items = try await appState.tmdbService.movieRecommendations(forMovieId: sourceId)
-                becauseYouWatchedTitle = title
-                becauseYouWatchedMovies = Array(items.prefix(12))
-                becauseYouWatchedIsMovie = true
-            } else {
-                let items = try await appState.tmdbService.tvSeriesRecommendations(forSeriesId: sourceId)
-                becauseYouWatchedTitle = title
-                becauseYouWatchedSeries = Array(items.prefix(12))
-                becauseYouWatchedIsMovie = false
-            }
-        } catch {}
     }
 
     private func loadMyListMapped() async {
@@ -410,24 +305,6 @@ struct HomeView: View {
             }
         }
         myListSeries = series
-    }
-
-    private func loadContinueWatchingMapped() async {
-        var movies: [MovieListItem] = []
-        for id in appState.watchProgressManager.watchedMovies.map(\.movieId) {
-            if let m = try? await appState.tmdbService.movieDetails(forMovieId: id) {
-                movies.append(Self.movieListItem(from: m))
-            }
-        }
-        continueWatchingMovies = movies
-
-        var tvRows: [TVSeriesListItem] = []
-        for ep in appState.watchProgressManager.watchedEpisodes {
-            if let s = try? await appState.tmdbService.tvSeriesDetails(forSeriesId: ep.seriesId) {
-                tvRows.append(Self.tvSeriesListItem(from: s, progressLabel: "S\(ep.season)E\(ep.episode)"))
-            }
-        }
-        continueWatchingTV = tvRows
     }
 
     private func loadLikedMapped() async {
@@ -467,14 +344,10 @@ struct HomeView: View {
         )
     }
 
-    private static func tvSeriesListItem(from series: TVSeries, progressLabel: String? = nil) -> TVSeriesListItem {
-        let displayName: String = {
-            guard let progressLabel else { return series.name }
-            return "\(series.name) · \(progressLabel)"
-        }()
-        return TVSeriesListItem(
+    private static func tvSeriesListItem(from series: TVSeries) -> TVSeriesListItem {
+        TVSeriesListItem(
             id: series.id,
-            name: displayName,
+            name: series.name,
             originalName: series.originalName ?? series.name,
             originalLanguage: series.originalLanguage ?? "en",
             overview: series.overview ?? "",

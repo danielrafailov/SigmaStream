@@ -167,7 +167,7 @@ struct VideoPlayerView: View {
 
     @ViewBuilder
     private func streamStatusOverlay(status: StreamStatus) -> some View {
-        Color.black.opacity(0.85)
+        Color.black
             .ignoresSafeArea()
             .overlay {
                 VStack(spacing: 24) {

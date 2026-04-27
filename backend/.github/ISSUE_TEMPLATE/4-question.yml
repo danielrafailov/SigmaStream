@@ -23,7 +23,7 @@ body:
                 required: true
               - label: I have checked the [OMSS Framework documentation](https://github.com/omss-spec/framework)
                 required: true
-              - label: I have checked [CinePro documentation](https://cinepro.mintlify.app)
+              - label: I have checked [CinePro documentation](https://docs.cinepro.cc)
                 required: true
               - label: I have searched existing issues and discussions for similar questions
                 required: true

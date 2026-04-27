@@ -13,10 +13,11 @@ const VXR_API = 'https://cdn.madplay.site/vxr';
 const HOLLY_API = 'https://api.madplay.site/api/movies/holly';
 const ROGFLIX_API = 'https://api.madplay.site/api/rogflix';
 
+// Uembed has been sunset. Unknown if it will be revived
 export class UembedProvider extends BaseProvider {
     readonly id = 'uembed';
     readonly name = 'Uembed';
-    readonly enabled = true;
+    readonly enabled = false;
     readonly BASE_URL = 'https://madplay.site';
     readonly HEADERS = {
         Origin: this.BASE_URL,
@@ -80,8 +81,7 @@ export class UembedProvider extends BaseProvider {
 
     private async fetchApi(url: string): Promise<any[]> {
         const response = await axios.get(url, {
-            headers: this.HEADERS,
-            timeout: 10000
+            headers: this.HEADERS
         });
 
         if (response.status !== 200 || !Array.isArray(response.data)) {
@@ -115,18 +115,24 @@ export class UembedProvider extends BaseProvider {
                             variant.url,
                             variant.url.includes('xpass.top')
                                 ? {}
-                                : {
-                                      ...this.HEADERS,
-                                      Referer: `${urlOrigin}/`,
-                                      Origin: urlOrigin
-                                  }
+                                : variant.url.includes('goodstream.cc')
+                                  ? {
+                                        ...this.HEADERS,
+                                        Referer: `https://flashstream.cc/`,
+                                        Origin: 'https://flashstream.cc'
+                                    }
+                                  : {
+                                        ...this.HEADERS,
+                                        Referer: `${urlOrigin}/`,
+                                        Origin: urlOrigin
+                                    }
                         ),
                         type: 'hls',
                         quality: variant.quality,
                         audioTracks: [
                             {
                                 language,
-                                label: stream.title || 'Unknown'
+                                label: 'English'
                             }
                         ],
                         provider: { id: this.id, name: this.name }
@@ -170,7 +176,6 @@ export class UembedProvider extends BaseProvider {
                 ...this.HEADERS,
                 Accept: 'application/vnd.apple.mpegurl,application/x-mpegURL,*/*'
             },
-            timeout: 10000,
             responseType: 'text'
         });
 
@@ -246,7 +251,7 @@ export class UembedProvider extends BaseProvider {
                 360: '360p',
                 240: '240p'
             };
-            return map[height] || 'Unknown';
+            return map[height] || 'Auto';
         }
 
         if (stream?.bandwidth) {
@@ -262,7 +267,7 @@ export class UembedProvider extends BaseProvider {
             }
         }
 
-        return 'Unknown';
+        return 'Auto';
     }
 
     private qualityPriority(quality: string): number {
@@ -276,7 +281,7 @@ export class UembedProvider extends BaseProvider {
             '360p': 3,
             '240p': 2,
             HD: 2,
-            Unknown: 1
+            Auto: 1
         };
         return priorities[quality] || 1;
     }

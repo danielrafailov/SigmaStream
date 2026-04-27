@@ -8,58 +8,15 @@ import { streamPatterns } from './streamPatterns.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Runs before main(): if this never appears in Railway logs, the running image is not this build.
-console.log(`[Server] entrypoint loaded pid=${process.pid} file=${__filename}`);
-
-/** Public base URL for proxy links (required when listening on 0.0.0.0, else OMSS falls back to localhost). */
-function resolvePublicUrl(): string | undefined {
-    const explicit = process.env.PUBLIC_URL?.trim();
-    if (explicit) return explicit.replace(/\/$/, '');
-    const railwayDomain = process.env.RAILWAY_PUBLIC_DOMAIN?.trim();
-    if (railwayDomain) return `https://${railwayDomain.replace(/\/$/, '')}`;
-    return undefined;
-}
-
-process.on('uncaughtException', (err) => {
-    console.error('[Server] uncaughtException:', err);
-    if (err instanceof Error && err.stack) console.error(err.stack);
-    process.exit(1);
-});
-
-process.on('unhandledRejection', (reason) => {
-    console.error('[Server] unhandledRejection:', reason);
-    if (reason instanceof Error && reason.stack) console.error(reason.stack);
-});
-
 async function main() {
-    const host = process.env.HOST ?? 'localhost';
-    const port = Number(process.env.PORT ?? 3000);
-    const publicUrl = resolvePublicUrl();
-
-    console.log(
-        `[Server] bootstrap host=${host} port=${port} publicUrl=${publicUrl ?? '(unset — OMSS may use localhost for proxy base)'}`,
-    );
-    console.log(
-        `[Server] env replica=${process.env.RAILWAY_REPLICA_ID ?? 'n/a'} deployment=${process.env.RAILWAY_DEPLOYMENT_ID ?? 'n/a'}`,
-    );
-
-    const tmdbApiKey = process.env.TMDB_API_KEY?.trim();
-    if (!tmdbApiKey) {
-        console.error(
-            '[Server] TMDB_API_KEY is not set. In Railway: open this backend service → Variables → add TMDB_API_KEY (your TMDb API v3 auth key). ' +
-                'Use the same environment (e.g. Production) as the deployment. Redeploy after saving.',
-        );
-        process.exit(1);
-    }
-
     const server = new OMSSServer({
         name: 'CinePro',
         version: '1.0.0',
 
         // Network
-        host,
-        port,
-        publicUrl,
+        host: process.env.HOST ?? 'localhost',
+        port: Number(process.env.PORT ?? 3000),
+        publicUrl: process.env.PUBLIC_URL,
 
         // Cache (memory for dev, Redis for prod)
         cache: {
@@ -75,9 +32,9 @@ async function main() {
             }
         },
 
-        // TMDB (OMSS also reads process.env.TMDB_API_KEY; we pass explicitly after guard above)
+        // TMDB
         tmdb: {
-            apiKey: tmdbApiKey,
+            apiKey: process.env.TMDB_API_KEY!,
             cacheTTL: 24 * 60 * 60 // 24h
         },
 
@@ -85,27 +42,48 @@ async function main() {
         proxyConfig: {
             knownThirdPartyProxies: knownThirdPartyProxies,
             streamPatterns
+        },
+
+        cors: {
+            origin: process.env.CORS_ORIGIN ?? '*',
+            methods: ['GET', 'OPTIONS'],
+            allowedHeaders: ['Content-Type', 'Authorization'],
+            exposedHeaders: ['Content-Range', 'Accept-Ranges', 'ETag'],
+            preflightContinue: false,
+            optionsSuccessStatus: 204
+        },
+
+        stremio: {
+            // exposes a stremio addon on /stremio/manifest.json
+            enableNativeAddon: process.env.STREMIO_ADDON === 'true',
+            // allows adding custom stremio addons that can be used as providers.
+            stremioAddons: [
+                {
+                    id: 'WebStreamerMBG',
+                    url: 'https://87d6a6ef6b58-webstreamrmbg.baby-beamup.club/manifest.json',
+                    enabled: true
+                },
+                {
+                    id: 'Streamify',
+                    url: 'https://stremify.hayd.uk/manifest.json',
+                    enabled: true
+                }
+            ]
+        },
+
+        // MCP for AI agents
+        mcp: {
+            enabled: process.env.MCP_ENABLED === 'true'
         }
     });
 
     // Register providers
     const registry = server.getRegistry();
-    const providersDir = path.join(__dirname, './providers/');
-    console.log(`[Server] discovering providers under ${providersDir}`);
-    await registry.discoverProviders(providersDir);
-    console.log(`[Server] provider discovery done (count=${registry.count})`);
+    await registry.discoverProviders(path.join(__dirname, './providers/'));
 
-    console.log('[Server] starting HTTP listener…');
     await server.start();
 }
 
-main().catch((err) => {
-    // Temporary: surface startup failures on Railway (remove once stable).
-    console.error('[Server] Fatal startup error:', err);
-    console.log('[Server] Fatal startup error (stdout copy):', err);
-    if (err instanceof Error && err.stack) {
-        console.error(err.stack);
-        console.log(err.stack);
-    }
+main().catch(() => {
     process.exit(1);
 });

@@ -205,7 +205,7 @@ Documentation improvements are always welcome! This includes:
 
 ## Questions?
 
-- Check [CinePro Documentation](https://cinepro.mintlify.app)
+- Check [CinePro Documentation](https://docs.cinepro.cc)
 - Ask in [GitHub Discussions](https://github.com/orgs/cinepro-org/discussions)
 - Open a [Question Issue](https://github.com/cinepro-org/core/issues/new/choose)
 

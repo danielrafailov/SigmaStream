@@ -1,5 +1,5 @@
 # Build stage
-FROM node:18-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
@@ -10,29 +10,37 @@ COPY . .
 RUN npm run build
 
 # Production stage
-FROM node:18-alpine
+FROM node:22-alpine
 
 WORKDIR /app
 
-# Define default values
+ARG VERSION
+ARG REVISION
+ARG CREATED
+ARG DESCRIPTION
+ARG SOURCE
+
+LABEL org.opencontainers.image.title="CinePro Core" \
+      org.opencontainers.image.description="${DESCRIPTION}" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.created="${CREATED}" \
+      org.opencontainers.image.source="${SOURCE}"
+
 ARG NODE_ENV=production
 ARG PORT=3000
 ARG CACHE_TYPE=memory
 
-# Set environment variables
 ENV NODE_ENV=${NODE_ENV}
 ENV HOST=0.0.0.0
 ENV PORT=${PORT}
 ENV CACHE_TYPE=${CACHE_TYPE}
 
-# Copy only production dependencies
 COPY package*.json ./
 RUN npm ci --only=production
 
-# Copy built application
 COPY --from=builder /app/dist ./dist
 
-# Create non-root user
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nodejs -u 1001
 

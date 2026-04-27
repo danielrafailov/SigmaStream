@@ -5,13 +5,12 @@
     "scripts": {
         "dev": "tsx watch src/server.ts",
         "build": "tsc",
-        "test:invincible": "node test-invincible-episodes.mjs",
         "start": "npm run build && node dist/server.js",
         "format": "prettier --write src",
-        "clean": "npx rimraf dist"
+        "clean": "npx rimraf dist"  
     },
     "dependencies": {
-        "@omss/framework": "^1.1.13",
+        "@omss/framework": "^1.1.19",
         "cheerio": "^1.2.0",
         "crypto-js": "^4.2.0",
         "dotenv": "^16.4.5"

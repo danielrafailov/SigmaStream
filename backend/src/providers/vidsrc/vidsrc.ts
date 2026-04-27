@@ -92,7 +92,7 @@ export class VidSrcProvider extends BaseProvider {
                     Origin: 'https://cloudnestra.com' // Set Origin header to second URL's origin
                 }),
                 type: 'hls', // m3u8 = HLS streaming
-                quality: `up to HD`, // VidSrc does not provide explicit quality labels, so we use a generic one
+                quality: `Auto`, // VidSrc does not provide explicit quality labels, so we use a generic one
                 audioTracks: [
                     {
                         label: 'English',
@@ -146,8 +146,7 @@ export class VidSrcProvider extends BaseProvider {
             }
 
             const response = await axios.get(url, {
-                headers: this.HEADERS,
-                timeout: 10000
+                headers: this.HEADERS
             });
 
             if (response.status !== 200) {

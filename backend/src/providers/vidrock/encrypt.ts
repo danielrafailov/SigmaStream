@@ -1,7 +1,7 @@
-import { webcrypto } from 'node:crypto';
+import { webcrypto } from 'crypto';
 
+const crypto = webcrypto;
 const PASSPHRASE = 'x7k9mPqT2rWvY8zA5bC3nF6hJ2lK4mN9';
-const cryptoApi = globalThis.crypto ?? webcrypto;
 
 export async function encryptItemId(itemId: string) {
     try {
@@ -14,7 +14,7 @@ export async function encryptItemId(itemId: string) {
         const iv = textEncoder.encode(PASSPHRASE.substring(0, 16));
 
         // Import the key for AES-CBC
-        const key = await cryptoApi.subtle.importKey(
+        const key = await crypto.subtle.importKey(
             'raw',
             keyData,
             { name: 'AES-CBC' },
@@ -23,7 +23,7 @@ export async function encryptItemId(itemId: string) {
         );
 
         // Encrypt using AES-CBC
-        const encrypted = await cryptoApi.subtle.encrypt(
+        const encrypted = await crypto.subtle.encrypt(
             { name: 'AES-CBC', iv: iv },
             key,
             textEncoder.encode(itemId)

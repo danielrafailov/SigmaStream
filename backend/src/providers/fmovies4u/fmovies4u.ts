@@ -70,8 +70,7 @@ export class Fmovies4U extends BaseProvider {
                     headers: {
                         ...this.HEADERS,
                         Referer: this.buildRefererUrl(media)
-                    },
-                    timeout: 10000
+                    }
                 }
             );
 
@@ -131,7 +130,7 @@ export class Fmovies4U extends BaseProvider {
                               }
                     ),
                     type,
-                    quality: stream.quality || 'HD',
+                    quality: stream.quality || 'Auto',
                     provider: {
                         id: this.id,
                         name: this.name

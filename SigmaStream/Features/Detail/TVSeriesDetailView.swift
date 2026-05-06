@@ -29,7 +29,9 @@ struct TVSeriesDetailView: View {
     @State private var trailerAlertMessage: String?
     @State private var moreEpisodesSeries: TVSeries?
     @State private var streamResolutionTask: Task<Void, Never>?
-    @State private var streamLookupOverlayMessage: String?
+    @State private var episodePrefetchTask: Task<Void, Never>?
+    @State private var prefetchedEpisodeKey: String?
+    @State private var prefetchedEpisodePlayback: (urls: [URL], quality: String?)?
     @FocusState private var focusedButtonId: String?
     @FocusState private var focusedThumbId: String?
 
@@ -112,6 +114,12 @@ struct TVSeriesDetailView: View {
                                 thumbsAndButtonsSection(contentWidth: contentWidth)
                                     .padding(.leading, 24)
 
+                                if isResolvingStream {
+                                    resolvingStreamsRow(onCancel: cancelStreamResolution)
+                                        .padding(.leading, 24)
+                                        .padding(.top, 4)
+                                }
+
                                 if let streamErr = streamError {
                                     Text(streamErr)
                                         .foregroundStyle(.red)
@@ -170,23 +178,33 @@ struct TVSeriesDetailView: View {
                 }
             )
         }
-        .overlay {
-            if streamLookupOverlayMessage != nil {
-                StreamLookupBlockingOverlay(
-                    headline: "Finding a stream",
-                    message: streamLookupOverlayMessage ?? "",
-                    onCancel: cancelStreamResolution
-                )
-                .allowsHitTesting(true)
-                .zIndex(1000)
-            }
-        }
         .task {
             await loadSeries()
         }
         .onChange(of: selectedSeason) { _, newValue in
             Task { await loadSeason(newValue) }
         }
+        .onDisappear {
+            episodePrefetchTask?.cancel()
+            episodePrefetchTask = nil
+            prefetchedEpisodeKey = nil
+            prefetchedEpisodePlayback = nil
+        }
+    }
+
+    private func resolvingStreamsRow(onCancel: @escaping () -> Void) -> some View {
+        HStack(spacing: 12) {
+            ProgressView()
+                .scaleEffect(0.9)
+            Text("Fetching streams...")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+            Button("Cancel", action: onCancel)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func detailButton(id: String, icon: String, title: String, action: @escaping () -> Void, disabled: Bool = false) -> some View {
@@ -331,9 +349,36 @@ struct TVSeriesDetailView: View {
 
         do {
             loadedSeason = try await appState.tmdbService.tvSeasonDetails(seriesId: seriesId, seasonNumber: seasonNumber)
+            scheduleFirstEpisodePrefetchIfPossible()
         } catch {
             loadedSeason = nil
             streamError = error.localizedDescription
+            episodePrefetchTask?.cancel()
+            prefetchedEpisodeKey = nil
+            prefetchedEpisodePlayback = nil
+        }
+    }
+
+    /// Prefetch streams for the first episode of the loaded season (matches default Play Episode action).
+    private func scheduleFirstEpisodePrefetchIfPossible() {
+        episodePrefetchTask?.cancel()
+        prefetchedEpisodeKey = nil
+        prefetchedEpisodePlayback = nil
+        guard let loadedSeason,
+              let ep = loadedSeason.episodes?.first,
+              ep.episodeNumber >= 0 else { return }
+        let seasonNum = selectedSeason
+        let epNum = ep.episodeNumber
+        let key = "\(seasonNum)-\(epNum)"
+        episodePrefetchTask = Task {
+            do {
+                let pair = try await appState.streamingService.playableURLsAndQualityForEpisode(seriesId: seriesId, season: seasonNum, episode: epNum)
+                await MainActor.run {
+                    guard !Task.isCancelled else { return }
+                    prefetchedEpisodeKey = key
+                    prefetchedEpisodePlayback = pair
+                }
+            } catch {}
         }
     }
 
@@ -346,19 +391,32 @@ struct TVSeriesDetailView: View {
         streamResolutionTask?.cancel()
         streamResolutionTask = Task { @MainActor in
             isResolvingStream = true
-            streamLookupOverlayMessage = "Searching for streams"
             streamError = nil
             defer {
                 isResolvingStream = false
-                streamLookupOverlayMessage = nil
                 streamResolutionTask = nil
             }
             do {
                 try Task.checkCancellation()
+                let epKey = "\(season)-\(episode)"
+                if prefetchedEpisodeKey == epKey, let cached = prefetchedEpisodePlayback {
+                    prefetchedEpisodeKey = nil
+                    prefetchedEpisodePlayback = nil
+                    episodePrefetchTask?.cancel()
+                    episodePrefetchTask = nil
+                    guard !cached.urls.isEmpty else {
+                        streamError = "No stream was found (none marked playable)."
+                        return
+                    }
+                    if let q = cached.quality { streamQuality = q }
+                    playableContent = PlayableContent(urls: cached.urls, title: "\(series?.name ?? "Episode") - \(title)", quality: cached.quality, tvSeriesId: seriesId, season: season, episode: episode)
+                    appState.watchProgressManager.recordEpisode(seriesId: seriesId, season: season, episode: episode)
+                    return
+                }
                 let (urls, quality) = try await appState.streamingService.playableURLsAndQualityForEpisode(seriesId: seriesId, season: season, episode: episode)
                 try Task.checkCancellation()
                 guard !urls.isEmpty else {
-                    streamError = "No stream was found"
+                    streamError = "No stream was found (none marked playable)."
                     return
                 }
                 if let quality { streamQuality = quality }
@@ -367,7 +425,8 @@ struct TVSeriesDetailView: View {
             } catch is CancellationError {
                 return
             } catch {
-                streamError = "No stream was found"
+                let msg = userFacingStreamingErrorMessage(for: error)
+                streamError = msg.isEmpty ? "Could not load streams" : msg
             }
         }
     }
@@ -377,11 +436,9 @@ struct TVSeriesDetailView: View {
         streamResolutionTask?.cancel()
         streamResolutionTask = Task { @MainActor in
             isResolvingStream = true
-            streamLookupOverlayMessage = "Searching for streams"
             streamError = nil
             defer {
                 isResolvingStream = false
-                streamLookupOverlayMessage = nil
                 streamResolutionTask = nil
             }
             do {
@@ -390,7 +447,7 @@ struct TVSeriesDetailView: View {
                 try Task.checkCancellation()
                 let playable = sources.filter { $0.isPlayable }
                 guard !playable.isEmpty else {
-                    streamError = "No stream was found"
+                    streamError = "No stream was found (none marked playable)."
                     return
                 }
                 if let q = playable.first?.quality { streamQuality = q }
@@ -400,7 +457,8 @@ struct TVSeriesDetailView: View {
             } catch is CancellationError {
                 return
             } catch {
-                streamError = "No stream was found"
+                let msg = userFacingStreamingErrorMessage(for: error)
+                streamError = msg.isEmpty ? "Could not load streams" : msg
             }
         }
     }

@@ -98,10 +98,12 @@ extension OMSSSource {
         type.lowercased() == "hls"
     }
 
-    /// AVPlayer supports both HLS and MP4
+    /// Types OMSS/Stremio can emit; AVPlayer tries HLS/MP4; DASH MPD sometimes works depending on codecs.
     var isPlayable: Bool {
         let t = type.lowercased()
-        return t == "hls" || t == "mp4"
+        if t == "hls" || t == "mp4" || t == "dash" { return true }
+        let u = url.lowercased()
+        return u.contains(".m3u8") || u.contains(".mp4") || u.contains(".mpd")
     }
 
     /// True if any audio track is English (prefer for playback)

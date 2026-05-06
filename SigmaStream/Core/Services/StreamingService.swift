@@ -15,7 +15,12 @@ actor StreamingService {
 
     init(baseURL: String) {
         self.baseURL = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        self.session = URLSession.shared
+        // OMSS waits for slow providers before writing any bytes; idle gap exceeds URLSession.shared’s default (~60s).
+        let cfg = URLSessionConfiguration.default
+        cfg.timeoutIntervalForRequest = 600
+        cfg.timeoutIntervalForResource = 600
+        cfg.waitsForConnectivity = true
+        self.session = URLSession(configuration: cfg)
     }
 
     /// Fetch all playable URLs for a movie, sorted by quality. Empty if none.
@@ -182,4 +187,13 @@ private struct OMSSErrorResponse: Decodable {
 
 private struct OMSSErrorObject: Decodable {
     let message: String?
+}
+
+/// Messages for SwiftUI when OMSS playback resolution fails (network, decode, no sources).
+func userFacingStreamingErrorMessage(for error: Error) -> String {
+    if error is CancellationError { return "" }
+    if let streaming = error as? StreamingError {
+        return streaming.errorDescription ?? "Could not load streams"
+    }
+    return error.localizedDescription
 }

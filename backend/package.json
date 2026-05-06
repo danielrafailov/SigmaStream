@@ -3,12 +3,12 @@
     "version": "1.0.0",
     "type": "module",
     "scripts": {
-        "postinstall": "node scripts/fix-omss-framework-import.mjs",
         "dev": "tsx watch src/server.ts",
         "build": "tsc",
         "start": "npm run build && node dist/server.js",
         "format": "prettier --write src",
-        "clean": "npx rimraf dist"
+        "clean": "npx rimraf dist",
+        "postinstall": "patch-package"
     },
     "dependencies": {
         "@omss/framework": "^1.1.19",
@@ -19,6 +19,7 @@
     "devDependencies": {
         "@types/crypto-js": "^4.2.2",
         "@types/node": "^22.7.4",
+        "patch-package": "^8.0.1",
         "prettier": "^3.3.3",
         "tsx": "^4.19.1",
         "typescript": "^5.6.2"

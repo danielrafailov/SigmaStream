@@ -59,14 +59,9 @@ async function main() {
             // allows adding custom stremio addons that can be used as providers.
             stremioAddons: [
                 {
-                    id: 'WebStreamerMBG',
-                    url: 'https://87d6a6ef6b58-webstreamrmbg.baby-beamup.club/manifest.json',
-                    enabled: true
-                },
-                {
                     id: 'Streamify',
                     url: 'https://stremify.hayd.uk/manifest.json',
-                    enabled: true
+                    enabled: process.env.STREAMIFY_ADDON === 'true'
                 }
             ]
         },

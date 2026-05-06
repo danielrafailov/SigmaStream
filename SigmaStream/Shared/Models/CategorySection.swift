@@ -32,6 +32,8 @@ enum MovieCategory: String, CaseIterable {
     case fantasy = "Fantasy"
     case mystery = "Mystery"
     case history = "History"
+    /// Sword-and-sandal & antiquity epics, video-game adaptations, Mars/other-world spectacle (Gladiator / Prince of Persia / AC / John Carter vibes).
+    case epicSpectacleAdventures = "Epic Adventures & Spectacles"
     case war = "War"
     case western = "Western"
     case racing = "Racing"
@@ -63,7 +65,7 @@ enum MovieCategory: String, CaseIterable {
     static let catalogDiscoverRows: [MovieCategory] = [
         .action, .comedy, .drama, .thriller, .sciFi,
         .crime, .family, .animation, .documentaries, .horror,
-        .fantasy, .mystery, .history, .war, .western, .racing, .basedOnBooks
+        .fantasy, .mystery, .history, .epicSpectacleAdventures, .war, .western, .racing, .basedOnBooks
     ]
 }
 

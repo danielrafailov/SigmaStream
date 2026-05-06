@@ -28,9 +28,9 @@ struct VideoPlayerView: View {
     @State private var streamStatus: StreamStatus?
 
     private let loadTimeout: TimeInterval = 20
-    private let failedMessageDuration: TimeInterval = 0.8
+    private let failedMessageDuration: TimeInterval = 0.35
     private let pollInterval: TimeInterval = 0.2
-    private let foundMessageDuration: TimeInterval = 0.15
+    private let foundMessageDuration: TimeInterval = 0
 
     var body: some View {
         ZStack {

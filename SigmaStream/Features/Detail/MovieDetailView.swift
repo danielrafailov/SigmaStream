@@ -24,7 +24,8 @@ struct MovieDetailView: View {
     @State private var trailerYouTubeKey: String?
     @State private var trailerAlertMessage: String?
     @State private var streamResolutionTask: Task<Void, Never>?
-    @State private var streamLookupOverlayMessage: String?
+    @State private var moviePrefetchTask: Task<Void, Never>?
+    @State private var prefetchedMoviePlayback: (urls: [URL], quality: String?)?
     @FocusState private var focusedButtonId: String?
     @FocusState private var focusedThumbId: String?
 
@@ -90,6 +91,12 @@ struct MovieDetailView: View {
                                 thumbsAndButtonsSection(contentWidth: contentWidth)
                                     .padding(.leading, 24)
 
+                                if isResolvingStream {
+                                    resolvingStreamsRow(onCancel: cancelStreamResolution)
+                                        .padding(.leading, 24)
+                                        .padding(.top, 4)
+                                }
+
                                 if let streamErr = streamError {
                                     Text(streamErr)
                                         .foregroundStyle(.red)
@@ -139,21 +146,30 @@ struct MovieDetailView: View {
                 }
             )
         }
-        .overlay {
-            if streamLookupOverlayMessage != nil {
-                StreamLookupBlockingOverlay(
-                    headline: "Finding a stream",
-                    message: streamLookupOverlayMessage ?? "",
-                    onCancel: cancelStreamResolution
-                )
-                .allowsHitTesting(true)
-                .zIndex(1000)
-            }
-        }
         .navigationTitle("")
         .task {
             await loadMovie()
         }
+        .onDisappear {
+            moviePrefetchTask?.cancel()
+            moviePrefetchTask = nil
+            prefetchedMoviePlayback = nil
+        }
+    }
+
+    private func resolvingStreamsRow(onCancel: @escaping () -> Void) -> some View {
+        HStack(spacing: 12) {
+            ProgressView()
+                .scaleEffect(0.9)
+            Text("Fetching streams...")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+            Button("Cancel", action: onCancel)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func detailButton(id: String, icon: String, title: String, action: @escaping () -> Void, disabled: Bool = false) -> some View {
@@ -298,19 +314,30 @@ struct MovieDetailView: View {
         streamResolutionTask?.cancel()
         streamResolutionTask = Task { @MainActor in
             isResolvingStream = true
-            streamLookupOverlayMessage = "Searching for streams"
             streamError = nil
             defer {
                 isResolvingStream = false
-                streamLookupOverlayMessage = nil
                 streamResolutionTask = nil
             }
             do {
                 try Task.checkCancellation()
+                if let cached = prefetchedMoviePlayback {
+                    prefetchedMoviePlayback = nil
+                    moviePrefetchTask?.cancel()
+                    moviePrefetchTask = nil
+                    guard !cached.urls.isEmpty else {
+                        streamError = "No stream was found (none marked playable)."
+                        return
+                    }
+                    if let q = cached.quality { streamQuality = q }
+                    playableContent = PlayableContent(urls: cached.urls, title: movie?.title ?? "Movie", quality: cached.quality, movieId: movieId)
+                    appState.watchProgressManager.recordMovie(movieId)
+                    return
+                }
                 let (urls, quality) = try await appState.streamingService.playableURLsAndQualityForMovie(tmdbId: movieId)
                 try Task.checkCancellation()
                 guard !urls.isEmpty else {
-                    streamError = "No stream was found"
+                    streamError = "No stream was found (none marked playable)."
                     return
                 }
                 if let quality { streamQuality = quality }
@@ -319,7 +346,8 @@ struct MovieDetailView: View {
             } catch is CancellationError {
                 return
             } catch {
-                streamError = "No stream was found"
+                let msg = userFacingStreamingErrorMessage(for: error)
+                streamError = msg.isEmpty ? "Could not load streams" : msg
             }
         }
     }
@@ -329,11 +357,9 @@ struct MovieDetailView: View {
         streamResolutionTask?.cancel()
         streamResolutionTask = Task { @MainActor in
             isResolvingStream = true
-            streamLookupOverlayMessage = "Searching for streams"
             streamError = nil
             defer {
                 isResolvingStream = false
-                streamLookupOverlayMessage = nil
                 streamResolutionTask = nil
             }
             do {
@@ -342,7 +368,7 @@ struct MovieDetailView: View {
                 try Task.checkCancellation()
                 let playable = sources.filter { $0.isPlayable }
                 guard !playable.isEmpty else {
-                    streamError = "No stream was found"
+                    streamError = "No stream was found (none marked playable)."
                     return
                 }
                 if let q = playable.first?.quality { streamQuality = q }
@@ -351,7 +377,8 @@ struct MovieDetailView: View {
             } catch is CancellationError {
                 return
             } catch {
-                streamError = "No stream was found"
+                let msg = userFacingStreamingErrorMessage(for: error)
+                streamError = msg.isEmpty ? "Could not load streams" : msg
             }
         }
     }
@@ -373,10 +400,30 @@ struct MovieDetailView: View {
         do {
             movie = try await appState.tmdbService.movieDetails(forMovieId: movieId)
             trailerYouTubeKey = try? await appState.tmdbService.movieTrailerYouTubeKey(movieId: movieId)
+            scheduleMoviePrefetchIfReleased()
         } catch {
             errorMessage = error.localizedDescription
         }
         isLoading = false
+    }
+
+    /// Warm OMSS cache while the user reads metadata so Play can snap open after aggregated scrape finishes.
+    private func scheduleMoviePrefetchIfReleased() {
+        guard let movie else { return }
+        if let date = movie.releaseDate, date > Calendar.current.startOfDay(for: Date()) {
+            return
+        }
+        moviePrefetchTask?.cancel()
+        prefetchedMoviePlayback = nil
+        moviePrefetchTask = Task {
+            do {
+                let pair = try await appState.streamingService.playableURLsAndQualityForMovie(tmdbId: movieId)
+                await MainActor.run {
+                    guard !Task.isCancelled else { return }
+                    prefetchedMoviePlayback = pair
+                }
+            } catch {}
+        }
     }
 }
 

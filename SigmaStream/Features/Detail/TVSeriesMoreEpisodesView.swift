@@ -417,7 +417,7 @@ struct TVSeriesMoreEpisodesView: View {
         do {
             let (urls, quality) = try await appState.streamingService.playableURLsAndQualityForEpisode(seriesId: seriesId, season: season, episode: episode)
             guard !urls.isEmpty else {
-                streamError = "No stream was found"
+                streamError = "No stream was found (none marked playable)."
                 return
             }
             let content = PlayableContent(urls: urls, title: "\(seriesName) - \(title)", quality: quality, tvSeriesId: seriesId, season: season, episode: episode)
@@ -426,7 +426,8 @@ struct TVSeriesMoreEpisodesView: View {
                 appState.watchProgressManager.recordEpisode(seriesId: seriesId, season: season, episode: episode)
             }
         } catch {
-            streamError = "No stream was found"
+            let msg = userFacingStreamingErrorMessage(for: error)
+            streamError = msg.isEmpty ? "Could not load streams" : msg
         }
     }
 
@@ -440,7 +441,7 @@ struct TVSeriesMoreEpisodesView: View {
             let sources = try await appState.streamingService.sourcesForEpisode(seriesId: seriesId, season: season, episode: episode)
             let playable = sources.filter { $0.isPlayable }
             guard !playable.isEmpty else {
-                streamError = "No stream was found"
+                streamError = "No stream was found (none marked playable)."
                 return
             }
             await MainActor.run {
@@ -449,7 +450,8 @@ struct TVSeriesMoreEpisodesView: View {
                 showStreamPicker = true
             }
         } catch {
-            streamError = "No stream was found"
+            let msg = userFacingStreamingErrorMessage(for: error)
+            streamError = msg.isEmpty ? "Could not load streams" : msg
         }
     }
 

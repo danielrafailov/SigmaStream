@@ -670,6 +670,9 @@ actor TMDbService {
     }
 
     /// Keyword "based on novel or book" on TMDb (common discover filter).
+    /// Discover OR keywords — epic spectacle: antiquity & Rome (Gladiator), sword-and-sandal, video-game adaptations (Prince of Persia, Assassin's Creed), Mars / other worlds (John Carter). TMDB keyword IDs: ancient world, roman empire, sword and sandal, based on video game, planet mars.
+    private static let epicSpectacleAdventureKeywordIds = "14704|1405|317728|41645|839"
+
     private static let basedOnBookKeywordId = "818"
 
     /// TMDb keyword "racing" (no dedicated genre); discover uses `with_keywords`.
@@ -1000,6 +1003,22 @@ actor TMDbService {
             )
             let response: TMDbPaginatedMovieResponse = try await cached(
                 "movies_racing_kw_orig_en_\(page)",
+                url: url,
+                as: TMDbPaginatedMovieResponse.self
+            )
+            let totalPages = response.totalPages ?? page
+            return (Self.appSafeMovies(Self.filterShelfMoviesRequireBackdrop(response.results)), page < totalPages)
+        case .epicSpectacleAdventures:
+            let url = tmdbURL(
+                path: "/discover/movie",
+                queryItems: Self.discoverMovieQueryItems([
+                    "with_keywords": Self.epicSpectacleAdventureKeywordIds,
+                    "sort_by": "popularity.desc",
+                    "page": "\(page)"
+                ])
+            )
+            let response: TMDbPaginatedMovieResponse = try await cached(
+                "movies_epic_spectacle_kw_orig_en_\(page)",
                 url: url,
                 as: TMDbPaginatedMovieResponse.self
             )

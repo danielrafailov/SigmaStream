@@ -1,0 +1,53 @@
+diff --git a/node_modules/@omss/framework/dist/services/source.service.js b/node_modules/@omss/framework/dist/services/source.service.js
+index 29c7b0b..85e5de5 100644
+--- a/node_modules/@omss/framework/dist/services/source.service.js
++++ b/node_modules/@omss/framework/dist/services/source.service.js
+@@ -1,6 +1,29 @@
+ import { createTMDBValidator } from '../middleware/validation.js';
+ import { OMSSErrors } from '../core/errors.js';
+ import { ProxyService } from './proxy.service.js';
++/** Cap per-provider fetch duration (PROVIDER_FETCH_TIMEOUT_MS). */
++function omssProviderTimeoutMs() {
++    const raw = Number.parseInt(process.env.PROVIDER_FETCH_TIMEOUT_MS ?? '25000', 10);
++    const ms = Number.isFinite(raw) ? raw : 25000;
++    return Math.min(Math.max(ms, 3000), 600000);
++}
++function withFetchTimeout(promise, ms, label) {
++    if (!Number.isFinite(ms) || ms <= 0)
++        return promise;
++    const timeoutError = new Error(`${label}: timed out after ${ms}ms`);
++    return new Promise((resolve, reject) => {
++        const t = setTimeout(() => reject(timeoutError), ms);
++        promise
++            .then((v) => {
++                clearTimeout(t);
++                resolve(v);
++            })
++            .catch((e) => {
++                clearTimeout(t);
++                reject(e);
++            });
++    });
++}
+ export class SourceService {
+     registry;
+     cache;
+@@ -181,15 +204,16 @@ export class SourceService {
+         // Filter providers by capability
+         const supportedProviders = providers.filter((p) => p.capabilities.supportedContentTypes.includes(type === 'movie' ? 'movies' : 'tv')).filter((p) => p.enabled);
+         console.log(`[SourceService] Fetching from ${supportedProviders.length} provider(s) ` + `(${providers.length - supportedProviders.length} filtered out)`);
++        const providerTimeoutMs = omssProviderTimeoutMs();
+         const promises = supportedProviders.map(async (provider) => {
+             try {
+                 const startTime = Date.now();
+                 let result;
+                 if (type === 'movie') {
+-                    result = await provider.getMovieSources(media);
++                    result = await withFetchTimeout(provider.getMovieSources(media), providerTimeoutMs, provider.name);
+                 }
+                 else {
+-                    result = await provider.getTVSources(media);
++                    result = await withFetchTimeout(provider.getTVSources(media), providerTimeoutMs, provider.name);
+                 }
+                 const duration = Date.now() - startTime;
+                 console.log(`[SourceService] Provider '${provider.name}' returned ${result.sources.length} source(s) in ${duration}ms`);

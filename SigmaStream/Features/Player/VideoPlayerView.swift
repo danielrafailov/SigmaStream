@@ -18,6 +18,8 @@ private enum StreamStatus: Equatable {
 struct VideoPlayerView: View {
     let urls: [URL]
     let title: String
+    var startTime: TimeInterval? = nil
+    var onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil
     var onPlaybackEnded: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
 
@@ -25,12 +27,15 @@ struct VideoPlayerView: View {
     @State private var loadError: String?
     @State private var currentURLIndex = 0
     @State private var endObserver: NSObjectProtocol?
+    @State private var timeObserver: Any?
+    @State private var didApplyStartTime = false
     @State private var streamStatus: StreamStatus?
 
     private let loadTimeout: TimeInterval = 20
     private let failedMessageDuration: TimeInterval = 0.35
     private let pollInterval: TimeInterval = 0.2
     private let foundMessageDuration: TimeInterval = 0
+    private let progressSaveInterval: TimeInterval = 15
 
     var body: some View {
         ZStack {
@@ -56,15 +61,34 @@ struct VideoPlayerView: View {
             }
         }
         .task(id: currentURLIndex) {
+            didApplyStartTime = false
             await startPlaybackAndObserve()
         }
         .onDisappear {
-            if let observer = endObserver {
-                NotificationCenter.default.removeObserver(observer)
-                endObserver = nil
-            }
+            flushProgress()
+            tearDownObservers()
             player?.pause()
         }
+    }
+
+    private func tearDownObservers() {
+        if let observer = endObserver {
+            NotificationCenter.default.removeObserver(observer)
+            endObserver = nil
+        }
+        if let timeObserver, let player {
+            player.removeTimeObserver(timeObserver)
+            self.timeObserver = nil
+        }
+    }
+
+    private func flushProgress() {
+        guard let player, let item = player.currentItem else { return }
+        let position = player.currentTime().seconds
+        let duration = item.duration.seconds
+        guard position.isFinite, position >= 0 else { return }
+        let dur = duration.isFinite && duration > 0 ? duration : 0
+        onProgress?(position, dur)
     }
 
     private func selectEnglishAudioIfAvailable(for item: AVPlayerItem) {
@@ -75,6 +99,17 @@ struct VideoPlayerView: View {
         }
         if let option = englishOption {
             item.select(option, in: group)
+        }
+    }
+
+    private func installProgressObserver(on player: AVPlayer) {
+        if let timeObserver {
+            player.removeTimeObserver(timeObserver)
+            self.timeObserver = nil
+        }
+        let interval = CMTime(seconds: progressSaveInterval, preferredTimescale: 600)
+        timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { _ in
+            flushProgress()
         }
     }
 
@@ -90,7 +125,6 @@ struct VideoPlayerView: View {
         let url = urls[currentURLIndex]
         let newPlayer = AVPlayer(url: url)
         await MainActor.run { player = newPlayer }
-        newPlayer.play()
 
         let maxPolls = Int(loadTimeout / pollInterval)
         for _ in 0..<maxPolls {
@@ -105,6 +139,7 @@ struct VideoPlayerView: View {
                 try? await Task.sleep(nanoseconds: UInt64(failedMessageDuration * 1_000_000_000))
                 await MainActor.run {
                     player = nil
+                    tearDownObservers()
                     currentURLIndex += 1
                     if currentURLIndex >= urls.count {
                         streamStatus = nil
@@ -114,11 +149,25 @@ struct VideoPlayerView: View {
                 return
             case .readyToPlay:
                 selectEnglishAudioIfAvailable(for: item)
-                let token = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { _ in
+                if !didApplyStartTime, let start = startTime, start > 0 {
+                    let seekTime = CMTime(seconds: start, preferredTimescale: 600)
+                    let tolerance = CMTime(seconds: 1, preferredTimescale: 600)
+                    await newPlayer.seek(to: seekTime, toleranceBefore: tolerance, toleranceAfter: tolerance)
+                    didApplyStartTime = true
+                }
+                let token = NotificationCenter.default.addObserver(
+                    forName: .AVPlayerItemDidPlayToEndTime,
+                    object: item,
+                    queue: .main
+                ) { _ in
                     onPlaybackEnded?()
                     dismiss()
                 }
-                await MainActor.run { endObserver = token }
+                await MainActor.run {
+                    endObserver = token
+                    installProgressObserver(on: newPlayer)
+                }
+                newPlayer.play()
                 await MainActor.run {
                     streamStatus = .found
                 }
@@ -139,6 +188,7 @@ struct VideoPlayerView: View {
         try? await Task.sleep(nanoseconds: UInt64(failedMessageDuration * 1_000_000_000))
         await MainActor.run {
             player = nil
+            tearDownObservers()
             currentURLIndex += 1
             if currentURLIndex >= urls.count {
                 streamStatus = nil
@@ -226,6 +276,7 @@ struct VideoPlayerView: View {
                         Button("Retry") {
                             loadError = nil
                             currentURLIndex = 0
+                            didApplyStartTime = false
                         }
                         Button("Done") {
                             dismiss()
@@ -234,6 +285,32 @@ struct VideoPlayerView: View {
                     }
                 }
             }
+    }
+}
+
+// MARK: - Watch progress wiring
+
+extension VideoPlayerView {
+    init(content: PlayableContent, watchProgress: WatchProgressManager, onPlaybackEnded: (() -> Void)? = nil) {
+        self.urls = content.urls
+        self.title = content.title
+        self.startTime = content.startTime
+        self.onPlaybackEnded = onPlaybackEnded
+        self.onProgress = { position, duration in
+            if let movieId = content.movieId {
+                watchProgress.updateMovieProgress(movieId: movieId, position: position, duration: duration)
+            } else if let seriesId = content.tvSeriesId,
+                      let season = content.season,
+                      let episode = content.episode {
+                watchProgress.updateEpisodeProgress(
+                    seriesId: seriesId,
+                    season: season,
+                    episode: episode,
+                    position: position,
+                    duration: duration
+                )
+            }
+        }
     }
 }
 

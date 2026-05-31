@@ -136,15 +136,11 @@ struct MovieDetailView: View {
             .environment(appState)
         }
         .fullScreenCover(item: $playableContent) { content in
-            VideoPlayerView(
-                urls: content.urls,
-                title: content.title,
-                onPlaybackEnded: {
-                    if let mid = content.movieId {
-                        appState.watchProgressManager.removeMovie(mid)
-                    }
+            VideoPlayerView(content: content, watchProgress: appState.watchProgressManager) {
+                if let mid = content.movieId {
+                    appState.watchProgressManager.removeMovie(mid)
                 }
-            )
+            }
         }
         .navigationTitle("")
         .task {
@@ -230,10 +226,22 @@ struct MovieDetailView: View {
             thumbsRow(contentWidth: contentWidth)
 
             if isReleased {
-                detailButton(id: "play", icon: "play.fill", title: "Play") {
-                    startResolveStream()
+                if appState.watchProgressManager.canResumeMovie(movieId) {
+                    detailButton(id: "resume", icon: "play.fill", title: "Resume") {
+                        startResolveStream(fromBeginning: false)
+                    }
+                    .disabled(isResolvingStream)
+
+                    detailButton(id: "playFromStart", icon: "arrow.counterclockwise", title: "Play from Beginning") {
+                        startResolveStream(fromBeginning: true)
+                    }
+                    .disabled(isResolvingStream)
+                } else {
+                    detailButton(id: "play", icon: "play.fill", title: "Play") {
+                        startResolveStream(fromBeginning: true)
+                    }
+                    .disabled(isResolvingStream)
                 }
-                .disabled(isResolvingStream)
 
                 detailButton(id: "chooseStream", icon: "list.bullet", title: "Choose Stream") {
                     startShowStreamPickerFetch()
@@ -309,7 +317,7 @@ struct MovieDetailView: View {
         streamResolutionTask?.cancel()
     }
 
-    private func startResolveStream() {
+    private func startResolveStream(fromBeginning: Bool) {
         guard !isResolvingStream else { return }
         streamResolutionTask?.cancel()
         streamResolutionTask = Task { @MainActor in
@@ -330,8 +338,7 @@ struct MovieDetailView: View {
                         return
                     }
                     if let q = cached.quality { streamQuality = q }
-                    playableContent = PlayableContent(urls: cached.urls, title: movie?.title ?? "Movie", quality: cached.quality, movieId: movieId)
-                    appState.watchProgressManager.recordMovie(movieId)
+                    playableContent = makeMoviePlayableContent(urls: cached.urls, quality: cached.quality, fromBeginning: fromBeginning)
                     return
                 }
                 let (urls, quality) = try await appState.streamingService.playableURLsAndQualityForMovie(tmdbId: movieId)
@@ -341,8 +348,7 @@ struct MovieDetailView: View {
                     return
                 }
                 if let quality { streamQuality = quality }
-                playableContent = PlayableContent(urls: urls, title: movie?.title ?? "Movie", quality: quality, movieId: movieId)
-                appState.watchProgressManager.recordMovie(movieId)
+                playableContent = makeMoviePlayableContent(urls: urls, quality: quality, fromBeginning: fromBeginning)
             } catch is CancellationError {
                 return
             } catch {
@@ -350,6 +356,21 @@ struct MovieDetailView: View {
                 streamError = msg.isEmpty ? "Could not load streams" : msg
             }
         }
+    }
+
+    private func makeMoviePlayableContent(urls: [URL], quality: String?, fromBeginning: Bool) -> PlayableContent {
+        if fromBeginning {
+            appState.watchProgressManager.clearMoviePlaybackPosition(movieId)
+        }
+        let startTime = fromBeginning ? nil : appState.watchProgressManager.resumeTimeForMovie(movieId)
+        appState.watchProgressManager.recordMovie(movieId)
+        return PlayableContent(
+            urls: urls,
+            title: movie?.title ?? "Movie",
+            quality: quality,
+            startTime: startTime,
+            movieId: movieId
+        )
     }
 
     private func startShowStreamPickerFetch() {
@@ -389,10 +410,8 @@ struct MovieDetailView: View {
             return
         }
         if let q = source.quality { streamQuality = q }
-        let content = PlayableContent(urls: [url], title: movie?.title ?? "Movie", quality: source.quality, movieId: movieId)
         await MainActor.run {
-            playableContent = content
-            appState.watchProgressManager.recordMovie(movieId)
+            playableContent = makeMoviePlayableContent(urls: [url], quality: source.quality, fromBeginning: true)
         }
     }
 

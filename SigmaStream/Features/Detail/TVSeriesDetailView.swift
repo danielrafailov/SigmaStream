@@ -166,17 +166,13 @@ struct TVSeriesDetailView: View {
             .environment(appState)
         }
         .fullScreenCover(item: $playableContent) { content in
-            VideoPlayerView(
-                urls: content.urls,
-                title: content.title,
-                onPlaybackEnded: {
-                    if let sid = content.tvSeriesId,
-                       let s = content.season,
-                       let e = content.episode {
-                        appState.watchProgressManager.removeEpisode(seriesId: sid, season: s, episode: e)
-                    }
+            VideoPlayerView(content: content, watchProgress: appState.watchProgressManager) {
+                if let sid = content.tvSeriesId,
+                   let s = content.season,
+                   let e = content.episode {
+                    appState.watchProgressManager.removeEpisode(seriesId: sid, season: s, episode: e)
                 }
-            )
+            }
         }
         .task {
             await loadSeries()
@@ -265,13 +261,28 @@ struct TVSeriesDetailView: View {
             thumbsRow(contentWidth: contentWidth)
 
             if let first = firstEpisode {
-                detailButton(id: "play", icon: "play.fill", title: "Play Episode") {
-                    startResolveStream(season: first.season, episode: first.episode.episodeNumber, title: first.episode.name)
+                let season = first.season
+                let epNum = first.episode.episodeNumber
+                let epTitle = first.episode.name
+                if appState.watchProgressManager.canResumeEpisode(seriesId: seriesId, season: season, episode: epNum) {
+                    detailButton(id: "resume", icon: "play.fill", title: "Resume Episode") {
+                        startResolveStream(season: season, episode: epNum, title: epTitle, fromBeginning: false)
+                    }
+                    .disabled(isResolvingStream)
+
+                    detailButton(id: "playFromStart", icon: "arrow.counterclockwise", title: "Play from Beginning") {
+                        startResolveStream(season: season, episode: epNum, title: epTitle, fromBeginning: true)
+                    }
+                    .disabled(isResolvingStream)
+                } else {
+                    detailButton(id: "play", icon: "play.fill", title: "Play Episode") {
+                        startResolveStream(season: season, episode: epNum, title: epTitle, fromBeginning: true)
+                    }
+                    .disabled(isResolvingStream)
                 }
-                .disabled(isResolvingStream)
 
                 detailButton(id: "chooseStream", icon: "list.bullet", title: "Choose Stream") {
-                    startShowStreamPickerFetch(season: first.season, episode: first.episode.episodeNumber, title: first.episode.name)
+                    startShowStreamPickerFetch(season: season, episode: epNum, title: epTitle)
                 }
                 .disabled(isResolvingStream)
             }
@@ -386,7 +397,7 @@ struct TVSeriesDetailView: View {
         streamResolutionTask?.cancel()
     }
 
-    private func startResolveStream(season: Int, episode: Int, title: String) {
+    private func startResolveStream(season: Int, episode: Int, title: String, fromBeginning: Bool) {
         guard !isResolvingStream else { return }
         streamResolutionTask?.cancel()
         streamResolutionTask = Task { @MainActor in
@@ -409,8 +420,14 @@ struct TVSeriesDetailView: View {
                         return
                     }
                     if let q = cached.quality { streamQuality = q }
-                    playableContent = PlayableContent(urls: cached.urls, title: "\(series?.name ?? "Episode") - \(title)", quality: cached.quality, tvSeriesId: seriesId, season: season, episode: episode)
-                    appState.watchProgressManager.recordEpisode(seriesId: seriesId, season: season, episode: episode)
+                    playableContent = makeEpisodePlayableContent(
+                        urls: cached.urls,
+                        quality: cached.quality,
+                        season: season,
+                        episode: episode,
+                        title: title,
+                        fromBeginning: fromBeginning
+                    )
                     return
                 }
                 let (urls, quality) = try await appState.streamingService.playableURLsAndQualityForEpisode(seriesId: seriesId, season: season, episode: episode)
@@ -420,8 +437,14 @@ struct TVSeriesDetailView: View {
                     return
                 }
                 if let quality { streamQuality = quality }
-                playableContent = PlayableContent(urls: urls, title: "\(series?.name ?? "Episode") - \(title)", quality: quality, tvSeriesId: seriesId, season: season, episode: episode)
-                appState.watchProgressManager.recordEpisode(seriesId: seriesId, season: season, episode: episode)
+                playableContent = makeEpisodePlayableContent(
+                    urls: urls,
+                    quality: quality,
+                    season: season,
+                    episode: episode,
+                    title: title,
+                    fromBeginning: fromBeginning
+                )
             } catch is CancellationError {
                 return
             } catch {
@@ -429,6 +452,32 @@ struct TVSeriesDetailView: View {
                 streamError = msg.isEmpty ? "Could not load streams" : msg
             }
         }
+    }
+
+    private func makeEpisodePlayableContent(
+        urls: [URL],
+        quality: String?,
+        season: Int,
+        episode: Int,
+        title: String,
+        fromBeginning: Bool
+    ) -> PlayableContent {
+        if fromBeginning {
+            appState.watchProgressManager.clearEpisodePlaybackPosition(seriesId: seriesId, season: season, episode: episode)
+        }
+        let startTime = fromBeginning
+            ? nil
+            : appState.watchProgressManager.resumeTimeForEpisode(seriesId: seriesId, season: season, episode: episode)
+        appState.watchProgressManager.recordEpisode(seriesId: seriesId, season: season, episode: episode)
+        return PlayableContent(
+            urls: urls,
+            title: "\(series?.name ?? "Episode") - \(title)",
+            quality: quality,
+            startTime: startTime,
+            tvSeriesId: seriesId,
+            season: season,
+            episode: episode
+        )
     }
 
     private func startShowStreamPickerFetch(season: Int, episode: Int, title: String) {
@@ -469,10 +518,15 @@ struct TVSeriesDetailView: View {
             return
         }
         if let q = source.quality { streamQuality = q }
-        let content = PlayableContent(urls: [url], title: "\(series?.name ?? "Episode") - \(title)", quality: source.quality, tvSeriesId: seriesId, season: season, episode: episode)
         await MainActor.run {
-            playableContent = content
-            appState.watchProgressManager.recordEpisode(seriesId: seriesId, season: season, episode: episode)
+            playableContent = makeEpisodePlayableContent(
+                urls: [url],
+                quality: source.quality,
+                season: season,
+                episode: episode,
+                title: title,
+                fromBeginning: true
+            )
         }
     }
 }

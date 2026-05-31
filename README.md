@@ -80,6 +80,20 @@ SigmaStream/
 └── README.md
 ```
 
+## Updating the backend
+
+`backend/` is a [git submodule](https://github.com/cinepro-org/core) pointing at [cinepro-org/core](https://github.com/cinepro-org/core.git). To pull the latest upstream:
+
+```bash
+cd backend
+git pull origin main
+cd ..
+git add backend
+git commit -m "chore(backend): bump submodule to latest core"
+```
+
+Your `backend/.env` is local-only and is not overwritten by pulls.
+
 ## Backend Details
 
 The backend uses the [OMSS framework](https://www.npmjs.com/package/@omss/framework) and multiple streaming providers. See `backend/README.md` for:

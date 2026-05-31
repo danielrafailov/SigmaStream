@@ -108,26 +108,64 @@ actor TMDbService {
         return comps.url!
     }
 
-    /// Fetch from cache or network, store raw Data, decode to T. Use for types that are Decodable but not Encodable.
-    private func cached<T: Decodable>(_ key: String, url: URL, as type: T.Type) async throws -> T {
-        if let data = diskCache.getData(key) {
-            do {
-                let result = try Self.tmdbDecoder.decode(T.self, from: data)
-                return result
-            } catch {
-                diskCache.removeData(key)
-            }
-        }
-        var request = URLRequest(url: url)
+    /// TMDB CDN occasionally serves truncated gzip bodies; JSON decode then fails with opaque errors.
+    private static func isGzipPayload(_ data: Data) -> Bool {
+        data.count >= 2 && data[0] == 0x1f && data[1] == 0x8b
+    }
+
+    private static func urlByPassingCDNCache(_ url: URL) -> URL {
+        guard var comps = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
+        var items = comps.queryItems ?? []
+        items.append(URLQueryItem(name: "_", value: "\(Int(Date().timeIntervalSince1970 * 1000))"))
+        comps.queryItems = items
+        return comps.url ?? url
+    }
+
+    private func fetchTMDbData(from url: URL, bypassCDNCache: Bool) async throws -> Data {
+        var request = URLRequest(url: bypassCDNCache ? Self.urlByPassingCDNCache(url) : url)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if bypassCDNCache {
+            request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+            request.setValue("no-cache", forHTTPHeaderField: "Pragma")
+        }
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             let message = (try? JSONDecoder().decode(TMDbErrorResponse.self, from: data))?.statusMessage ?? "Request failed"
             throw TMDbServiceError.apiError(message)
         }
-        diskCache.setData(key, data: data)
-        let result = try Self.tmdbDecoder.decode(T.self, from: data)
-        return result
+        return data
+    }
+
+    private static func decodeTMDb<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
+        if isGzipPayload(data) {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: [], debugDescription: "Unexpected gzip payload from TMDB")
+            )
+        }
+        return try tmdbDecoder.decode(T.self, from: data)
+    }
+
+    /// Fetch from cache or network, store raw Data, decode to T. Use for types that are Decodable but not Encodable.
+    private func cached<T: Decodable>(_ key: String, url: URL, as type: T.Type) async throws -> T {
+        if let data = diskCache.getData(key) {
+            do {
+                return try Self.decodeTMDb(T.self, from: data)
+            } catch {
+                diskCache.removeData(key)
+            }
+        }
+
+        do {
+            let data = try await fetchTMDbData(from: url, bypassCDNCache: false)
+            let result = try Self.decodeTMDb(T.self, from: data)
+            diskCache.setData(key, data: data)
+            return result
+        } catch {
+            let data = try await fetchTMDbData(from: url, bypassCDNCache: true)
+            let result = try Self.decodeTMDb(T.self, from: data)
+            diskCache.setData(key, data: data)
+            return result
+        }
     }
 
 

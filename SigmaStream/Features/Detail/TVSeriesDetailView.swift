@@ -468,7 +468,6 @@ struct TVSeriesDetailView: View {
         let startTime = fromBeginning
             ? nil
             : appState.watchProgressManager.resumeTimeForEpisode(seriesId: seriesId, season: season, episode: episode)
-        appState.watchProgressManager.recordEpisode(seriesId: seriesId, season: season, episode: episode)
         return PlayableContent(
             urls: urls,
             title: "\(series?.name ?? "Episode") - \(title)",

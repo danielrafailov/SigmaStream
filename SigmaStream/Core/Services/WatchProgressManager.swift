@@ -36,7 +36,7 @@ enum WatchProgressPolicy {
     static let completionFraction: Double = 0.90
 }
 
-/// Manages continue-watching state. Persisted to UserDefaults.
+/// Manages resume positions and Continue Watching (only in-progress titles). Persisted via UserDefaults.
 @Observable
 final class WatchProgressManager {
     /// Posted when movies or episodes are removed so Continue Watching sections can refresh.
@@ -57,12 +57,16 @@ final class WatchProgressManager {
     // MARK: - Movies
 
     func canResumeMovie(_ movieId: Int) -> Bool {
-        guard let entry = watchedMovies.first(where: { $0.movieId == movieId }),
-              let position = entry.progressSeconds,
+        guard let entry = watchedMovies.first(where: { $0.movieId == movieId }) else { return false }
+        return Self.isResumable(entry)
+    }
+
+    private static func isResumable(_ movie: WatchedMovie) -> Bool {
+        guard let position = movie.progressSeconds,
               position >= WatchProgressPolicy.minResumeSeconds else {
             return false
         }
-        if let duration = entry.durationSeconds, duration > 0 {
+        if let duration = movie.durationSeconds, duration > 0 {
             return position < duration * WatchProgressPolicy.completionFraction
         }
         return true
@@ -73,23 +77,12 @@ final class WatchProgressManager {
         return watchedMovies.first(where: { $0.movieId == movieId })?.progressSeconds
     }
 
-    func recordMovie(_ movieId: Int) {
-        let existingProgress = watchedMovies.first(where: { $0.movieId == movieId })?.progressSeconds
-        let existingDuration = watchedMovies.first(where: { $0.movieId == movieId })?.durationSeconds
-        watchedMovies.removeAll { $0.movieId == movieId }
-        watchedMovies.insert(WatchedMovie(
-            movieId: movieId,
-            lastWatchedAt: Date(),
-            progressSeconds: existingProgress,
-            durationSeconds: existingDuration
-        ), at: 0)
-        trimMovies()
-        saveMovies()
-        postChange()
-    }
-
     func updateMovieProgress(movieId: Int, position: TimeInterval, duration: TimeInterval) {
         if duration > 0, position >= duration * WatchProgressPolicy.completionFraction {
+            removeMovie(movieId)
+            return
+        }
+        guard position >= WatchProgressPolicy.minResumeSeconds else {
             removeMovie(movieId)
             return
         }
@@ -112,10 +105,7 @@ final class WatchProgressManager {
     }
 
     func clearMoviePlaybackPosition(_ movieId: Int) {
-        guard let idx = watchedMovies.firstIndex(where: { $0.movieId == movieId }) else { return }
-        watchedMovies[idx].progressSeconds = nil
-        watchedMovies[idx].durationSeconds = nil
-        saveMovies()
+        removeMovie(movieId)
     }
 
     func removeMovie(_ movieId: Int) {
@@ -129,12 +119,16 @@ final class WatchProgressManager {
     func canResumeEpisode(seriesId: Int, season: Int, episode: Int) -> Bool {
         guard let entry = watchedEpisodes.first(where: {
             $0.seriesId == seriesId && $0.season == season && $0.episode == episode
-        }),
-              let position = entry.progressSeconds,
+        }) else { return false }
+        return Self.isResumable(entry)
+    }
+
+    private static func isResumable(_ episode: WatchedEpisode) -> Bool {
+        guard let position = episode.progressSeconds,
               position >= WatchProgressPolicy.minResumeSeconds else {
             return false
         }
-        if let duration = entry.durationSeconds, duration > 0 {
+        if let duration = episode.durationSeconds, duration > 0 {
             return position < duration * WatchProgressPolicy.completionFraction
         }
         return true
@@ -147,27 +141,12 @@ final class WatchProgressManager {
         })?.progressSeconds
     }
 
-    func recordEpisode(seriesId: Int, season: Int, episode: Int) {
-        let existing = watchedEpisodes.first(where: {
-            $0.seriesId == seriesId && $0.season == season && $0.episode == episode
-        })
-        watchedEpisodes.removeAll { $0.seriesId == seriesId && $0.season == season && $0.episode == episode }
-        watchedEpisodes.removeAll { $0.seriesId == seriesId }
-        watchedEpisodes.insert(WatchedEpisode(
-            seriesId: seriesId,
-            season: season,
-            episode: episode,
-            lastWatchedAt: Date(),
-            progressSeconds: existing?.progressSeconds,
-            durationSeconds: existing?.durationSeconds
-        ), at: 0)
-        trimEpisodes()
-        saveEpisodes()
-        postChange()
-    }
-
     func updateEpisodeProgress(seriesId: Int, season: Int, episode: Int, position: TimeInterval, duration: TimeInterval) {
         if duration > 0, position >= duration * WatchProgressPolicy.completionFraction {
+            removeEpisode(seriesId: seriesId, season: season, episode: episode)
+            return
+        }
+        guard position >= WatchProgressPolicy.minResumeSeconds else {
             removeEpisode(seriesId: seriesId, season: season, episode: episode)
             return
         }
@@ -194,12 +173,7 @@ final class WatchProgressManager {
     }
 
     func clearEpisodePlaybackPosition(seriesId: Int, season: Int, episode: Int) {
-        guard let idx = watchedEpisodes.firstIndex(where: {
-            $0.seriesId == seriesId && $0.season == season && $0.episode == episode
-        }) else { return }
-        watchedEpisodes[idx].progressSeconds = nil
-        watchedEpisodes[idx].durationSeconds = nil
-        saveEpisodes()
+        removeEpisode(seriesId: seriesId, season: season, episode: episode)
     }
 
     func removeEpisode(seriesId: Int, season: Int, episode: Int) {
@@ -219,6 +193,22 @@ final class WatchProgressManager {
            let decoded = try? JSONDecoder().decode([WatchedEpisode].self, from: data) {
             watchedEpisodes = pruneToLatestEpisodePerSeries(decoded)
             if watchedEpisodes.count != decoded.count { saveEpisodes() }
+        }
+        pruneNonResumableEntries()
+    }
+
+    /// Drops finished or stale rows so Continue Watching only lists resumable titles.
+    private func pruneNonResumableEntries() {
+        let prunedMovies = watchedMovies.filter(Self.isResumable)
+        if prunedMovies.count != watchedMovies.count {
+            watchedMovies = prunedMovies
+            saveMovies()
+        }
+
+        let prunedEpisodes = watchedEpisodes.filter(Self.isResumable)
+        if prunedEpisodes.count != watchedEpisodes.count {
+            watchedEpisodes = prunedEpisodes
+            saveEpisodes()
         }
     }
 

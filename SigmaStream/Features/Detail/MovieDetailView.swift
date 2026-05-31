@@ -363,7 +363,6 @@ struct MovieDetailView: View {
             appState.watchProgressManager.clearMoviePlaybackPosition(movieId)
         }
         let startTime = fromBeginning ? nil : appState.watchProgressManager.resumeTimeForMovie(movieId)
-        appState.watchProgressManager.recordMovie(movieId)
         return PlayableContent(
             urls: urls,
             title: movie?.title ?? "Movie",

@@ -195,9 +195,7 @@ struct TVSeriesMoreEpisodesView: View {
     }
 
     private func isEpisodeWatched(season: Int, episode: Int) -> Bool {
-        appState.watchProgressManager.watchedEpisodes.contains {
-            $0.seriesId == seriesId && $0.season == season && $0.episode == episode
-        }
+        appState.watchProgressManager.canResumeEpisode(seriesId: seriesId, season: season, episode: episode)
     }
 
     private func episodeRow(episode: TVEpisode, contentWidth: CGFloat) -> some View {
@@ -456,7 +454,6 @@ struct TVSeriesMoreEpisodesView: View {
         let startTime = fromBeginning
             ? nil
             : appState.watchProgressManager.resumeTimeForEpisode(seriesId: seriesId, season: season, episode: episode)
-        appState.watchProgressManager.recordEpisode(seriesId: seriesId, season: season, episode: episode)
         return PlayableContent(
             urls: urls,
             title: "\(seriesName) - \(title)",

@@ -397,7 +397,9 @@ struct ForYouView: View {
     }
 
     private func loadContinueWatchingMovies() async {
-        let ids = appState.watchProgressManager.watchedMovies.map(\.movieId)
+        let ids = appState.watchProgressManager.watchedMovies
+            .filter { appState.watchProgressManager.canResumeMovie($0.movieId) }
+            .map(\.movieId)
         var items: [ContinueWatchingMovieItem] = []
         for id in ids {
             if let movie = try? await appState.tmdbService.movieDetails(forMovieId: id) {
@@ -415,7 +417,9 @@ struct ForYouView: View {
     }
 
     private func loadContinueWatchingTV() async {
-        let episodes = appState.watchProgressManager.watchedEpisodes
+        let episodes = appState.watchProgressManager.watchedEpisodes.filter {
+            appState.watchProgressManager.canResumeEpisode(seriesId: $0.seriesId, season: $0.season, episode: $0.episode)
+        }
         var items: [ContinueWatchingEpisodeItem] = []
         for ep in episodes {
             if let series = try? await appState.tmdbService.tvSeriesDetails(forSeriesId: ep.seriesId) {
@@ -439,8 +443,12 @@ struct ForYouView: View {
         becauseYouWatchedMovies = []
         becauseYouWatchedSeries = []
 
-        let lastMovie = appState.watchProgressManager.watchedMovies.first
-        let lastEpisode = appState.watchProgressManager.watchedEpisodes.first
+        let lastMovie = appState.watchProgressManager.watchedMovies.first {
+            appState.watchProgressManager.canResumeMovie($0.movieId)
+        }
+        let lastEpisode = appState.watchProgressManager.watchedEpisodes.first {
+            appState.watchProgressManager.canResumeEpisode(seriesId: $0.seriesId, season: $0.season, episode: $0.episode)
+        }
 
         var sourceId = 0
         var sourceTitle: String?

@@ -327,6 +327,17 @@ actor TMDbService {
         items.filter(isMovieAllowedForApp(_:))
     }
 
+    /// Collection shelves only drop adult titles and not-yet-released movies (avoids false positives from overview/image heuristics).
+    private static func isMovieAllowedInCollection(_ movie: MovieListItem) -> Bool {
+        if movie.isAdultOnly == true { return false }
+        if isFutureDate(movie.releaseDate) { return false }
+        return true
+    }
+
+    private static func appSafeCollectionMovies(_ items: [MovieListItem]) -> [MovieListItem] {
+        items.filter(isMovieAllowedInCollection(_:))
+    }
+
     private static func appSafeTVSeries(_ items: [TVSeriesListItem]) -> [TVSeriesListItem] {
         items.filter(isTVAllowedForApp(_:))
     }
@@ -380,6 +391,80 @@ actor TMDbService {
     func searchTVSeries(query: String, page: Int? = nil) async throws -> [TVSeriesListItem] {
         let response = try await client.search.searchTVSeries(query: query, filter: nil, page: page, language: nil)
         return Self.appSafeTVSeries(response.results)
+    }
+
+    // MARK: - Movie collections (TMDb `/collection/{id}`)
+
+    /// Fetches collection metadata and movies sorted by release date (oldest first).
+    func movieCollectionDetails(
+        collectionId: Int,
+        additionalMovieIds: [Int] = [],
+        curatedTitle: String = ""
+    ) async throws -> MovieCollectionDetail {
+        let collection: Collection
+        do {
+            collection = try await client.collections.details(forCollection: collectionId, language: nil)
+        } catch {
+            throw TMDbServiceError.apiError("Collection not found.")
+        }
+        var movies = Self.sortMoviesByReleaseDate(Self.appSafeCollectionMovies(collection.parts))
+        let existingIds = Set(movies.map(\.id))
+        for movieId in additionalMovieIds where !existingIds.contains(movieId) {
+            if let movie = try? await movieDetails(forMovieId: movieId) {
+                movies.append(Self.movieListItem(from: movie))
+            }
+        }
+        movies = Self.sortMoviesByReleaseDate(Self.appSafeCollectionMovies(movies))
+        let displayName = MovieCollectionDisplay.title(apiName: collection.name, curatedTitle: curatedTitle)
+        return MovieCollectionDetail(
+            id: collection.id,
+            name: displayName,
+            overview: collection.overview,
+            posterPath: collection.posterPath,
+            backdropPath: collection.backdropPath,
+            movies: movies
+        )
+    }
+
+    /// Loads poster/backdrop for curated collection cards (parallel, bounded). Omits invalid TMDb IDs.
+    func movieCollectionSummaries(for collections: [CuratedMovieCollection]) async -> [MovieCollectionSummary] {
+        await withTaskGroup(of: (Int, MovieCollectionSummary?).self) { group in
+            for (index, item) in collections.enumerated() {
+                group.addTask {
+                    do {
+                        let detail = try await self.movieCollectionDetails(
+                            collectionId: item.id,
+                            additionalMovieIds: item.additionalMovieIds,
+                            curatedTitle: item.title
+                        )
+                        let summary = MovieCollectionSummary(
+                            id: item.id,
+                            title: detail.name,
+                            posterPath: detail.posterPath,
+                            backdropPath: detail.backdropPath,
+                            overview: nil
+                        )
+                        return (index, summary)
+                    } catch {
+                        return (index, nil)
+                    }
+                }
+            }
+            var indexed: [(Int, MovieCollectionSummary)] = []
+            for await (index, summary) in group {
+                if let summary { indexed.append((index, summary)) }
+            }
+            return indexed.sorted { $0.0 < $1.0 }.map(\.1)
+        }
+    }
+
+    private static func sortMoviesByReleaseDate(_ items: [MovieListItem]) -> [MovieListItem] {
+        items.sorted { a, b in
+            let da = a.releaseDate ?? .distantFuture
+            let db = b.releaseDate ?? .distantFuture
+            if da != db { return da < db }
+            return a.title.localizedCaseInsensitiveCompare(b.title) == .orderedAscending
+        }
     }
 
     /// Max rows returned per media type after merging title + person cast (keeps UI and payloads bounded).
@@ -497,6 +582,25 @@ actor TMDbService {
             voteCount: credit.voteCount,
             hasVideo: credit.hasVideo,
             isAdultOnly: credit.isAdultOnly
+        )
+    }
+
+    private static func movieListItem(from movie: Movie) -> MovieListItem {
+        MovieListItem(
+            id: movie.id,
+            title: movie.title,
+            originalTitle: movie.originalTitle ?? movie.title,
+            originalLanguage: movie.originalLanguage ?? "en",
+            overview: movie.overview ?? "",
+            genreIDs: (movie.genres ?? []).map(\.id),
+            releaseDate: movie.releaseDate,
+            posterPath: movie.posterPath,
+            backdropPath: movie.backdropPath,
+            popularity: movie.popularity,
+            voteAverage: movie.voteAverage,
+            voteCount: movie.voteCount,
+            hasVideo: movie.hasVideo,
+            isAdultOnly: movie.isAdultOnly
         )
     }
 

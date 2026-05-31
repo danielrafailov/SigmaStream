@@ -13,6 +13,7 @@ struct ContentView: View {
     @State private var homeDataLoaded = false
     @State private var moviesDataLoaded = false
     @State private var tvDataLoaded = false
+    @State private var collectionsDataLoaded = false
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -31,29 +32,38 @@ struct ContentView: View {
             }
             .tag(1)
 
-            TVShowsView(
-                shouldLoad: selectedTab == 2 && !tvDataLoaded,
-                onLoadComplete: { tvDataLoaded = true }
-            )
-            .tabItem {
-                Label("Shows", systemImage: "tv.fill")
-            }
-            .tag(2)
-
             MoviesView(
-                shouldLoad: selectedTab == 3 && !moviesDataLoaded,
+                shouldLoad: selectedTab == 2 && !moviesDataLoaded,
                 onLoadComplete: { moviesDataLoaded = true }
             )
             .tabItem {
                 Label("Movies", systemImage: "film.fill")
             }
+            .tag(2)
+
+            TVShowsView(
+                shouldLoad: selectedTab == 3 && !tvDataLoaded,
+                onLoadComplete: { tvDataLoaded = true }
+            )
+            .tabItem {
+                Label("Shows", systemImage: "tv.fill")
+            }
             .tag(3)
+
+            CollectionsView(
+                shouldLoad: selectedTab == 4 && !collectionsDataLoaded,
+                onLoadComplete: { collectionsDataLoaded = true }
+            )
+            .tabItem {
+                Label("Collections", systemImage: "square.stack.3d.up.fill")
+            }
+            .tag(4)
 
             ForYouView()
                 .tabItem {
                     Label("For You", systemImage: "heart.fill")
                 }
-                .tag(4)
+                .tag(5)
         }
     }
 }

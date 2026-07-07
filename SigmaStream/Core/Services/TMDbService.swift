@@ -60,6 +60,10 @@ private struct TMDbEpisodeAPI: Decodable {
     var seasonNum: Int { seasonNumber ?? 0 }
 }
 
+private struct TMDbGenreListResponse: Decodable {
+    let genres: [Genre]
+}
+
 /// Service layer for TMDb API. Configure with your API key before use.
 /// Get a free API key at https://www.themoviedb.org/documentation/api
 actor TMDbService {
@@ -68,7 +72,32 @@ actor TMDbService {
     private let apiKey: String
     private var movieCache: [Int: Movie] = [:]
     private var tvSeriesCache: [Int: TVSeries] = [:]
+    private var tvSeasonCache: [String: TVSeason] = [:]
+    private var trailerYouTubeKeyCache: [String: String] = [:]
+    private var movieCollectionDetailCache: [String: MovieCollectionDetail] = [:]
+    private var searchMoviesTVCache: [String: (movies: [MovieListItem], tvSeries: [TVSeriesListItem])] = [:]
+    private var movieGenresCache: [Genre]?
+    private var tvGenresCache: [Genre]?
     private let diskCache = TMDbCache.shared
+
+    private static let trailerCacheNoneSentinel = "__none__"
+
+    private static let seasonDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter
+    }()
+
+    private static func tvSeasonCacheKey(seriesId: Int, seasonNumber: Int) -> String {
+        "\(seriesId)-\(seasonNumber)"
+    }
+
+    private static func normalizedSearchCacheKey(query: String, page: Int) -> String {
+        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return "\(normalized)_\(page)"
+    }
 
     private static var tmdbDecoder: JSONDecoder {
         let d = JSONDecoder()
@@ -344,22 +373,32 @@ actor TMDbService {
 
     /// Fetch movie videos (trailers). Returns first YouTube trailer or nil.
     func movieTrailerYouTubeKey(movieId: Int) async throws -> String? {
+        let memKey = "movie_\(movieId)"
+        if let cached = trailerYouTubeKeyCache[memKey] {
+            return cached == Self.trailerCacheNoneSentinel ? nil : cached
+        }
         let url = tmdbURL(path: "/movie/\(movieId)/videos")
-        let (data, _) = try await URLSession.shared.data(from: url)
-        let response = try JSONDecoder().decode(TMDbVideosResponse.self, from: data)
-        return (response.results ?? [])
+        let response = try await cached("movie_videos_\(movieId)", url: url, as: TMDbVideosResponse.self)
+        let key = (response.results ?? [])
             .first { $0.site.lowercased() == "youtube" && $0.type.lowercased() == "trailer" }?
             .key
+        trailerYouTubeKeyCache[memKey] = key ?? Self.trailerCacheNoneSentinel
+        return key
     }
 
     /// Fetch TV series videos (trailers). Returns first YouTube trailer or nil.
     func tvSeriesTrailerYouTubeKey(seriesId: Int) async throws -> String? {
+        let memKey = "tv_\(seriesId)"
+        if let cached = trailerYouTubeKeyCache[memKey] {
+            return cached == Self.trailerCacheNoneSentinel ? nil : cached
+        }
         let url = tmdbURL(path: "/tv/\(seriesId)/videos")
-        let (data, _) = try await URLSession.shared.data(from: url)
-        let response = try JSONDecoder().decode(TMDbVideosResponse.self, from: data)
-        return (response.results ?? [])
+        let response = try await cached("tv_videos_\(seriesId)", url: url, as: TMDbVideosResponse.self)
+        let key = (response.results ?? [])
             .first { $0.site.lowercased() == "youtube" && $0.type.lowercased() == "trailer" }?
             .key
+        trailerYouTubeKeyCache[memKey] = key ?? Self.trailerCacheNoneSentinel
+        return key
     }
 
     /// Fetch popular movies
@@ -383,13 +422,25 @@ actor TMDbService {
 
     /// Search movies by query
     func searchMovies(query: String, page: Int? = nil) async throws -> [MovieListItem] {
-        let response = try await client.search.searchMovies(query: query, filter: nil, page: page, language: nil)
+        let p = page ?? 1
+        let cacheKey = "search_movies_\(Self.normalizedSearchCacheKey(query: query, page: p))"
+        let url = tmdbURL(
+            path: "/search/movie",
+            queryItems: ["query": query, "page": "\(p)", "include_adult": "false"]
+        )
+        let response: TMDbPaginatedMovieResponse = try await cached(cacheKey, url: url, as: TMDbPaginatedMovieResponse.self)
         return Self.appSafeMovies(response.results)
     }
 
     /// Search TV series by query
     func searchTVSeries(query: String, page: Int? = nil) async throws -> [TVSeriesListItem] {
-        let response = try await client.search.searchTVSeries(query: query, filter: nil, page: page, language: nil)
+        let p = page ?? 1
+        let cacheKey = "search_tv_\(Self.normalizedSearchCacheKey(query: query, page: p))"
+        let url = tmdbURL(
+            path: "/search/tv",
+            queryItems: ["query": query, "page": "\(p)", "include_adult": "false"]
+        )
+        let response: TMDbPaginatedTVResponse = try await cached(cacheKey, url: url, as: TMDbPaginatedTVResponse.self)
         return Self.appSafeTVSeries(response.results)
     }
 
@@ -401,6 +452,11 @@ actor TMDbService {
         additionalMovieIds: [Int] = [],
         curatedTitle: String = ""
     ) async throws -> MovieCollectionDetail {
+        let cacheKey = "collection_\(collectionId)_\(additionalMovieIds.sorted())_\(curatedTitle)"
+        if let cached = movieCollectionDetailCache[cacheKey] {
+            return cached
+        }
+
         let collection: Collection
         do {
             collection = try await client.collections.details(forCollection: collectionId, language: nil)
@@ -416,7 +472,7 @@ actor TMDbService {
         }
         movies = Self.sortMoviesByReleaseDate(Self.appSafeCollectionMovies(movies))
         let displayName = MovieCollectionDisplay.title(apiName: collection.name, curatedTitle: curatedTitle)
-        return MovieCollectionDetail(
+        let detail = MovieCollectionDetail(
             id: collection.id,
             name: displayName,
             overview: collection.overview,
@@ -424,6 +480,8 @@ actor TMDbService {
             backdropPath: collection.backdropPath,
             movies: movies
         )
+        movieCollectionDetailCache[cacheKey] = detail
+        return detail
     }
 
     /// Loads poster/backdrop for curated collection cards (parallel, bounded). Omits invalid TMDb IDs.
@@ -473,6 +531,12 @@ actor TMDbService {
     /// Title search for movies and TV, merged with **cast** credits for the top person match (e.g. actor name queries).
     /// Results are **deduped by id** and ordered by **popularity** (then vote count), not title-search order first.
     func searchMoviesTVIncludingPersonCast(query: String, page: Int? = nil) async throws -> (movies: [MovieListItem], tvSeries: [TVSeriesListItem]) {
+        let p = page ?? 1
+        let cacheKey = Self.normalizedSearchCacheKey(query: query, page: p)
+        if let cached = searchMoviesTVCache[cacheKey] {
+            return cached
+        }
+
         async let titleMovies = searchMovies(query: query, page: page)
         async let titleTV = searchTVSeries(query: query, page: page)
 
@@ -483,10 +547,12 @@ actor TMDbService {
             let peopleResponse = try await client.search.searchPeople(query: query, filter: nil, page: page, language: nil)
             guard let topPerson = peopleResponse.results.first else {
                 let (m, t) = try await (titleMovies, titleTV)
-                return (
+                let result = (
                     movies: Self.sortMoviesByPopularity(Self.appSafeMovies(m)).prefix(Self.searchMergedResultsCap).map { $0 },
                     tvSeries: Self.sortTVByPopularity(Self.appSafeTVSeries(t)).prefix(Self.searchMergedResultsCap).map { $0 }
                 )
+                searchMoviesTVCache[cacheKey] = result
+                return result
             }
             let credits = try await client.people.combinedCredits(forPerson: topPerson.id)
             for credit in credits.cast {
@@ -505,10 +571,12 @@ actor TMDbService {
         let mergedMovies = Self.mergeMoviesPreferringRicherMetadata(title: titleMovieList, personCast: fromPersonMovies)
         let mergedTV = Self.mergeTVPreferringRicherMetadata(title: titleTVList, personCast: fromPersonTV)
 
-        return (
+        let result = (
             movies: Self.sortMoviesByPopularity(Self.appSafeMovies(mergedMovies)).prefix(Self.searchMergedResultsCap).map { $0 },
             tvSeries: Self.sortTVByPopularity(Self.appSafeTVSeries(mergedTV)).prefix(Self.searchMergedResultsCap).map { $0 }
         )
+        searchMoviesTVCache[cacheKey] = result
+        return result
     }
 
     private static func moviePopularitySortKey(_ m: MovieListItem) -> (Double, Int) {
@@ -623,11 +691,17 @@ actor TMDbService {
         )
     }
 
-    /// Get movie details (cached)
+    /// Get movie details (cached in memory and on disk for 24h).
     func movieDetails(forMovieId movieId: Int) async throws -> Movie {
         if let cached = movieCache[movieId] {
             if Self.isMovieDetailAllowedForApp(cached) { return cached }
             movieCache.removeValue(forKey: movieId)
+        }
+        let url = tmdbURL(path: "/movie/\(movieId)", queryItems: ["language": "en-US"])
+        if let movie = try? await cached("movie_detail_\(movieId)", url: url, as: Movie.self),
+           Self.isMovieDetailAllowedForApp(movie) {
+            movieCache[movieId] = movie
+            return movie
         }
         let movie = try await client.movies.details(forMovie: movieId)
         guard Self.isMovieDetailAllowedForApp(movie) else {
@@ -637,18 +711,70 @@ actor TMDbService {
         return movie
     }
 
-    /// Get TV series details (cached)
+    /// Get TV series details (cached in memory and on disk for 24h).
     func tvSeriesDetails(forSeriesId seriesId: Int) async throws -> TVSeries {
         if let cached = tvSeriesCache[seriesId] {
-            if Self.isTVSeriesDetailAllowedForApp(cached) { return cached }
+            if Self.isTVSeriesDetailAllowedForApp(cached) { return Self.tvSeriesExcludingSeasonZero(cached) }
             tvSeriesCache.removeValue(forKey: seriesId)
+        }
+        let url = tmdbURL(path: "/tv/\(seriesId)", queryItems: ["language": "en-US"])
+        if let series = try? await cached("tv_detail_\(seriesId)", url: url, as: TVSeries.self),
+           Self.isTVSeriesDetailAllowedForApp(series) {
+            let filtered = Self.tvSeriesExcludingSeasonZero(series)
+            tvSeriesCache[seriesId] = filtered
+            return filtered
         }
         let series = try await client.tvSeries.details(forTVSeries: seriesId)
         guard Self.isTVSeriesDetailAllowedForApp(series) else {
             throw TMDbServiceError.apiError("This title isn’t available.")
         }
-        tvSeriesCache[seriesId] = series
-        return series
+        let filtered = Self.tvSeriesExcludingSeasonZero(series)
+        tvSeriesCache[seriesId] = filtered
+        return filtered
+    }
+
+    /// Whether season episode data is already in the in-memory cache (instant season switches).
+    func isTVSeasonCached(seriesId: Int, seasonNumber: Int) -> Bool {
+        tvSeasonCache[Self.tvSeasonCacheKey(seriesId: seriesId, seasonNumber: seasonNumber)] != nil
+    }
+
+    private static func tvSeriesExcludingSeasonZero(_ series: TVSeries) -> TVSeries {
+        guard let seasons = series.seasons, seasons.contains(where: { $0.seasonNumber <= 0 }) else {
+            return series
+        }
+        let filteredSeasons = seasons.filter { $0.seasonNumber > 0 }
+        return TVSeries(
+            id: series.id,
+            name: series.name,
+            tagline: series.tagline,
+            originalName: series.originalName,
+            originalLanguage: series.originalLanguage,
+            overview: series.overview,
+            episodeRunTime: series.episodeRunTime,
+            numberOfSeasons: series.numberOfSeasons,
+            numberOfEpisodes: series.numberOfEpisodes,
+            seasons: filteredSeasons.isEmpty ? nil : filteredSeasons,
+            createdBy: series.createdBy,
+            genres: series.genres,
+            firstAirDate: series.firstAirDate,
+            originCountry: series.originCountry,
+            posterPath: series.posterPath,
+            backdropPath: series.backdropPath,
+            homepageURL: series.homepageURL,
+            isInProduction: series.isInProduction,
+            languages: series.languages,
+            lastAirDate: series.lastAirDate,
+            lastEpisodeToAir: series.lastEpisodeToAir,
+            nextEpisodeToAir: series.nextEpisodeToAir,
+            networks: series.networks,
+            productionCompanies: series.productionCompanies,
+            status: series.status,
+            type: series.type,
+            popularity: series.popularity,
+            voteAverage: series.voteAverage,
+            voteCount: series.voteCount,
+            isAdultOnly: series.isAdultOnly
+        )
     }
 
     /// Text on full TMDb `Movie` (title, overview, tagline, etc.). Poster art is not analyzed.
@@ -670,43 +796,37 @@ actor TMDbService {
         return true
     }
 
-    /// Get full season details including episodes
+    /// Get full season details including episodes (cached in memory and on disk for 24h).
     func tvSeasonDetails(seriesId: Int, seasonNumber: Int) async throws -> TVSeason {
+        let memKey = Self.tvSeasonCacheKey(seriesId: seriesId, seasonNumber: seasonNumber)
+        if let cached = tvSeasonCache[memKey] {
+            return cached
+        }
+
+        if let season = await fetchSeasonDirectly(seriesId: seriesId, seasonNumber: seasonNumber) {
+            tvSeasonCache[memKey] = season
+            return season
+        }
+
         do {
-            return try await client.tvSeasons.details(
+            let season = try await client.tvSeasons.details(
                 forSeason: seasonNumber,
                 inTVSeries: seriesId,
                 language: "en-US"
             )
+            let filtered = season.filteringUnreleasedEpisodes()
+            tvSeasonCache[memKey] = filtered
+            return filtered
         } catch {
-            if let fallback = await fetchSeasonDirectly(seriesId: seriesId, seasonNumber: seasonNumber) {
-                return fallback
-            }
             throw error
         }
     }
 
-    /// Direct TMDb API fetch for season details (fallback when TMDb package decoding fails)
-    private func fetchSeasonDirectly(seriesId: Int, seasonNumber: Int) async -> TVSeason? {
-        let url = tmdbURL(path: "/tv/\(seriesId)/season/\(seasonNumber)", queryItems: ["language": "en-US"])
-        var request = URLRequest(url: url)
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
-              let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            return nil
-        }
-        guard let api = try? Self.tmdbDecoder.decode(TMDbSeasonDetailAPI.self, from: data) else {
-            return nil
-        }
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd"
-        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
-        dateFormatter.timeZone = TimeZone(secondsFromGMT: 0)
-
+    private static func tvSeason(from api: TMDbSeasonDetailAPI) -> TVSeason {
         let episodes: [TVEpisode]? = api.episodes?.compactMap { ep -> TVEpisode? in
             let name = ep.name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
                 ? ep.name! : "Episode \(ep.epNum)"
-            let airDate: Date? = ep.airDate.flatMap { dateFormatter.date(from: $0) }
+            let airDate: Date? = ep.airDate.flatMap { seasonDateFormatter.date(from: $0) }
             let stillPath: URL? = ep.stillPath.map { path in
                 let s = path.hasPrefix("/") ? path : "/" + path
                 return URL(string: s)
@@ -727,7 +847,7 @@ actor TMDbService {
             )
         }
 
-        let seasonAirDate: Date? = api.airDate.flatMap { dateFormatter.date(from: $0) }
+        let seasonAirDate: Date? = api.airDate.flatMap { seasonDateFormatter.date(from: $0) }
         let posterPath: URL? = api.posterPath.map { path in
             let s = path.hasPrefix("/") ? path : "/" + path
             return URL(string: s)
@@ -743,7 +863,17 @@ actor TMDbService {
             airDate: seasonAirDate,
             posterPath: posterPath,
             episodes: episodes
-        )
+        ).filteringUnreleasedEpisodes()
+    }
+
+    /// Direct TMDb API fetch for season details (disk-cached; also used when package decoding fails).
+    private func fetchSeasonDirectly(seriesId: Int, seasonNumber: Int) async -> TVSeason? {
+        let url = tmdbURL(path: "/tv/\(seriesId)/season/\(seasonNumber)", queryItems: ["language": "en-US"])
+        let diskKey = "tv_season_\(seriesId)_\(seasonNumber)"
+        guard let api = try? await cached(diskKey, url: url, as: TMDbSeasonDetailAPI.self) else {
+            return nil
+        }
+        return Self.tvSeason(from: api)
     }
 
     /// Get API configuration for image URL generation
@@ -886,12 +1016,20 @@ actor TMDbService {
 
     /// Fetch movie genres
     func movieGenres() async throws -> [Genre] {
-        try await client.genres.movieGenres()
+        if let movieGenresCache { return movieGenresCache }
+        let url = tmdbURL(path: "/genre/movie/list", queryItems: ["language": "en-US"])
+        let response = try await cached("genre_movie_list", url: url, as: TMDbGenreListResponse.self)
+        movieGenresCache = response.genres
+        return response.genres
     }
 
     /// Fetch TV series genres
     func tvSeriesGenres() async throws -> [Genre] {
-        try await client.genres.tvSeriesGenres()
+        if let tvGenresCache { return tvGenresCache }
+        let url = tmdbURL(path: "/genre/tv/list", queryItems: ["language": "en-US"])
+        let response = try await cached("genre_tv_list", url: url, as: TMDbGenreListResponse.self)
+        tvGenresCache = response.genres
+        return response.genres
     }
 
     /// Fetch trending TV series

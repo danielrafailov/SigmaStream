@@ -12,6 +12,14 @@ actor StreamingService {
 
     private let baseURL: String
     private let session: URLSession
+    private var sourceResponseCache: [String: CachedOMSSResponse] = [:]
+    /// Stream manifests can shift; cache long enough to speed replay without going stale.
+    private let sourceResponseCacheTTL: TimeInterval = 30 * 60
+
+    private struct CachedOMSSResponse {
+        let response: OMSSSourceResponse
+        let expiresAt: Date
+    }
 
     init(baseURL: String) {
         self.baseURL = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -75,6 +83,11 @@ actor StreamingService {
     }
 
     private func fetchSourceResponse(from url: URL) async throws -> OMSSSourceResponse {
+        let cacheKey = url.absoluteString
+        if let entry = sourceResponseCache[cacheKey], entry.expiresAt > Date() {
+            return entry.response
+        }
+
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -97,6 +110,10 @@ actor StreamingService {
 
         do {
             let decoded = try JSONDecoder().decode(OMSSSourceResponse.self, from: data)
+            sourceResponseCache[cacheKey] = CachedOMSSResponse(
+                response: decoded,
+                expiresAt: Date().addingTimeInterval(sourceResponseCacheTTL)
+            )
             return decoded
         } catch {
             throw StreamingError.decodeFailed(error)

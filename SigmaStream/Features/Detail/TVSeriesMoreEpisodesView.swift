@@ -2,7 +2,7 @@
 //  TVSeriesMoreEpisodesView.swift
 //  SigmaStream
 //
-//  More Episodes page: description top-left, backdrop right, season dropdown, episodes below.
+//  Episode picker: series info and seasons on the left, episode posters and details on the right.
 //
 
 import SwiftUI
@@ -28,319 +28,11 @@ struct TVSeriesMoreEpisodesView: View {
     @State private var scrollPositionEpisodeId: Int?
 
     private var seasonNumbers: [Int] {
-        guard let s = series else { return [1] }
-        if let seasons = s.seasons, !seasons.isEmpty {
-            return seasons.map(\.seasonNumber).sorted()
-        }
-        if let n = s.numberOfSeasons, n > 0 {
-            return Array(1...n)
-        }
-        return [1]
+        series?.playableSeasonNumbers ?? [1]
     }
 
-    private var descriptionText: String {
-        if let focusedId = focusedEpisodeId,
-           let episodes = loadedSeason?.episodes,
-           let ep = episodes.first(where: { $0.id == focusedId }),
-           let overview = ep.overview, !overview.isEmpty {
-            return overview
-        }
-        return series?.overview ?? ""
-    }
-
-    @ViewBuilder
-    private var mainContent: some View {
-        GeometryReader { geo in
-            let contentWidth = geo.size.width * 0.45
-            let episodeRowWidth = geo.size.width * 0.6
-            ZStack(alignment: .leading) {
-                backdropView
-                contentStack(contentWidth: contentWidth, episodeRowWidth: episodeRowWidth)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var backdropView: some View {
-        if let backdropURL = ImageURLBuilder.backdropURL(for: series?.backdropPath, config: appState.apiConfiguration) {
-            AsyncImage(url: backdropURL) { phase in
-                if case .success(let image) = phase {
-                    image
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .ignoresSafeArea()
-
-            AsyncImage(url: backdropURL) { phase in
-                if case .success(let image) = phase {
-                    image
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .blur(radius: 24)
-            .overlay(Color.black.opacity(0.5))
-            .mask(
-                LinearGradient(
-                    colors: [.black, .clear],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-            )
-            .ignoresSafeArea()
-        }
-    }
-
-    @ViewBuilder
-    private func contentStack(contentWidth: CGFloat, episodeRowWidth: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 24) {
-            ScrollView {
-                Text(descriptionText)
-                    .font(.body)
-                    .lineSpacing(4)
-                    .frame(maxWidth: contentWidth, alignment: .topLeading)
-            }
-            .frame(maxWidth: contentWidth, minHeight: 200, maxHeight: 200)
-
-            seasonSelector(contentWidth: contentWidth)
-
-            if let streamErr = streamError {
-                HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.circle.fill")
-                        .foregroundStyle(.red)
-                    Text(streamErr)
-                        .foregroundStyle(.red)
-                        .font(.subheadline)
-                }
-            }
-
-            if let season = loadedSeason, let episodes = season.episodes, !episodes.isEmpty {
-                Text("Episodes")
-                    .font(.title3)
-                    .fontWeight(.semibold)
-            }
-
-            episodesSection(contentWidth: episodeRowWidth)
-        }
-        .frame(maxWidth: contentWidth, alignment: .leading)
-        .padding(.horizontal, 48)
-        .padding(.top, 24)
-        .padding(.bottom, 48)
-    }
-
-    private func seasonSelector(contentWidth: CGFloat) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 12) {
-                ForEach(seasonNumbers, id: \.self) { num in
-                    seasonButton(num: num)
-                }
-            }
-            .padding(.vertical, 4)
-        }
-        .frame(maxWidth: contentWidth, alignment: .leading)
-    }
-
-    private func seasonButton(num: Int) -> some View {
-        let isFocused = focusedSeasonNum == num
-        let isSelected = selectedSeason == num
-        let fillColor: Color = isSelected ? .white : (isFocused ? Color.white.opacity(0.5) : Color.white.opacity(0.25))
-        let textColor: Color = (isSelected || isFocused) ? .black : .white
-
-        return Button {
-            selectedSeason = num
-        } label: {
-            Text("Season \(num)")
-                .font(.subheadline)
-                .fontWeight(isSelected ? .semibold : .regular)
-                .foregroundStyle(textColor)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-                .background(Capsule().fill(fillColor))
-        }
-        .buttonStyle(.plain)
-        .hoverEffectDisabled(true)
-        .focused($focusedSeasonNum, equals: num)
-    }
-
-    @ViewBuilder
-    private func episodesSection(contentWidth: CGFloat) -> some View {
-        if isLoadingSeason {
-            ProgressView()
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 48)
-        } else if let season = loadedSeason, let episodes = season.episodes, !episodes.isEmpty {
-            episodeScrollView(episodes: episodes, contentWidth: contentWidth)
-        } else {
-            Text("No episodes available")
-                .foregroundStyle(.secondary)
-                .padding(.vertical, 48)
-                .frame(maxWidth: .infinity)
-        }
-    }
-
-    private func episodeScrollView(episodes: [TVEpisode], contentWidth: CGFloat) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                ForEach(episodes, id: \.id) { episode in
-                    episodeRow(episode: episode, contentWidth: contentWidth)
-                }
-            }
-            .scrollTargetLayout()
-        }
-        .scrollPosition(id: $scrollPositionEpisodeId, anchor: .center)
-        .frame(maxHeight: 460)
-    }
-
-    private func isEpisodeWatched(season: Int, episode: Int) -> Bool {
-        appState.watchProgressManager.canResumeEpisode(seriesId: seriesId, season: season, episode: episode)
-    }
-
-    private func episodeRow(episode: TVEpisode, contentWidth: CGFloat) -> some View {
-        let isFocused = focusedEpisodeId == episode.id
-        let watched = isEpisodeWatched(season: selectedSeason, episode: episode.episodeNumber)
-        let stillURL = ImageURLBuilder.stillURL(for: episode.stillPath, config: appState.apiConfiguration)
-        let cardBackground = isFocused ? Color.white.opacity(0.22) : Color.white.opacity(0.08)
-        let cardStroke = isFocused ? Color.white.opacity(0.4) : Color.clear
-
-        return Button {
-            let fromBeginning = !appState.watchProgressManager.canResumeEpisode(
-                seriesId: seriesId,
-                season: selectedSeason,
-                episode: episode.episodeNumber
-            )
-            Task { await playEpisode(season: selectedSeason, episode: episode.episodeNumber, title: episode.name, fromBeginning: fromBeginning) }
-        } label: {
-            episodeRowContent(
-                episode: episode,
-                contentWidth: contentWidth,
-                isFocused: isFocused,
-                watched: watched,
-                stillURL: stillURL,
-                cardBackground: cardBackground,
-                cardStroke: cardStroke
-            )
-        }
-        .buttonStyle(.plain)
-        .hoverEffectDisabled(true)
-        .buttonBorderShape(.roundedRectangle(radius: 14))
-        .focused($focusedEpisodeId, equals: episode.id)
-        .disabled(isResolvingStream)
-        .contextMenu {
-            if appState.watchProgressManager.canResumeEpisode(seriesId: seriesId, season: selectedSeason, episode: episode.episodeNumber) {
-                Button("Play from Beginning") {
-                    Task { await playEpisode(season: selectedSeason, episode: episode.episodeNumber, title: episode.name, fromBeginning: true) }
-                }
-            }
-            Button("Choose Stream") {
-                Task { await showStreamPicker(season: selectedSeason, episode: episode.episodeNumber, title: episode.name) }
-            }
-        }
-    }
-
-    private func episodeRowContent(
-        episode: TVEpisode,
-        contentWidth: CGFloat,
-        isFocused: Bool,
-        watched: Bool,
-        stillURL: URL?,
-        cardBackground: Color,
-        cardStroke: Color
-    ) -> some View {
-        HStack(alignment: .center, spacing: 20) {
-            episodeThumbnail(stillURL: stillURL, episodeNumber: episode.episodeNumber, isFocused: isFocused)
-            episodeMetadata(episode: episode, watched: watched)
-            Image(systemName: "play.circle.fill")
-                .font(.system(size: 36))
-                .foregroundStyle(isFocused ? .white : .white.opacity(0.8))
-                .symbolRenderingMode(.hierarchical)
-        }
-        .frame(maxWidth: contentWidth, alignment: .leading)
-        .padding(16)
-        .background(RoundedRectangle(cornerRadius: 14).fill(cardBackground))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(cardStroke, lineWidth: 2))
-    }
-
-    private func episodeMetadata(episode: TVEpisode, watched: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 12) {
-                Text(episode.name)
-                    .font(.headline)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                if watched {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.subheadline)
-                        .foregroundStyle(.green.opacity(0.9))
-                }
-            }
-            episodeMetadataRow(episode: episode)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func episodeMetadataRow(episode: TVEpisode) -> some View {
-        HStack(spacing: 8) {
-            Text("E\(episode.episodeNumber)")
-                .font(.subheadline)
-                .fontWeight(.medium)
-                .foregroundStyle(.secondary)
-            if let date = episode.airDate {
-                Text("•")
-                    .foregroundStyle(.secondary)
-                Text(date, format: .dateTime.month().year())
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func episodeThumbnail(stillURL: URL?, episodeNumber: Int, isFocused: Bool) -> some View {
-        ZStack(alignment: .bottomLeading) {
-            Group {
-                if let url = stillURL {
-                    AsyncImage(url: url) { phase in
-                        switch phase {
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                        case .failure:
-                            thumbnailPlaceholder
-                        case .empty:
-                            thumbnailPlaceholder
-                                .overlay { ProgressView() }
-                        @unknown default:
-                            thumbnailPlaceholder
-                        }
-                    }
-                } else {
-                    thumbnailPlaceholder
-                }
-            }
-            .frame(width: 160, height: 90)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-
-            Text("\(episodeNumber)")
-                .font(.caption)
-                .fontWeight(.bold)
-                .foregroundStyle(.white)
-                .shadow(color: .black.opacity(0.6), radius: 2, x: 0, y: 1)
-                .padding(6)
-        }
-    }
-
-    private var thumbnailPlaceholder: some View {
-        Rectangle()
-            .fill(.quaternary.opacity(0.5))
-            .overlay {
-                Image(systemName: "film")
-                    .font(.title2)
-                    .foregroundStyle(.secondary.opacity(0.6))
-            }
+    private var displayTitle: String {
+        series?.name ?? seriesName
     }
 
     var body: some View {
@@ -348,10 +40,12 @@ struct TVSeriesMoreEpisodesView: View {
             if series == nil {
                 ProgressView("Loading...")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(AppTheme.background)
             } else {
                 mainContent
             }
         }
+        .background(AppTheme.background)
         .navigationTitle("")
         .sheet(isPresented: $showStreamPicker, onDismiss: {
             if let pending = pendingStreamSelection {
@@ -384,13 +78,18 @@ struct TVSeriesMoreEpisodesView: View {
         .task {
             if series == nil {
                 series = try? await appState.tmdbService.tvSeriesDetails(forSeriesId: seriesId)
-                let seasons = (series?.seasons ?? []).map(\.seasonNumber).sorted()
-                selectedSeason = seasons.first ?? (series?.numberOfSeasons ?? 1)
+                selectedSeason = series?.defaultPlayableSeason ?? 1
             }
-            await loadSeason(selectedSeason)
+            await loadSeason(selectedSeason, pinSeasonFocus: selectedSeason)
+            focusedSeasonNum = selectedSeason
         }
         .onChange(of: selectedSeason) { _, newValue in
-            Task { await loadSeason(newValue) }
+            let pinSeason = focusedSeasonNum
+            Task { await loadSeason(newValue, pinSeasonFocus: pinSeason) }
+        }
+        .onChange(of: focusedSeasonNum) { _, newNum in
+            guard let newNum, newNum != selectedSeason else { return }
+            selectedSeason = newNum
         }
         .onChange(of: focusedEpisodeId) { _, newId in
             if let id = newId {
@@ -399,16 +98,398 @@ struct TVSeriesMoreEpisodesView: View {
         }
     }
 
-    private func loadSeason(_ seasonNumber: Int) async {
-        isLoadingSeason = true
+    @ViewBuilder
+    private var mainContent: some View {
+        GeometryReader { geo in
+            let leftWidth = geo.size.width * 7 / 20
+            let rightWidth = geo.size.width * 13 / 20
+            let rightTrailingInset: CGFloat = 72
+            let posterWidth = rightWidth * 0.4
+            let detailWidth = max(0, rightWidth - posterWidth - 20 - rightTrailingInset)
+
+            HStack(alignment: .top, spacing: 0) {
+                leftPanel(width: leftWidth)
+                rightPanel(posterWidth: posterWidth, detailWidth: detailWidth)
+                    .frame(width: rightWidth)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(AppTheme.background)
+        }
+    }
+
+    private func leftPanel(width: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 36) {
+            seriesHeader
+
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(seasonNumbers.reversed(), id: \.self) { num in
+                    seasonRow(num: num, width: width - 48)
+                }
+            }
+            .focusSection()
+
+            if let streamErr = streamError {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .foregroundStyle(.red)
+                    Text(streamErr)
+                        .foregroundStyle(.red)
+                        .font(.subheadline)
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .frame(width: width, alignment: .leading)
+        .padding(.leading, 60)
+        .padding(.trailing, 24)
+        .padding(.top, 48)
+        .padding(.bottom, 48)
+    }
+
+    private var seriesHeader: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("SERIES")
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundStyle(AppTheme.secondaryText)
+                .tracking(1.5)
+
+            Text(displayTitle)
+                .font(.system(size: 40, weight: .bold))
+                .foregroundStyle(AppTheme.primaryText)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 8) {
+                if let date = series?.firstAirDate {
+                    Text(String(Calendar.current.component(.year, from: date)))
+                }
+                if seasonNumbers.count > 0 {
+                    if series?.firstAirDate != nil {
+                        Text("•")
+                    }
+                    Text("\(seasonNumbers.count) Season\(seasonNumbers.count == 1 ? "" : "s")")
+                }
+            }
+            .font(.subheadline)
+            .foregroundStyle(AppTheme.secondaryText)
+        }
+    }
+
+    private func seasonRow(num: Int, width: CGFloat) -> some View {
+        let isFocused = focusedSeasonNum == num
+
+        return Button {
+            focusedSeasonNum = num
+        } label: {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Season \(num)")
+                    .font(.callout)
+                    .fontWeight(isFocused ? .semibold : .regular)
+                Spacer(minLength: 16)
+                if let count = episodeCount(for: num) {
+                    Text("\(count) Episode\(count == 1 ? "" : "s")")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.secondaryText)
+                }
+            }
+            .foregroundStyle(AppTheme.primaryText)
+            .frame(width: width, alignment: .leading)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 10)
+            .overlay {
+                if isFocused {
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(AppTheme.focusBorder, lineWidth: 3)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .hoverEffectDisabled(true)
+        .focused($focusedSeasonNum, equals: num)
+    }
+
+    @ViewBuilder
+    private func rightPanel(posterWidth: CGFloat, detailWidth: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 8) {
+                Text("Season \(selectedSeason)")
+                    .font(.title3)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(AppTheme.primaryText)
+            }
+            .padding(.top, 48)
+
+            episodesSection(posterWidth: posterWidth, detailWidth: detailWidth)
+        }
+        .focusSection()
+        .padding(.trailing, 72)
+    }
+
+    @ViewBuilder
+    private func episodesSection(posterWidth: CGFloat, detailWidth: CGFloat) -> some View {
+        ZStack {
+            if let season = loadedSeason {
+                let episodes = TVEpisodeFilter.releasedEpisodes(from: season.episodes)
+                if !episodes.isEmpty {
+                    episodeScrollView(episodes: episodes, posterWidth: posterWidth, detailWidth: detailWidth)
+                        .opacity(isLoadingSeason ? 0.55 : 1)
+                        .allowsHitTesting(!isLoadingSeason)
+                } else if !isLoadingSeason {
+                    Text("No episodes available")
+                        .foregroundStyle(AppTheme.secondaryText)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                }
+            } else if !isLoadingSeason {
+                Text("No episodes available")
+                    .foregroundStyle(AppTheme.secondaryText)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            }
+
+            if isLoadingSeason && loadedSeason == nil {
+                ProgressView()
+            }
+        }
+    }
+
+    private func episodeScrollView(episodes: [TVEpisode], posterWidth: CGFloat, detailWidth: CGFloat) -> some View {
+        let posterHeight = posterWidth * 9 / 16
+
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                ForEach(episodes, id: \.id) { episode in
+                    episodeRow(
+                        episode: episode,
+                        posterWidth: posterWidth,
+                        posterHeight: posterHeight,
+                        detailWidth: detailWidth
+                    )
+                }
+            }
+            .scrollTargetLayout()
+            .padding(.bottom, 48)
+        }
+        .scrollPosition(id: $scrollPositionEpisodeId, anchor: .center)
+    }
+
+    private func episodeRow(
+        episode: TVEpisode,
+        posterWidth: CGFloat,
+        posterHeight: CGFloat,
+        detailWidth: CGFloat
+    ) -> some View {
+        let isFocused = focusedEpisodeId == episode.id
+        let stillURL = ImageURLBuilder.stillURL(for: episode.stillPath, config: appState.apiConfiguration)
+        let progress = episodeProgressFraction(for: episode)
+
+        return Button {
+            let fromBeginning = !appState.watchProgressManager.canResumeEpisode(
+                seriesId: seriesId,
+                season: selectedSeason,
+                episode: episode.episodeNumber
+            )
+            Task { await playEpisode(season: selectedSeason, episode: episode.episodeNumber, title: episode.name, fromBeginning: fromBeginning) }
+        } label: {
+            HStack(alignment: .top, spacing: 20) {
+                episodePoster(
+                    stillURL: stillURL,
+                    episodeNumber: episode.episodeNumber,
+                    isFocused: isFocused,
+                    width: posterWidth,
+                    height: posterHeight,
+                    progress: progress
+                )
+
+                episodeDetails(episode: episode, width: detailWidth)
+            }
+            .frame(maxWidth: posterWidth + detailWidth + 20, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+        .hoverEffectDisabled(true)
+        .buttonBorderShape(.roundedRectangle(radius: 4))
+        .focused($focusedEpisodeId, equals: episode.id)
+        .disabled(isResolvingStream)
+        .contextMenu {
+            if appState.watchProgressManager.canResumeEpisode(seriesId: seriesId, season: selectedSeason, episode: episode.episodeNumber) {
+                Button("Play from Beginning") {
+                    Task { await playEpisode(season: selectedSeason, episode: episode.episodeNumber, title: episode.name, fromBeginning: true) }
+                }
+            }
+            Button("Choose Stream") {
+                Task { await showStreamPicker(season: selectedSeason, episode: episode.episodeNumber, title: episode.name) }
+            }
+        }
+    }
+
+    private func episodePoster(
+        stillURL: URL?,
+        episodeNumber: Int,
+        isFocused: Bool,
+        width: CGFloat,
+        height: CGFloat,
+        progress: Double?
+    ) -> some View {
+        ZStack(alignment: .bottom) {
+            Group {
+                if let url = stillURL {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        case .failure:
+                            thumbnailPlaceholder
+                        case .empty:
+                            thumbnailPlaceholder
+                                .overlay { ProgressView() }
+                        @unknown default:
+                            thumbnailPlaceholder
+                        }
+                    }
+                } else {
+                    thumbnailPlaceholder
+                }
+            }
+            .frame(width: width, height: height)
+            .clipped()
+
+            if let progress, progress > 0 {
+                GeometryReader { geo in
+                    Rectangle()
+                        .fill(AppTheme.progressTint)
+                        .frame(width: geo.size.width * min(progress, 1), height: 3)
+                }
+                .frame(height: 3)
+            }
+        }
+        .frame(width: width, height: height)
+        .overlay {
+            RoundedRectangle(cornerRadius: 2)
+                .stroke(isFocused ? AppTheme.focusBorder : Color.clear, lineWidth: 3)
+        }
+        .overlay(alignment: .bottomLeading) {
+            Text("\(episodeNumber)")
+                .font(.caption2)
+                .fontWeight(.bold)
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.7), radius: 2, x: 0, y: 1)
+                .padding(8)
+        }
+    }
+
+    private func episodeDetails(episode: TVEpisode, width: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(episode.name)
+                .font(.headline)
+                .fontWeight(.semibold)
+                .foregroundStyle(AppTheme.primaryText)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+
+            if let overview = episode.overview, !overview.isEmpty {
+                Text(overviewWithLength(overview, episode: episode))
+                    .font(.subheadline)
+                    .foregroundStyle(AppTheme.secondaryText)
+                    .lineSpacing(3)
+                    .lineLimit(5)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if let length = formattedEpisodeLength(for: episode) {
+                Text(length)
+                    .font(.subheadline)
+                    .foregroundStyle(AppTheme.secondaryText)
+            }
+        }
+        .frame(maxWidth: width, alignment: .topLeading)
+        .padding(.top, 4)
+        .padding(.trailing, 8)
+    }
+
+    private func overviewWithLength(_ overview: String, episode: TVEpisode) -> String {
+        if let length = formattedEpisodeLength(for: episode) {
+            return "\(overview) \(length)"
+        }
+        return overview
+    }
+
+    private var thumbnailPlaceholder: some View {
+        Rectangle()
+            .fill(AppTheme.placeholderFill)
+            .overlay {
+                Image(systemName: "film")
+                    .font(.title2)
+                    .foregroundStyle(AppTheme.secondaryText)
+            }
+    }
+
+    private func episodeCount(for seasonNum: Int) -> Int? {
+        if seasonNum == selectedSeason, let episodes = loadedSeason?.episodes {
+            let count = TVEpisodeFilter.releasedEpisodes(from: episodes).count
+            return count > 0 ? count : nil
+        }
+        if let episodes = series?.seasons?.first(where: { $0.seasonNumber == seasonNum })?.episodes {
+            let count = TVEpisodeFilter.releasedEpisodes(from: episodes).count
+            return count > 0 ? count : nil
+        }
+        return nil
+    }
+
+    private func formattedEpisodeLength(for episode: TVEpisode) -> String? {
+        guard let minutes = episodeDurationMinutes(for: episode) else { return nil }
+        return "(\(minutes)m)"
+    }
+
+    private func episodeDurationMinutes(for episode: TVEpisode) -> Int? {
+        if let entry = appState.watchProgressManager.watchedEpisodes.first(where: {
+            $0.seriesId == seriesId && $0.season == selectedSeason && $0.episode == episode.episodeNumber
+        }), let duration = entry.durationSeconds, duration > 0 {
+            return max(1, Int((duration / 60).rounded()))
+        }
+        if let minutes = series?.episodeRunTime?.first, minutes > 0 {
+            return minutes
+        }
+        return nil
+    }
+
+    private func episodeProgressFraction(for episode: TVEpisode) -> Double? {
+        guard let entry = appState.watchProgressManager.watchedEpisodes.first(where: {
+            $0.seriesId == seriesId && $0.season == selectedSeason && $0.episode == episode.episodeNumber
+        }),
+        let progress = entry.progressSeconds,
+        let duration = entry.durationSeconds,
+        duration > 0 else { return nil }
+        return progress / duration
+    }
+
+    private func loadSeason(_ seasonNumber: Int, pinSeasonFocus: Int? = nil) async {
+        let wasCached = await appState.tmdbService.isTVSeasonCached(seriesId: seriesId, seasonNumber: seasonNumber)
+        if !wasCached {
+            isLoadingSeason = true
+        }
         streamError = nil
         defer { isLoadingSeason = false }
 
         do {
-            loadedSeason = try await appState.tmdbService.tvSeasonDetails(seriesId: seriesId, seasonNumber: seasonNumber)
+            let season = try await appState.tmdbService.tvSeasonDetails(seriesId: seriesId, seasonNumber: seasonNumber)
+            await MainActor.run {
+                loadedSeason = season
+                scrollPositionEpisodeId = TVEpisodeFilter.releasedEpisodes(from: season.episodes).first?.id
+                if let pinSeasonFocus {
+                    focusedEpisodeId = nil
+                    focusedSeasonNum = pinSeasonFocus
+                }
+            }
         } catch {
-            loadedSeason = nil
-            streamError = error.localizedDescription
+            await MainActor.run {
+                loadedSeason = nil
+                streamError = error.localizedDescription
+                if let pinSeasonFocus {
+                    focusedEpisodeId = nil
+                    focusedSeasonNum = pinSeasonFocus
+                }
+            }
         }
     }
 

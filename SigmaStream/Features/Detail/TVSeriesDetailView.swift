@@ -20,10 +20,6 @@ struct TVSeriesDetailView: View {
     @State private var playableContent: PlayableContent?
     @State private var streamQuality: String?
     @State private var isResolvingStream = false
-    @State private var showStreamPicker = false
-    @State private var streamPickerSources: [OMSSSource] = []
-    @State private var streamPickerEpisode: (season: Int, episode: Int, title: String)?
-    @State private var pendingStreamSelection: (source: OMSSSource, season: Int, episode: Int, title: String)?
     @State private var streamError: String?
     @State private var trailerYouTubeKey: String?
     @State private var trailerAlertMessage: String?
@@ -36,19 +32,11 @@ struct TVSeriesDetailView: View {
     @FocusState private var focusedThumbId: String?
 
     private var seasonNumbers: [Int] {
-        guard let s = series else { return [1] }
-        if let seasons = s.seasons, !seasons.isEmpty {
-            return seasons.map(\.seasonNumber).sorted()
-        }
-        if let n = s.numberOfSeasons, n > 0 {
-            return Array(1...n)
-        }
-        return [1]
+        series?.playableSeasonNumbers ?? [1]
     }
 
     private var firstEpisode: (season: Int, episode: TVEpisode)? {
-        guard let season = loadedSeason, let episodes = season.episodes, !episodes.isEmpty else { return nil }
-        let ep = episodes.first!
+        guard let ep = TVEpisodeFilter.releasedEpisodes(from: loadedSeason?.episodes).first else { return nil }
         return (selectedSeason, ep)
     }
 
@@ -145,25 +133,6 @@ struct TVSeriesDetailView: View {
             Button("OK") { trailerAlertMessage = nil }
         } message: {
             Text(trailerAlertMessage ?? "")
-        }
-        .sheet(isPresented: $showStreamPicker, onDismiss: {
-            if let pending = pendingStreamSelection {
-                pendingStreamSelection = nil
-                Task { await playSource(pending.source, season: pending.season, episode: pending.episode, title: pending.title) }
-            }
-        }) {
-            StreamPickerView(
-                title: streamPickerEpisode.map { "\(series?.name ?? "Episode") - \($0.title)" } ?? (series?.name ?? "Episode"),
-                sources: streamPickerSources,
-                onSelect: { source in
-                    if let ep = streamPickerEpisode {
-                        pendingStreamSelection = (source, ep.season, ep.episode, ep.title)
-                    }
-                    showStreamPicker = false
-                },
-                onDismiss: { showStreamPicker = false }
-            )
-            .environment(appState)
         }
         .fullScreenCover(item: $playableContent) { content in
             VideoPlayerView(content: content, watchProgress: appState.watchProgressManager) {
@@ -274,20 +243,10 @@ struct TVSeriesDetailView: View {
                         startResolveStream(season: season, episode: epNum, title: epTitle, fromBeginning: true)
                     }
                     .disabled(isResolvingStream)
-                } else {
-                    detailButton(id: "play", icon: "play.fill", title: "Play Episode") {
-                        startResolveStream(season: season, episode: epNum, title: epTitle, fromBeginning: true)
-                    }
-                    .disabled(isResolvingStream)
                 }
-
-                detailButton(id: "chooseStream", icon: "list.bullet", title: "Choose Stream") {
-                    startShowStreamPickerFetch(season: season, episode: epNum, title: epTitle)
-                }
-                .disabled(isResolvingStream)
             }
 
-            detailButton(id: "more", icon: "list.bullet", title: "More Episodes") {
+            detailButton(id: "more", icon: "list.bullet", title: "Episodes") {
                 moreEpisodesSeries = series
             }
 
@@ -344,8 +303,7 @@ struct TVSeriesDetailView: View {
             let result = try await appState.tmdbService.tvSeriesDetails(forSeriesId: seriesId)
             series = result
             trailerYouTubeKey = try? await appState.tmdbService.tvSeriesTrailerYouTubeKey(seriesId: seriesId)
-            let seasons = (result.seasons ?? []).map(\.seasonNumber).sorted()
-            selectedSeason = seasons.first ?? (result.numberOfSeasons ?? 1)
+            selectedSeason = result.defaultPlayableSeason
             await loadSeason(selectedSeason)
         } catch {
             errorMessage = error.localizedDescription
@@ -479,55 +437,6 @@ struct TVSeriesDetailView: View {
         )
     }
 
-    private func startShowStreamPickerFetch(season: Int, episode: Int, title: String) {
-        guard !isResolvingStream else { return }
-        streamResolutionTask?.cancel()
-        streamResolutionTask = Task { @MainActor in
-            isResolvingStream = true
-            streamError = nil
-            defer {
-                isResolvingStream = false
-                streamResolutionTask = nil
-            }
-            do {
-                try Task.checkCancellation()
-                let sources = try await appState.streamingService.sourcesForEpisode(seriesId: seriesId, season: season, episode: episode)
-                try Task.checkCancellation()
-                let playable = sources.filter { $0.isPlayable }
-                guard !playable.isEmpty else {
-                    streamError = "No stream was found (none marked playable)."
-                    return
-                }
-                if let q = playable.first?.quality { streamQuality = q }
-                streamPickerSources = playable
-                streamPickerEpisode = (season, episode, title)
-                showStreamPicker = true
-            } catch is CancellationError {
-                return
-            } catch {
-                let msg = userFacingStreamingErrorMessage(for: error)
-                streamError = msg.isEmpty ? "Could not load streams" : msg
-            }
-        }
-    }
-
-    private func playSource(_ source: OMSSSource, season: Int, episode: Int, title: String) async {
-        guard let url = await appState.streamingService.playableURL(for: source) else {
-            streamError = "Could not load stream"
-            return
-        }
-        if let q = source.quality { streamQuality = q }
-        await MainActor.run {
-            playableContent = makeEpisodePlayableContent(
-                urls: [url],
-                quality: source.quality,
-                season: season,
-                episode: episode,
-                title: title,
-                fromBeginning: true
-            )
-        }
-    }
 }
 
 #Preview {

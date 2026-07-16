@@ -58,6 +58,32 @@ npm run dev
     - Add comments for complex logic
     - Use meaningful variable and function names
 
+Note that the `@omss/framework` does not support single provider tests yet. If you want to test a single provider, create a file called test.ts in the provider's directory and add: 
+
+```typescript
+import { ProviderMediaObject } from "@omss/framework"
+import {ExampleProvider} from "./example.js"
+
+const prov = new ExampleProvider()
+
+const mediaObj: ProviderMediaObject = {
+  title: "The Dark Knight",
+  tmdbId: "155",
+  releaseYear: "2008",
+  type: "movie",
+  imdbId: "tt0468569"
+}
+
+const resp = await prov.getMovieSources(mediaObj)
+
+console.log(resp)
+```
+
+Then run it with `npx tsx src/providers/example/test.ts`.
+A full testing suite will be added in the future, but for now, this is the best way to test a single provider without having to run the entire server and make API calls to it.
+
+When testing the whole setup, make sure to set `INTERNAL_DEBUG` to `true` in your `.env` file to get ALL sources (also non-playable ones) and detailed diagnostics in the response. This will help you identify any issues with your provider.
+
 3. **Test your changes**:
     - Test with multiple TMDB IDs (movies and TV shows)
     - Verify error handling works correctly

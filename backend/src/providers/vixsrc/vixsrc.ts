@@ -299,6 +299,9 @@ export class VixSrcProvider extends BaseProvider {
      */
     private parseSubtitles(content: string, pageUrl: string): Subtitle[] {
         const subtitles: Subtitle[] = [];
+
+        /* Doesn't work.. 
+        // TODO: Fix subtitles for vixsrc
         const lines = content.split('\n');
 
         for (const line of lines) {
@@ -318,6 +321,7 @@ export class VixSrcProvider extends BaseProvider {
                 format: 'vtt'
             });
         }
+        */
 
         return subtitles;
     }

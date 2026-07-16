@@ -120,12 +120,12 @@ actor StreamingService {
         }
     }
 
-    /// Returns playable URLs (sorted by quality, best first) and the best source's quality string.
+    /// Returns playable URLs (stable quality first: prefer 1080p over 4K) and the top source's quality string.
     private func sortedPlayableURLsAndQuality(from response: OMSSSourceResponse) -> ([URL], String?) {
         let playable = response.sources.filter { $0.isPlayable }
         let sorted = playable.sorted { a, b in
-            if a.qualityRank != b.qualityRank {
-                return a.qualityRank > b.qualityRank
+            if a.playbackPreferenceRank != b.playbackPreferenceRank {
+                return a.playbackPreferenceRank > b.playbackPreferenceRank
             }
             if a.isHLS != b.isHLS {
                 return a.isHLS

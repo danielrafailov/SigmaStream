@@ -27,6 +27,7 @@ struct VideoPlayerView: View {
     @State private var loadError: String?
     @State private var currentURLIndex = 0
     @State private var endObserver: NSObjectProtocol?
+    @State private var stallObserver: NSObjectProtocol?
     @State private var timeObserver: Any?
     @State private var didApplyStartTime = false
     @State private var streamStatus: StreamStatus?
@@ -36,6 +37,11 @@ struct VideoPlayerView: View {
     private let pollInterval: TimeInterval = 0.2
     private let foundMessageDuration: TimeInterval = 0
     private let progressSaveInterval: TimeInterval = 15
+
+    /// Larger forward buffer reduces intermittent freezes on high-bitrate streams.
+    private let preferredForwardBufferDuration: TimeInterval = 25
+    /// Cap adaptive bitrate (~6 Mbps) so Apple TV prefers stable 1080p-class variants.
+    private let preferredPeakBitRate: Double = 6_000_000
 
     var body: some View {
         ZStack {
@@ -76,6 +82,10 @@ struct VideoPlayerView: View {
             NotificationCenter.default.removeObserver(observer)
             endObserver = nil
         }
+        if let observer = stallObserver {
+            NotificationCenter.default.removeObserver(observer)
+            stallObserver = nil
+        }
         if let timeObserver, let player {
             player.removeTimeObserver(timeObserver)
             self.timeObserver = nil
@@ -102,6 +112,21 @@ struct VideoPlayerView: View {
         }
     }
 
+    private func configurePlaybackItem(_ item: AVPlayerItem) {
+        item.preferredForwardBufferDuration = preferredForwardBufferDuration
+        item.preferredPeakBitRate = preferredPeakBitRate
+        item.canUseNetworkResourcesForLiveStreamingWhilePaused = false
+    }
+
+    private func makeConfiguredPlayer(url: URL) -> AVPlayer {
+        let asset = AVURLAsset(url: url)
+        let item = AVPlayerItem(asset: asset)
+        configurePlaybackItem(item)
+        let newPlayer = AVPlayer(playerItem: item)
+        newPlayer.automaticallyWaitsToMinimizeStalling = true
+        return newPlayer
+    }
+
     private func installProgressObserver(on player: AVPlayer) {
         if let timeObserver {
             player.removeTimeObserver(timeObserver)
@@ -110,6 +135,35 @@ struct VideoPlayerView: View {
         let interval = CMTime(seconds: progressSaveInterval, preferredTimescale: 600)
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { _ in
             flushProgress()
+        }
+    }
+
+    private func installStallRecovery(for item: AVPlayerItem, player: AVPlayer) {
+        if let stallObserver {
+            NotificationCenter.default.removeObserver(stallObserver)
+            self.stallObserver = nil
+        }
+        stallObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemPlaybackStalled,
+            object: item,
+            queue: .main
+        ) { [weak player] _ in
+            guard let player else { return }
+            Task { @MainActor in
+                for _ in 0..<50 {
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                    guard let current = player.currentItem, current === item else { return }
+                    if current.isPlaybackLikelyToKeepUp || current.status == .readyToPlay {
+                        if player.rate == 0 {
+                            player.play()
+                        }
+                        return
+                    }
+                }
+                if player.rate == 0 {
+                    player.play()
+                }
+            }
         }
     }
 
@@ -123,7 +177,7 @@ struct VideoPlayerView: View {
             streamStatus = .trying(index: currentURLIndex + 1, total: urls.count)
         }
         let url = urls[currentURLIndex]
-        let newPlayer = AVPlayer(url: url)
+        let newPlayer = makeConfiguredPlayer(url: url)
         await MainActor.run { player = newPlayer }
 
         let maxPolls = Int(loadTimeout / pollInterval)
@@ -165,6 +219,7 @@ struct VideoPlayerView: View {
                 }
                 await MainActor.run {
                     endObserver = token
+                    installStallRecovery(for: item, player: newPlayer)
                     installProgressObserver(on: newPlayer)
                 }
                 newPlayer.play()
@@ -287,8 +342,6 @@ struct VideoPlayerView: View {
             }
     }
 }
-
-// MARK: - Watch progress wiring
 
 extension VideoPlayerView {
     init(content: PlayableContent, watchProgress: WatchProgressManager, onPlaybackEnded: (() -> Void)? = nil) {

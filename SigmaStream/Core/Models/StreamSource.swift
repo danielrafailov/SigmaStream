@@ -81,7 +81,7 @@ struct OMSSDiagnostic: Decodable {
 // MARK: - Quality sorting for source selection
 
 extension OMSSSource {
-    /// Quality rank for sorting (higher = preferred)
+    /// Absolute quality rank (higher = higher resolution). Used for display / picker ordering.
     var qualityRank: Int {
         switch (quality ?? "unknown").lowercased() {
         case "2160p", "4k": return 5
@@ -90,6 +90,18 @@ extension OMSSSource {
         case "480p": return 2
         case "360p": return 1
         default: return 0
+        }
+    }
+
+    /// Auto-play preference: favor stable 1080p/720p over 4K to reduce buffer underruns.
+    var playbackPreferenceRank: Int {
+        switch (quality ?? "unknown").lowercased() {
+        case "1080p": return 6
+        case "720p": return 5
+        case "2160p", "4k": return 4
+        case "480p": return 3
+        case "360p": return 2
+        default: return 1
         }
     }
 

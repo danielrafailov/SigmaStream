@@ -26,6 +26,8 @@ struct TVSeriesMoreEpisodesView: View {
     @FocusState private var focusedEpisodeId: Int?
     @FocusState private var focusedSeasonNum: Int?
     @State private var scrollPositionEpisodeId: Int?
+    @State private var seasonSelectTask: Task<Void, Never>?
+    @State private var seasonLoadTask: Task<Void, Never>?
 
     private var seasonNumbers: [Int] {
         series?.playableSeasonNumbers ?? [1]
@@ -80,16 +82,27 @@ struct TVSeriesMoreEpisodesView: View {
                 series = try? await appState.tmdbService.tvSeriesDetails(forSeriesId: seriesId)
                 selectedSeason = series?.defaultPlayableSeason ?? 1
             }
-            await loadSeason(selectedSeason, pinSeasonFocus: selectedSeason)
+            await loadSeason(selectedSeason, reclaimSeasonFocusIfStolen: selectedSeason)
             focusedSeasonNum = selectedSeason
         }
         .onChange(of: selectedSeason) { _, newValue in
-            let pinSeason = focusedSeasonNum
-            Task { await loadSeason(newValue, pinSeasonFocus: pinSeason) }
+            seasonLoadTask?.cancel()
+            seasonLoadTask = Task {
+                await loadSeason(newValue, reclaimSeasonFocusIfStolen: newValue)
+            }
         }
         .onChange(of: focusedSeasonNum) { _, newNum in
-            guard let newNum, newNum != selectedSeason else { return }
-            selectedSeason = newNum
+            guard let newNum else { return }
+            // Debounce so fast scrolling doesn't reload/re-pin focus every step.
+            seasonSelectTask?.cancel()
+            seasonSelectTask = Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled else { return }
+                guard focusedSeasonNum == newNum else { return }
+                if selectedSeason != newNum {
+                    selectedSeason = newNum
+                }
+            }
         }
         .onChange(of: focusedEpisodeId) { _, newId in
             if let id = newId {
@@ -121,10 +134,14 @@ struct TVSeriesMoreEpisodesView: View {
         VStack(alignment: .leading, spacing: 36) {
             seriesHeader
 
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(seasonNumbers.reversed(), id: \.self) { num in
-                    seasonRow(num: num, width: width - 48)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(seasonNumbers.reversed(), id: \.self) { num in
+                        seasonRow(num: num, width: width - 48)
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.bottom, 24)
             }
             .focusSection()
 
@@ -137,8 +154,6 @@ struct TVSeriesMoreEpisodesView: View {
                         .font(.subheadline)
                 }
             }
-
-            Spacer(minLength: 0)
         }
         .frame(width: width, alignment: .leading)
         .padding(.leading, 60)
@@ -463,32 +478,46 @@ struct TVSeriesMoreEpisodesView: View {
         return progress / duration
     }
 
-    private func loadSeason(_ seasonNumber: Int, pinSeasonFocus: Int? = nil) async {
+    private func loadSeason(_ seasonNumber: Int, reclaimSeasonFocusIfStolen: Int? = nil) async {
         let wasCached = await appState.tmdbService.isTVSeasonCached(seriesId: seriesId, seasonNumber: seasonNumber)
+        if Task.isCancelled { return }
         if !wasCached {
-            isLoadingSeason = true
+            await MainActor.run { isLoadingSeason = true }
         }
-        streamError = nil
-        defer { isLoadingSeason = false }
+        await MainActor.run { streamError = nil }
 
         do {
             let season = try await appState.tmdbService.tvSeasonDetails(seriesId: seriesId, seasonNumber: seasonNumber)
+            guard !Task.isCancelled else { return }
             await MainActor.run {
+                // Ignore stale loads if the user already moved on.
+                guard selectedSeason == seasonNumber else { return }
                 loadedSeason = season
                 scrollPositionEpisodeId = TVEpisodeFilter.releasedEpisodes(from: season.episodes).first?.id
-                if let pinSeasonFocus {
-                    focusedEpisodeId = nil
-                    focusedSeasonNum = pinSeasonFocus
+                if let reclaimSeasonFocusIfStolen {
+                    // Only reclaim if loading stole focus into the episode list.
+                    if focusedEpisodeId != nil || focusedSeasonNum == nil {
+                        focusedEpisodeId = nil
+                        focusedSeasonNum = reclaimSeasonFocusIfStolen
+                    }
                 }
+                isLoadingSeason = false
             }
+        } catch is CancellationError {
+            await MainActor.run { isLoadingSeason = false }
         } catch {
+            guard !Task.isCancelled else { return }
             await MainActor.run {
+                guard selectedSeason == seasonNumber else { return }
                 loadedSeason = nil
                 streamError = error.localizedDescription
-                if let pinSeasonFocus {
-                    focusedEpisodeId = nil
-                    focusedSeasonNum = pinSeasonFocus
+                if let reclaimSeasonFocusIfStolen {
+                    if focusedEpisodeId != nil || focusedSeasonNum == nil {
+                        focusedEpisodeId = nil
+                        focusedSeasonNum = reclaimSeasonFocusIfStolen
+                    }
                 }
+                isLoadingSeason = false
             }
         }
     }

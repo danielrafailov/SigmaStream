@@ -17,7 +17,8 @@ extension TVSeries {
         return [1]
     }
 
+    /// Newest playable season (highest number); used when opening the episode picker.
     var defaultPlayableSeason: Int {
-        playableSeasonNumbers.first ?? 1
+        playableSeasonNumbers.last ?? 1
     }
 }

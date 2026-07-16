@@ -9,6 +9,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function main() {
+    console.log('[Server] Starting CinePro backend...');
+
     const server = new OMSSServer({
         name: 'CinePro',
         version: '1.0.0',
@@ -74,11 +76,14 @@ async function main() {
 
     // Register providers
     const registry = server.getRegistry();
+    console.log('[Server] Discovering providers...');
     await registry.discoverProviders(path.join(__dirname, './providers/'));
 
+    console.log('[Server] Binding to port...');
     await server.start();
 }
 
-main().catch(() => {
+main().catch((error) => {
+    console.error('[Server] Startup failed:', error);
     process.exit(1);
 });

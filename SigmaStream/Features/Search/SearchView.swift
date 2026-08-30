@@ -34,7 +34,7 @@ struct SearchView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 32) {
-                    // MARK: - Search Mode Switcher (Basic vs AI)
+                    // MARK: - Search Mode Switcher (Standard vs AI)
                     HStack {
                         Picker("Search Mode", selection: $searchMode) {
                             ForEach(SearchMode.allCases) { mode in
@@ -57,23 +57,31 @@ struct SearchView: View {
                     }
 
                     if isLoading && searchText.count >= 2 {
-                        VStack(spacing: 16) {
-                            ProgressView()
-                                .scaleEffect(1.4)
-                            Text(searchMode == .ai ? "Sigma AI is analyzing and curating recommendations..." : "Searching titles...")
-                                .font(.title3)
-                                .foregroundStyle(.secondary)
+                        HStack {
+                            Spacer()
+                            VStack(spacing: 16) {
+                                ProgressView()
+                                    .scaleEffect(1.4)
+                                Text(searchMode == .ai ? "Sigma AI is analyzing and curating recommendations..." : "Searching titles...")
+                                    .font(.title3)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 60)
+                        .frame(maxWidth: .infinity, minHeight: 350)
+                        .padding(.vertical, 40)
                     } else if searchText.count >= 2 {
                         if movies.isEmpty && tvSeries.isEmpty && !isLoading {
-                            ContentUnavailableView(
-                                "No results found",
-                                systemImage: searchMode == .ai ? "sparkles" : "magnifyingglass",
-                                description: Text(searchMode == .ai ? "Try asking with different themes, actors, or genres." : "Try a different search term")
-                            )
-                            .frame(maxWidth: .infinity, minHeight: 450, alignment: .center)
+                            HStack {
+                                Spacer()
+                                ContentUnavailableView(
+                                    "No results found",
+                                    systemImage: searchMode == .ai ? "sparkles" : "magnifyingglass",
+                                    description: Text(searchMode == .ai ? "Try asking with different themes, actors, or genres." : "Try a different search term")
+                                )
+                                Spacer()
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 350)
                             .padding(.vertical, 40)
                         } else {
                             VStack(alignment: .leading, spacing: 32) {
@@ -97,10 +105,15 @@ struct SearchView: View {
                             }
                         }
                     } else if !searchText.isEmpty {
-                        Text("Enter at least 2 characters to search")
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 48)
-                            .padding(.vertical, 40)
+                        HStack {
+                            Spacer()
+                            Text("Enter at least 2 characters to search")
+                                .font(.title3)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 40)
                     }
                 }
                 .scrollTargetLayout()
@@ -187,3 +200,4 @@ struct SearchView: View {
     SearchView()
         .environment(AppState(apiKey: "placeholder"))
 }
+

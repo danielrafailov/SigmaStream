@@ -54,7 +54,19 @@ final class VoiceAssistantService: NSObject, AVAudioPlayerDelegate {
         activeTTSJob = Task { [weak self] in
             guard let self else { return }
             do {
-                let audioData = try await self.fetchLocalTTSAudio(text: cleanText)
+                let audioData: Data
+                let elevenKey = Secrets.elevenLabsApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !elevenKey.isEmpty && elevenKey != "YOUR_ELEVENLABS_API_KEY" {
+                    print("[VoiceAssistantService] 🎙️ Generating Donald Trump voice via ElevenLabs...")
+                    audioData = try await self.fetchElevenLabsAudio(
+                        text: cleanText,
+                        apiKey: elevenKey,
+                        voiceId: Secrets.elevenLabsTrumpVoiceId
+                    )
+                } else {
+                    audioData = try await self.fetchLocalTTSAudio(text: cleanText)
+                }
+                
                 guard !Task.isCancelled else {
                     print("[VoiceAssistantService] ⚠️ Task cancelled before playback.")
                     return
@@ -65,7 +77,7 @@ final class VoiceAssistantService: NSObject, AVAudioPlayerDelegate {
                 }
             } catch {
                 guard !Task.isCancelled else { return }
-                print("[VoiceAssistantService] ❌ Local TTS error: \(error.localizedDescription)")
+                print("[VoiceAssistantService] ❌ Speech synthesis error: \(error.localizedDescription)")
                 await MainActor.run {
                     if case .speaking = self.state {
                         self.state = .idle
@@ -88,6 +100,38 @@ final class VoiceAssistantService: NSObject, AVAudioPlayerDelegate {
         if case .speaking = state {
             state = .idle
         }
+    }
+    
+    // MARK: - ElevenLabs Donald Trump TTS
+    
+    private func fetchElevenLabsAudio(text: String, apiKey: String, voiceId: String) async throws -> Data {
+        let endpoint = "https://api.elevenlabs.io/v1/text-to-speech/\(voiceId)?output_format=mp3_44100_128"
+        guard let url = URL(string: endpoint) else { throw URLError(.badURL) }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(apiKey, forHTTPHeaderField: "xi-api-key")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let bodyPayload: [String: Any] = [
+            "text": text,
+            "model_id": "eleven_turbo_v2_5",
+            "voice_settings": [
+                "stability": 0.5,
+                "similarity_boost": 0.85
+            ]
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: bodyPayload)
+        
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
+            let errorText = String(data: data, encoding: .utf8) ?? "ElevenLabs HTTP error"
+            print("[VoiceAssistantService] ❌ ElevenLabs Error: \(errorText)")
+            throw NSError(domain: "VoiceAssistantService", code: (response as? HTTPURLResponse)?.statusCode ?? 500, userInfo: [NSLocalizedDescriptionKey: errorText])
+        }
+        
+        print("[VoiceAssistantService] ✅ Successfully fetched \(data.count) bytes of MP3 audio from ElevenLabs!")
+        return data
     }
     
     // MARK: - Local Mac Neural TTS Request

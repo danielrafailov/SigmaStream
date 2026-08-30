@@ -8,9 +8,18 @@
 import SwiftUI
 import TMDb
 
+enum SearchMode: String, CaseIterable, Identifiable {
+    case standard = "Standard Search"
+    case ai = "AI Mode ✨"
+    
+    var id: String { rawValue }
+}
+
 struct SearchView: View {
     @Environment(AppState.self) private var appState
+    
     @State private var searchText = ""
+    @State private var searchMode: SearchMode = .ai
     @State private var movies: [MovieListItem] = []
     @State private var tvSeries: [TVSeriesListItem] = []
     @State private var isLoading = false
@@ -18,72 +27,134 @@ struct SearchView: View {
     @State private var searchTask: Task<Void, Never>?
     @State private var selectedMovie: MovieSelection?
     @State private var selectedSeries: TVSeriesSelection?
+    
+    @FocusState private var isPickerFocused: Bool
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 32) {
+                    // MARK: - Search Mode Switcher (Standard vs AI)
+                    HStack {
+                        Picker("Search Mode", selection: $searchMode) {
+                            ForEach(SearchMode.allCases) { mode in
+                                Text(mode.rawValue).tag(mode)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(maxWidth: 500)
+                        .focused($isPickerFocused)
+                        
+                        Spacer()
+                    }
+                    .padding(.horizontal, 48)
+                    .padding(.top, 16)
+                    
                     if let error = errorMessage {
                         Text(error)
                             .foregroundStyle(.red)
-                            .padding()
+                            .padding(.horizontal, 48)
                     }
 
                     if isLoading && searchText.count >= 2 {
-                        ProgressView("Searching...")
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 60)
+                        VStack(spacing: 16) {
+                            ProgressView()
+                                .scaleEffect(1.4)
+                            Text(searchMode == .ai ? "Sigma AI is analyzing and curating recommendations..." : "Searching titles...")
+                                .font(.title3)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 60)
                     } else if searchText.count >= 2 {
                         if movies.isEmpty && tvSeries.isEmpty && !isLoading {
                             ContentUnavailableView(
-                                "No results",
-                                systemImage: "magnifyingglass",
-                                description: Text("Try a different search term")
+                                "No results found",
+                                systemImage: searchMode == .ai ? "sparkles" : "magnifyingglass",
+                                description: Text(searchMode == .ai ? "Try asking with different themes, actors, or genres." : "Try a different search term")
                             )
                             .padding(.vertical, 60)
                         } else {
-                            if !movies.isEmpty {
-                                MovieMediaRow(
-                                    title: "Movies",
-                                    movies: movies,
-                                    config: appState.apiConfiguration,
-                                    onSelect: { movie in selectedMovie = MovieSelection(id: movie.id) }
-                                )
-                            }
+                            VStack(alignment: .leading, spacing: 32) {
+                                if !movies.isEmpty {
+                                    MovieMediaRow(
+                                        title: searchMode == .ai ? "AI Movie Recommendations" : "Movies",
+                                        movies: movies,
+                                        config: appState.apiConfiguration,
+                                        onSelect: { movie in selectedMovie = MovieSelection(id: movie.id) }
+                                    )
+                                }
 
-                            if !tvSeries.isEmpty {
-                                TVSeriesMediaRow(
-                                    title: "TV Shows",
-                                    tvSeries: tvSeries,
-                                    config: appState.apiConfiguration,
-                                    onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) }
-                                )
+                                if !tvSeries.isEmpty {
+                                    TVSeriesMediaRow(
+                                        title: searchMode == .ai ? "AI TV Recommendations" : "TV Shows",
+                                        tvSeries: tvSeries,
+                                        config: appState.apiConfiguration,
+                                        onSelect: { series in selectedSeries = TVSeriesSelection(id: series.id) }
+                                    )
+                                }
                             }
                         }
                     } else if !searchText.isEmpty {
                         Text("Enter at least 2 characters to search")
                             .foregroundStyle(.secondary)
-                            .padding(.vertical, 60)
+                            .padding(.horizontal, 48)
+                            .padding(.vertical, 40)
+                    } else if searchMode == .ai {
+                        // Helpful Prompt Guidance when empty
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack(spacing: 10) {
+                                Image(systemName: "sparkles")
+                                    .foregroundStyle(.cyan)
+                                Text("AI Mode Active")
+                                    .font(.headline)
+                                    .fontWeight(.bold)
+                            }
+                            Text("Speak into your Siri Remote or type natural queries like:\n• \"Mind-bending 90s sci-fi movies\"\n• \"Dark comedies with clever plot twists\"\n• \"Space exploration thrillers\"")
+                                .font(.title3)
+                                .foregroundStyle(.secondary)
+                                .lineSpacing(6)
+                        }
+                        .padding(28)
+                        .background(Color.white.opacity(0.06))
+                        .clipShape(RoundedRectangle(cornerRadius: 20))
+                        .padding(.horizontal, 48)
+                        .padding(.top, 20)
                     }
                 }
                 .scrollTargetLayout()
                 .padding(.vertical)
             }
             .navigationTitle("")
-            .searchable(text: $searchText, prompt: "")
+            .searchable(
+                text: $searchText,
+                prompt: searchMode == .ai ? "Ask AI with Siri Remote (e.g. '90s sci-fi movies')..." : "Search titles, actors, genres..."
+            )
             .onChange(of: searchText) { _, newValue in
                 searchTask?.cancel()
                 movies = []
                 tvSeries = []
                 errorMessage = nil
+                appState.voiceService.stopSpeaking()
 
                 guard newValue.count >= 2 else { return }
 
                 let query = newValue
+                let currentMode = searchMode
                 searchTask = Task {
-                    try? await Task.sleep(for: .milliseconds(400))
+                    // Slight debounce for keyboard input; dictation submits immediately
+                    try? await Task.sleep(for: .milliseconds(500))
                     guard !Task.isCancelled else { return }
-                    await performSearch(query: query)
+                    await performSearch(query: query, mode: currentMode)
+                }
+            }
+            .onChange(of: searchMode) { _, newMode in
+                if searchText.count >= 2 {
+                    let query = searchText
+                    searchTask?.cancel()
+                    searchTask = Task {
+                        await performSearch(query: query, mode: newMode)
+                    }
                 }
             }
             .navigationDestination(item: $selectedMovie) { selection in
@@ -95,18 +166,32 @@ struct SearchView: View {
             .task {
                 await appState.loadConfiguration()
             }
+            .onDisappear {
+                appState.voiceService.stopSpeaking()
+            }
         }
     }
 
-    private func performSearch(query: String) async {
+    private func performSearch(query: String, mode: SearchMode) async {
         guard !query.isEmpty else { return }
         isLoading = true
         errorMessage = nil
 
         do {
-            let result = try await appState.tmdbService.searchMoviesTVIncludingPersonCast(query: query)
-            movies = result.movies
-            tvSeries = result.tvSeries
+            if mode == .ai {
+                let result = try await appState.aiService.query(prompt: query, tmdbService: appState.tmdbService)
+                guard !Task.isCancelled else { return }
+                movies = result.movies
+                tvSeries = result.tvSeries
+                
+                // Speak the AI response out loud via local Mac Neural TTS
+                appState.voiceService.speak(result.spokenResponse)
+            } else {
+                let result = try await appState.tmdbService.searchMoviesTVIncludingPersonCast(query: query)
+                guard !Task.isCancelled else { return }
+                movies = result.movies
+                tvSeries = result.tvSeries
+            }
         } catch {
             if !Task.isCancelled {
                 errorMessage = error.localizedDescription
@@ -121,3 +206,4 @@ struct SearchView: View {
     SearchView()
         .environment(AppState(apiKey: "placeholder"))
 }
+

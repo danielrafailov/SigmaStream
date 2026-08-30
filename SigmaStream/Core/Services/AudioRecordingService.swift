@@ -97,6 +97,10 @@ final class AudioRecordingService: NSObject, AVAudioRecorderDelegate {
             let fileURL = tempDir.appendingPathComponent("sigmastream_mic_input.wav")
             self.recordingURL = fileURL
             
+            if FileManager.default.fileExists(atPath: fileURL.path) {
+                try? FileManager.default.removeItem(at: fileURL)
+            }
+            
             let settings: [String: Any] = [
                 AVFormatIDKey: Int(kAudioFormatLinearPCM),
                 AVSampleRateKey: 16000.0,
@@ -110,13 +114,17 @@ final class AudioRecordingService: NSObject, AVAudioRecorderDelegate {
             recorder.delegate = self
             recorder.isMeteringEnabled = true
             
-            if recorder.record() {
+            let prepared = recorder.prepareToRecord()
+            let started = recorder.record()
+            print("[AudioRecordingService] 🎙️ prepareToRecord: \(prepared), record: \(started)")
+            
+            if started {
                 self.audioRecorder = recorder
                 self.isRecording = true
-                print("[AudioRecordingService] 🎙️ Recording started from Siri Remote microphone...")
+                print("[AudioRecordingService] 🎙️ Recording successfully started from microphone!")
                 startMetering()
             } else {
-                errorMessage = "Failed to initiate audio recording."
+                errorMessage = "Failed to initiate audio recording. Please check microphone access."
             }
         } catch {
             print("[AudioRecordingService] ❌ Failed to start recorder: \(error.localizedDescription)")

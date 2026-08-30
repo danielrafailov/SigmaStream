@@ -55,28 +55,48 @@ final class VoiceAssistantService: NSObject, AVAudioPlayerDelegate {
         activeTTSJob = Task { [weak self] in
             guard let self else { return }
             do {
-                let audioData: Data
-                if !Secrets.elevenLabsApiKeys.isEmpty {
+                var audioData: Data? = nil
+                
+                // 1. Try Voice.ai first (if configured)
+                let voiceAIKey = Secrets.voiceAIApiKey1.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !voiceAIKey.isEmpty && !voiceAIKey.starts(with: "YOUR_") {
                     do {
+                        print("[VoiceAssistantService] 🎙️ Attempting Trump speech generation via Voice.ai...")
+                        audioData = try await self.fetchVoiceAIAudio(
+                            text: cleanText,
+                            apiKey: voiceAIKey,
+                            voiceId: Secrets.voiceAITrumpVoiceId
+                        )
+                    } catch {
+                        print("[VoiceAssistantService] ⚠️ Voice.ai failed: \(error.localizedDescription). Falling back to ElevenLabs...")
+                    }
+                }
+                
+                // 2. Fallback to ElevenLabs (if configured)
+                if audioData == nil && !Secrets.elevenLabsApiKeys.isEmpty {
+                    do {
+                        print("[VoiceAssistantService] 🎙️ Attempting speech generation via ElevenLabs...")
                         audioData = try await self.fetchElevenLabsAudioWithKeyRotation(
                             text: cleanText,
                             voiceId: Secrets.elevenLabsTrumpVoiceId
                         )
                     } catch {
-                        print("[VoiceAssistantService] ⚠️ All ElevenLabs keys failed/exhausted. Falling back to local Mac voice: \(error.localizedDescription)")
-                        audioData = try await self.fetchLocalTTSAudio(text: cleanText)
+                        print("[VoiceAssistantService] ⚠️ ElevenLabs failed: \(error.localizedDescription). Falling back to local Mac voice...")
                     }
-                } else {
+                }
+                
+                // 3. Fallback to Local Mac Neural TTS
+                if audioData == nil {
                     audioData = try await self.fetchLocalTTSAudio(text: cleanText)
                 }
                 
-                guard !Task.isCancelled else {
+                guard let finalAudio = audioData, !Task.isCancelled else {
                     print("[VoiceAssistantService] ⚠️ Task cancelled before playback.")
                     return
                 }
                 
                 await MainActor.run {
-                    self.playAudioData(audioData, text: cleanText)
+                    self.playAudioData(finalAudio, text: cleanText)
                 }
             } catch {
                 guard !Task.isCancelled else { return }
@@ -103,6 +123,39 @@ final class VoiceAssistantService: NSObject, AVAudioPlayerDelegate {
         if case .speaking = state {
             state = .idle
         }
+    }
+    
+    // MARK: - Voice.ai Donald Trump TTS
+    
+    private func fetchVoiceAIAudio(text: String, apiKey: String, voiceId: String) async throws -> Data {
+        let endpoint = "https://dev.voice.ai/api/v1/tts/speech"
+        guard let url = URL(string: endpoint) else { throw URLError(.badURL) }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        var bodyPayload: [String: Any] = [
+            "text": text,
+            "model": "voiceai-tts-v1-latest",
+            "language": "en"
+        ]
+        let cleanVoiceId = voiceId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanVoiceId.isEmpty {
+            bodyPayload["voice_id"] = cleanVoiceId
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: bodyPayload)
+        
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
+            let errorText = String(data: data, encoding: .utf8) ?? "Voice.ai HTTP error"
+            print("[VoiceAssistantService] ❌ Voice.ai Error: \(errorText)")
+            throw NSError(domain: "VoiceAssistantService", code: (response as? HTTPURLResponse)?.statusCode ?? 500, userInfo: [NSLocalizedDescriptionKey: errorText])
+        }
+        
+        print("[VoiceAssistantService] ✅ Successfully fetched \(data.count) bytes of audio from Voice.ai!")
+        return data
     }
     
     // MARK: - ElevenLabs Donald Trump TTS with Automatic Key Rotation

@@ -46,7 +46,23 @@ final class AudioRecordingService: NSObject, AVAudioRecorderDelegate {
         self.silenceDuration = 0
         self.hasSpoken = false
         
-        #if os(tvOS) || os(iOS)
+        #if os(tvOS)
+        if #available(tvOS 17.0, *) {
+            AVAudioApplication.requestRecordPermission { [weak self] granted in
+                Task { @MainActor in
+                    guard let self else { return }
+                    if granted {
+                        self.beginRecordingSession()
+                    } else {
+                        self.errorMessage = "Microphone access is not authorized."
+                        self.isRecording = false
+                    }
+                }
+            }
+        } else {
+            beginRecordingSession()
+        }
+        #elseif os(iOS)
         let audioSession = AVAudioSession.sharedInstance()
         audioSession.requestRecordPermission { [weak self] granted in
             Task { @MainActor in
@@ -67,7 +83,11 @@ final class AudioRecordingService: NSObject, AVAudioRecorderDelegate {
     @MainActor
     private func beginRecordingSession() {
         do {
-            #if os(tvOS) || os(iOS)
+            #if os(tvOS)
+            let audioSession = AVAudioSession.sharedInstance()
+            try audioSession.setCategory(.playAndRecord, mode: .default, options: [.allowBluetooth])
+            try audioSession.setActive(true)
+            #elseif os(iOS)
             let audioSession = AVAudioSession.sharedInstance()
             try audioSession.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
             try audioSession.setActive(true)

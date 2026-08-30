@@ -5,6 +5,7 @@ import path from 'node:path';
 import { knownThirdPartyProxies } from './thirdPartyProxies.js';
 import { streamPatterns } from './streamPatterns.js';
 import { generateSpeechWav, getTTS } from './tts.js';
+import { transcribeWav, getTranscriber } from './stt.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -75,9 +76,16 @@ async function main() {
         }
     });
 
-    // Custom TTS Routes (Local Free Studio-Quality Speech)
     const app = server.getInstance();
 
+    // Support raw audio buffers for Fastify
+    app.addContentTypeParser(
+        ['audio/wav', 'audio/x-wav', 'application/octet-stream'],
+        { parseAs: 'buffer' },
+        (req, body, done) => done(null, body)
+    );
+
+    // Custom TTS Routes (Local Free Studio-Quality Speech)
     app.get('/api/tts', async (request, reply) => {
         const { text, voice } =
             (request.query as { text?: string; voice?: string }) || {};
@@ -126,9 +134,44 @@ async function main() {
         }
     });
 
-    // Warm up local TTS model in background so first request is instant
+    // Speech-to-Text Transcription Route (Local Whisper Transcription)
+    app.post('/api/transcribe', async (request, reply) => {
+        try {
+            let buffer: Buffer | null = null;
+            if (Buffer.isBuffer(request.body)) {
+                buffer = request.body;
+            } else if ((request.body as any)?.audioBase64) {
+                buffer = Buffer.from(
+                    (request.body as any).audioBase64,
+                    'base64'
+                );
+            } else if (typeof request.body === 'string') {
+                buffer = Buffer.from(request.body, 'base64');
+            }
+
+            if (!buffer || buffer.length === 0) {
+                return reply
+                    .status(400)
+                    .send({ error: 'Missing audio payload' });
+            }
+
+            const text = await transcribeWav(buffer);
+            console.log(`[STT] 🎙️ Transcribed audio prompt: "${text}"`);
+            return reply.send({ text });
+        } catch (err: any) {
+            console.error('[STT] ❌ Error transcribing audio:', err);
+            return reply
+                .status(500)
+                .send({ error: err.message || 'Transcription failed' });
+        }
+    });
+
+    // Warm up local TTS and STT models in background so first request is instant
     getTTS().catch((err) =>
         console.warn('[TTS] Background model warmup notice:', err.message)
+    );
+    getTranscriber().catch((err) =>
+        console.warn('[STT] Background model warmup notice:', err.message)
     );
 
     // Register providers

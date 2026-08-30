@@ -2,11 +2,18 @@
 //  VoiceAssistantService.swift
 //  SigmaStream
 //
-//  Streams studio-grade Neural Text-to-Speech from the local Mac backend server (100% Free, Unlimited).
+//  Streams studio-grade Neural Text-to-Speech from Voice.ai, ElevenLabs, or local Mac Kokoro.
 //
 
 import Foundation
 import AVFoundation
+
+enum VoiceAssistantState: Equatable {
+    case idle
+    case processing
+    case speaking(text: String)
+    case error(String)
+}
 
 enum VoiceEngine: String, CaseIterable, Identifiable {
     case voiceAI = "Voice.ai (Celebrities)"
@@ -408,4 +415,3 @@ final class VoiceAssistantService: NSObject, AVAudioPlayerDelegate {
         }
     }
 }
-

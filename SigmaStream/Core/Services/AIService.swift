@@ -138,7 +138,7 @@ actor AIService {
     // MARK: - Gemini API Call with Multi-Turn Memory
     
     private func requestGemini(prompt: String) async throws -> AIStructuredOutput {
-        let endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=\(apiKey)"
+        let endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=\(apiKey)"
         guard let url = URL(string: endpoint) else {
             throw URLError(.badURL)
         }

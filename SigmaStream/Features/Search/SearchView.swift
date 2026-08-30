@@ -73,7 +73,8 @@ struct SearchView: View {
                                 systemImage: searchMode == .ai ? "sparkles" : "magnifyingglass",
                                 description: Text(searchMode == .ai ? "Try asking with different themes, actors, or genres." : "Try a different search term")
                             )
-                            .padding(.vertical, 60)
+                            .frame(maxWidth: .infinity, minHeight: 450, alignment: .center)
+                            .padding(.vertical, 40)
                         } else {
                             VStack(alignment: .leading, spacing: 32) {
                                 if !movies.isEmpty {

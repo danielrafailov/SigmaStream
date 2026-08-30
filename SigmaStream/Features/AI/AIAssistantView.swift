@@ -2,8 +2,8 @@
 //  AIAssistantView.swift
 //  SigmaStream
 //
-//  Dedicated AI Assistant tab featuring Conversational AI responses,
-//  Audio speech playback out loud (Text-to-Speech), and matching Movie/TV show rows.
+//  Minimalist Voice-First AI Assistant featuring a circular Red/Green Remote Microphone button,
+//  automatic silence detection dictation, and spoken Neural AI movie curation.
 //
 
 import SwiftUI
@@ -11,8 +11,8 @@ import TMDb
 
 struct AIAssistantView: View {
     @Environment(AppState.self) private var appState
+    @State private var speechService = SpeechRecognitionService()
     
-    @State private var inputPrompt: String = ""
     @State private var aiResponse: String? = nil
     @State private var movies: [MovieListItem] = []
     @State private var tvSeries: [TVSeriesListItem] = []
@@ -22,34 +22,18 @@ struct AIAssistantView: View {
     @State private var selectedMovie: MovieSelection?
     @State private var selectedSeries: TVSeriesSelection?
     
-    @FocusState private var isSearchFieldFocused: Bool
-    @FocusState private var isAskButtonFocused: Bool
-    
-    private let suggestedPrompts = [
-        "Mind-bending 90s sci-fi movies",
-        "Dark comedy series with clever plot twists",
-        "Feel-good animated adventure movies",
-        "Space exploration thrillers"
-    ]
+    @FocusState private var isMicButtonFocused: Bool
     
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 40) {
-                    // MARK: - Header & Prompt Hero
-                    heroSection
+                VStack(spacing: 48) {
+                    Spacer(minLength: 20)
                     
-                    // MARK: - Suggested Prompts (when idle)
-                    if aiResponse == nil && !isLoading && movies.isEmpty && tvSeries.isEmpty {
-                        suggestedSection
-                    }
+                    // MARK: - Central Circular Voice Button
+                    micButtonSection
                     
-                    // MARK: - Loading Indicator
-                    if isLoading {
-                        loadingSection
-                    }
-                    
-                    // MARK: - AI Spoken Response Card
+                    // MARK: - Spoken Response Card
                     if let response = aiResponse, !isLoading {
                         aiResponseCard(response: response)
                     }
@@ -60,7 +44,7 @@ struct AIAssistantView: View {
                     }
                 }
                 .padding(.horizontal, 48)
-                .padding(.vertical, 24)
+                .padding(.vertical, 32)
             }
             .navigationTitle("")
             .navigationDestination(item: $selectedMovie) { selection in
@@ -70,132 +54,82 @@ struct AIAssistantView: View {
                 TVSeriesDetailView(seriesId: selection.id)
             }
             .onDisappear {
+                speechService.stopRecording()
                 appState.voiceService.stopSpeaking()
             }
         }
     }
     
-    // MARK: - Hero Voice & Prompt Input
+    // MARK: - Circular Microphone Button Section
     
-    private var heroSection: some View {
-        VStack(spacing: 24) {
-            HStack(spacing: 12) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 36, weight: .bold))
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [.purple, .blue, .cyan],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                
-                Text("Ask Sigma AI")
-                    .font(.system(size: 44, weight: .bold, design: .rounded))
-            }
-            
-            Text("Speak with Siri Remote dictation or type what kind of movies & shows you want to watch.")
-                .font(.title3)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            
-            // Search Input & Action Bar
-            HStack(spacing: 20) {
-                HStack {
-                    Image(systemName: "mic.fill")
-                        .font(.system(size: 22))
-                        .foregroundStyle(.cyan)
+    private var micButtonSection: some View {
+        VStack(spacing: 28) {
+            Button {
+                handleMicButtonPress()
+            } label: {
+                ZStack {
+                    // Pulsating ring when actively listening
+                    if speechService.isRecording {
+                        Circle()
+                            .stroke(Color.red.opacity(0.4), lineWidth: 16)
+                            .frame(width: 220, height: 220)
+                            .scaleEffect(speechService.isRecording ? 1.15 : 1.0)
+                            .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: speechService.isRecording)
+                    }
                     
-                    TextField("Ask anything... (e.g. '90s sci-fi thrillers')", text: $inputPrompt)
-                        .focused($isSearchFieldFocused)
-                        .onSubmit {
-                            submitPrompt(inputPrompt)
-                        }
+                    // Main Circular Button Body (Red when idle/recording, Green when sent/loading)
+                    Circle()
+                        .fill(isLoading ? Color.green : Color.red)
+                        .frame(width: 170, height: 170)
+                        .shadow(color: (isLoading ? Color.green : Color.red).opacity(0.6), radius: isMicButtonFocused ? 35 : 18)
+                    
+                    // White Microphone Silhouette
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: 68, weight: .medium))
+                        .foregroundStyle(.white)
                 }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 16)
-                .background(Color.white.opacity(0.12))
-                .clipShape(Capsule())
-                .frame(maxWidth: 700)
-                
-                Button {
-                    submitPrompt(inputPrompt)
-                } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: "sparkle.magnifyingglass")
-                            .font(.system(size: 22, weight: .semibold))
-                        Text("Ask AI")
-                            .font(.headline)
-                    }
-                    .padding(.horizontal, 28)
-                    .padding(.vertical, 16)
-                    .background(isAskButtonFocused ? Color.white : Color.blue.opacity(0.8))
-                    .foregroundStyle(isAskButtonFocused ? Color.black : Color.white)
-                    .clipShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .focused($isAskButtonFocused)
+                .scaleEffect(isMicButtonFocused ? 1.12 : 1.0)
+                .animation(.spring(response: 0.35, dampingFraction: 0.7), value: isMicButtonFocused)
+                .animation(.easeInOut(duration: 0.25), value: isLoading)
             }
-            .padding(.top, 8)
+            .buttonStyle(.plain)
+            .focused($isMicButtonFocused)
             
-            if let error = errorMessage {
-                Text(error)
-                    .font(.callout)
-                    .foregroundStyle(.red)
-                    .padding(.top, 4)
-            }
-        }
-    }
-    
-    // MARK: - Suggested Prompts
-    
-    private var suggestedSection: some View {
-        VStack(spacing: 18) {
-            Text("Need Inspiration?")
-                .font(.subheadline)
-                .fontWeight(.semibold)
-                .foregroundStyle(.secondary)
-            
-            HStack(spacing: 16) {
-                ForEach(suggestedPrompts, id: \.self) { prompt in
-                    Button {
-                        inputPrompt = prompt
-                        submitPrompt(prompt)
-                    } label: {
-                        Text(prompt)
-                            .font(.callout)
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 12)
-                            .background(Color.white.opacity(0.1))
-                            .clipShape(Capsule())
-                    }
-                    .buttonStyle(.card)
+            // Status Subtitle
+            VStack(spacing: 8) {
+                if speechService.isRecording {
+                    Text(speechService.liveTranscript.isEmpty ? "Listening to your remote..." : "\"\(speechService.liveTranscript)\"")
+                        .font(.title3)
+                        .fontWeight(.medium)
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                } else if isLoading {
+                    Text("Finding recommendations...")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                } else if let error = speechService.errorMessage ?? errorMessage {
+                    Text(error)
+                        .font(.callout)
+                        .foregroundStyle(.red)
+                } else if aiResponse == nil {
+                    Text("Press to speak into your Siri Remote")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
                 }
             }
-        }
-        .padding(.top, 16)
-    }
-    
-    // MARK: - Loading View
-    
-    private var loadingSection: some View {
-        VStack(spacing: 20) {
-            ProgressView()
-                .scaleEffect(1.6)
-            
-            Text("Sigma is analyzing your request and curating titles...")
-                .font(.title3)
-                .foregroundStyle(.secondary)
+            .frame(maxWidth: 700)
+            .animation(.easeInOut, value: speechService.isRecording)
+            .animation(.easeInOut, value: isLoading)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 60)
+        .padding(.top, 24)
     }
     
     // MARK: - AI Spoken Response Card
     
     private func aiResponseCard(response: String) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top) {
+            HStack(alignment: .center) {
                 HStack(spacing: 10) {
                     Image(systemName: "sparkles")
                         .foregroundStyle(.cyan)
@@ -260,7 +194,7 @@ struct AIAssistantView: View {
         VStack(alignment: .leading, spacing: 36) {
             if !movies.isEmpty {
                 MovieMediaRow(
-                    title: "Movies Matching Your Criteria",
+                    title: "Movies Matching Your Request",
                     movies: movies,
                     config: appState.apiConfiguration,
                     onSelect: { movie in
@@ -271,22 +205,13 @@ struct AIAssistantView: View {
             
             if !tvSeries.isEmpty {
                 TVSeriesMediaRow(
-                    title: "TV Shows Matching Your Criteria",
+                    title: "TV Shows Matching Your Request",
                     tvSeries: tvSeries,
                     config: appState.apiConfiguration,
                     onSelect: { series in
                         selectedSeries = TVSeriesSelection(id: series.id)
                     }
                 )
-            }
-            
-            if movies.isEmpty && tvSeries.isEmpty && aiResponse != nil {
-                ContentUnavailableView(
-                    "No Exact Media Matches",
-                    systemImage: "film.stack",
-                    description: Text("Try asking with different genres, actors, or themes.")
-                )
-                .padding(.vertical, 40)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -301,8 +226,23 @@ struct AIAssistantView: View {
         return false
     }
     
+    private func handleMicButtonPress() {
+        if isSpeakingCurrently {
+            appState.voiceService.stopSpeaking()
+        }
+        
+        if speechService.isRecording {
+            speechService.finishAndSubmit()
+        } else {
+            speechService.startRecording { capturedPrompt in
+                submitPrompt(capturedPrompt)
+            }
+        }
+    }
+    
     private func submitPrompt(_ prompt: String) {
-        guard !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let cleanPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanPrompt.isEmpty else { return }
         
         isLoading = true
         errorMessage = nil
@@ -314,7 +254,7 @@ struct AIAssistantView: View {
         Task {
             do {
                 let result = try await appState.aiService.query(
-                    prompt: prompt,
+                    prompt: cleanPrompt,
                     tmdbService: appState.tmdbService
                 )
                 
@@ -324,7 +264,7 @@ struct AIAssistantView: View {
                     self.tvSeries = result.tvSeries
                     self.isLoading = false
                     
-                    // Speak the AI response out loud via Apple TV speakers
+                    // Speak the AI response out loud via local Mac Neural TTS
                     self.appState.voiceService.speak(result.spokenResponse)
                 }
             } catch {
@@ -341,3 +281,4 @@ struct AIAssistantView: View {
     AIAssistantView()
         .environment(AppState(apiKey: "placeholder"))
 }
+

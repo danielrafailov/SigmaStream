@@ -8,8 +8,14 @@
 	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>SigmaStream uses speech recognition to let you search and discover movies and shows using your voice.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>SigmaStream uses the microphone to listen to your voice requests.</string>
 </dict>
 </plist>

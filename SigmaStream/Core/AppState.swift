@@ -16,11 +16,19 @@ final class AppState {
     let myListManager: MyListManager
     let likedManager: LikedManager
     let watchProgressManager: WatchProgressManager
+    let aiService: AIService
+    let voiceService: VoiceAssistantService
     private(set) var apiConfiguration: APIConfiguration?
 
-    init(apiKey: String = Secrets.tmdbApiKey, streamingBaseURL: String = Secrets.streamingServerBaseURL) {
+    init(
+        apiKey: String = Secrets.tmdbApiKey,
+        streamingBaseURL: String = Secrets.streamingServerBaseURL,
+        geminiApiKey: String = Secrets.geminiApiKey
+    ) {
         self.tmdbService = TMDbService(apiKey: apiKey)
         self.streamingService = StreamingService(baseURL: streamingBaseURL)
+        self.aiService = AIService(apiKey: geminiApiKey)
+        self.voiceService = VoiceAssistantService()
         self.myListManager = MyListManager()
         self.likedManager = LikedManager()
         self.watchProgressManager = WatchProgressManager()

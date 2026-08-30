@@ -1,0 +1,67 @@
+name: Sync Upstream CinePro Core
+
+on:
+  schedule:
+    # Runs every Sunday at 03:00 UTC
+    - cron: '0 3 * * 0'
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync-upstream:
+    name: Check & Sync Upstream Backend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Fetch and Sync Upstream CinePro Core
+        run: |
+          echo "Cloning upstream cinepro-org/core..."
+          git clone --depth 1 https://github.com/cinepro-org/core.git /tmp/upstream-core
+          
+          # Sync files into backend/ preserving root repo structure
+          rsync -av --exclude='.git' --exclude='.env*' --exclude='node_modules' /tmp/upstream-core/ backend/
+          
+          echo "Sync completed."
+
+      - name: Verify Dependencies & Build
+        run: |
+          cd backend
+          npm install
+          npm run build
+
+      - name: Create Pull Request for Upstream Changes
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(backend): sync latest scrapers & updates from upstream cinepro core"
+          branch: "automated/upstream-sync"
+          delete-branch: true
+          title: "🔄 Sync upstream CinePro Core backend updates"
+          body: |
+            ### Automated Upstream Backend Sync
+            
+            This PR pulls the latest scrapers and streaming provider updates from [cinepro-org/core](https://github.com/cinepro-org/core).
+            
+            #### Automated Verification:
+            - [x] Dependencies installed cleanly (`npm install`)
+            - [x] TypeScript compilation succeeded (`npm run build`)
+            
+            #### Recommended Next Steps:
+            1. Review the changed files and provider implementations in this PR.
+            2. Pull the branch locally to test movie/episode playback on the tvOS Simulator or Apple TV.
+            3. Merge when satisfied.
+          labels: |
+            upstream-sync
+            backend

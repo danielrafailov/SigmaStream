@@ -64,6 +64,12 @@ struct ContentView: View {
                     Label("For You", systemImage: "heart.fill")
                 }
                 .tag(5)
+
+            AIAssistantView()
+                .tabItem {
+                    Label("Ask AI", systemImage: "sparkles")
+                }
+                .tag(6)
         }
     }
 }

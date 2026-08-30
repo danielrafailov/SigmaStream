@@ -1,0 +1,64 @@
+name: CI & Integrity Checks
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  backend-checks:
+    name: Backend Formatting & Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Check Code Formatting (Prettier)
+        run: npx prettier --check src
+
+      - name: Typecheck & Compile TypeScript
+        run: npm run build
+
+  tvos-app-build:
+    name: tvOS App Build Verification
+    runs-on: macos-15
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Select Xcode Version
+        run: sudo xcode-select -s /Applications/Xcode_16.app/Contents/Developer || true
+
+      - name: Provide Dummy Secrets for CI Build
+        run: |
+          mkdir -p SigmaStream/Core
+          if [ ! -f SigmaStream/Core/Secrets.swift ]; then
+            cat << 'INNER_EOF' > SigmaStream/Core/Secrets.swift
+            import Foundation
+            enum Secrets {
+                static let tmdbApiKey = "ci_dummy_tmdb_key"
+                static let streamingServerBaseURL = "http://localhost:3000"
+            }
+          INNER_EOF
+          fi
+
+      - name: Build tvOS App (Simulator)
+        run: |
+          xcodebuild -scheme SigmaStream \
+            -destination 'generic/platform=tvOS Simulator' \
+            -configuration Debug \
+            build CODE_SIGNING_ALLOWED=NO

@@ -24,6 +24,7 @@ final class VoiceAssistantService: NSObject, AVAudioPlayerDelegate {
     private var audioPlayer: AVAudioPlayer?
     private var activeTTSJob: Task<Void, Never>?
     private let session: URLSession
+    private var currentElevenKeyIndex: Int = 0
     
     var serverBaseURL: String
     var voiceName: String
@@ -55,14 +56,16 @@ final class VoiceAssistantService: NSObject, AVAudioPlayerDelegate {
             guard let self else { return }
             do {
                 let audioData: Data
-                let elevenKey = Secrets.elevenLabsApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !elevenKey.isEmpty && elevenKey != "YOUR_ELEVENLABS_API_KEY" {
-                    print("[VoiceAssistantService] 🎙️ Generating Donald Trump voice via ElevenLabs...")
-                    audioData = try await self.fetchElevenLabsAudio(
-                        text: cleanText,
-                        apiKey: elevenKey,
-                        voiceId: Secrets.elevenLabsTrumpVoiceId
-                    )
+                if !Secrets.elevenLabsApiKeys.isEmpty {
+                    do {
+                        audioData = try await self.fetchElevenLabsAudioWithKeyRotation(
+                            text: cleanText,
+                            voiceId: Secrets.elevenLabsTrumpVoiceId
+                        )
+                    } catch {
+                        print("[VoiceAssistantService] ⚠️ All ElevenLabs keys failed/exhausted. Falling back to local Mac voice: \(error.localizedDescription)")
+                        audioData = try await self.fetchLocalTTSAudio(text: cleanText)
+                    }
                 } else {
                     audioData = try await self.fetchLocalTTSAudio(text: cleanText)
                 }
@@ -102,9 +105,35 @@ final class VoiceAssistantService: NSObject, AVAudioPlayerDelegate {
         }
     }
     
-    // MARK: - ElevenLabs Donald Trump TTS
+    // MARK: - ElevenLabs Donald Trump TTS with Automatic Key Rotation
     
-    private func fetchElevenLabsAudio(text: String, apiKey: String, voiceId: String) async throws -> Data {
+    private func fetchElevenLabsAudioWithKeyRotation(text: String, voiceId: String) async throws -> Data {
+        let keys = Secrets.elevenLabsApiKeys
+        guard !keys.isEmpty else {
+            throw URLError(.userAuthenticationRequired)
+        }
+        
+        var lastError: Error?
+        for attempt in 0..<keys.count {
+            let keyIndex = (currentElevenKeyIndex + attempt) % keys.count
+            let apiKey = keys[keyIndex]
+            
+            print("[VoiceAssistantService] 🎙️ Trying ElevenLabs Key #\(keyIndex + 1)...")
+            do {
+                let data = try await performElevenLabsRequest(text: text, apiKey: apiKey, voiceId: voiceId)
+                self.currentElevenKeyIndex = keyIndex // Preserve working key
+                return data
+            } catch {
+                print("[VoiceAssistantService] ⚠️ ElevenLabs Key #\(keyIndex + 1) failed/expired: \(error.localizedDescription)")
+                lastError = error
+                self.currentElevenKeyIndex = (keyIndex + 1) % keys.count
+            }
+        }
+        
+        throw lastError ?? URLError(.badServerResponse)
+    }
+    
+    private func performElevenLabsRequest(text: String, apiKey: String, voiceId: String) async throws -> Data {
         let endpoint = "https://api.elevenlabs.io/v1/text-to-speech/\(voiceId)?output_format=mp3_44100_128"
         guard let url = URL(string: endpoint) else { throw URLError(.badURL) }
         

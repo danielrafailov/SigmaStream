@@ -295,5 +295,3 @@ struct AIAssistantView: View {
     AIAssistantView()
         .environment(AppState(apiKey: "placeholder"))
 }
-
-

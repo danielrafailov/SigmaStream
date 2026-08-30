@@ -76,7 +76,6 @@ async function main() {
         }
     });
 
-    // Custom TTS Routes (Local Free Studio-Quality Speech)
     const app = server.getInstance();
 
     // Support raw audio buffers for Fastify
@@ -135,7 +134,6 @@ async function main() {
         }
     });
 
-    // Warm up local TTS model in background so first request is instant
     // Speech-to-Text Transcription Route (Local Whisper Transcription)
     app.post('/api/transcribe', async (request, reply) => {
         try {

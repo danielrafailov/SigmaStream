@@ -54,6 +54,7 @@ private struct AIStructuredOutput: Decodable {
 actor AIService {
     private let apiKey: String
     private let session: URLSession
+    private var conversationHistory: [GeminiRequest.Content] = []
     
     init(apiKey: String = Secrets.geminiApiKey) {
         self.apiKey = apiKey
@@ -63,12 +64,17 @@ actor AIService {
         self.session = URLSession(configuration: config)
     }
     
+    /// Reset the conversational context
+    func clearConversation() {
+        conversationHistory.removeAll()
+    }
+    
     /// Process a natural language prompt and return a spoken response + resolved TMDb movies and TV shows.
     func query(prompt: String, tmdbService: TMDbService) async throws -> AIResponseResult {
         let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedPrompt.isEmpty else {
             return AIResponseResult(
-                spokenResponse: "I didn't catch that. Please try asking again.",
+                spokenResponse: "I didn't catch that. Please hold the remote button and try speaking again.",
                 movies: [],
                 tvSeries: []
             )
@@ -93,7 +99,7 @@ actor AIService {
                     )
                 }
             } catch {
-                // If Gemini call fails, seamlessly fall back to intelligent parser below
+                print("[AIService] ⚠️ Gemini request failed, falling back to local resolver: \(error.localizedDescription)")
             }
         }
         
@@ -101,7 +107,7 @@ actor AIService {
         return try await performIntelligentCriteriaDiscovery(prompt: trimmedPrompt, tmdbService: tmdbService)
     }
     
-    // MARK: - Gemini API Call
+    // MARK: - Gemini API Call with Multi-Turn Memory
     
     private func requestGemini(prompt: String) async throws -> AIStructuredOutput {
         let endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=\(apiKey)"
@@ -110,26 +116,36 @@ actor AIService {
         }
         
         let systemInstructions = """
-        You are Sigma, an intelligent movie and TV curator for Apple TV.
-        Analyze the user's prompt (criteria, requested quantity, genres, themes, actors, decades, or mood).
+        You are Sigma, an intelligent conversational movie and TV curator for Apple TV.
+        You support ongoing, multi-turn conversational exploration (e.g. user asks for movies with an actor, then refines to sci-fi only, or changes genre, or narrows results).
         
         Respond with JSON matching this schema:
         {
-          "spokenResponse": "A natural, conversational 1-2 sentence spoken response tailored specifically to the user's request, mentioning 2-3 highlight titles found (e.g. 'Here are 10 thrilling action movies for you, including John Wick, Mad Max: Fury Road, and Die Hard.')",
+          "spokenResponse": "A natural, conversational 1-2 sentence spoken response tailored specifically to the user's ongoing request and refinements, mentioning 2-3 highlight titles found.",
           "movieQueries": ["Title 1", "Title 2", "Title 3", ...],
           "tvQueries": ["Show 1", "Show 2", ...]
         }
 
         Instructions:
-        - If the user specifies a quantity (e.g. "10 action movies", "5 sci-fi shows"), return that exact number of distinct title recommendations.
-        - If the user asks for random movies, pick a diverse, exciting selection matching the criteria.
+        - Maintain conversation context from previous turns to refine or change results accordingly.
+        - If the user specifies a quantity (e.g. '10 movies', '5 shows'), return that exact number of distinct title recommendations.
         - Return precise standalone titles for accurate TMDb search resolution.
         """
         
+        // Append user turn to conversation history
+        let userContent = GeminiRequest.Content(
+            role: "user",
+            parts: [.init(text: conversationHistory.isEmpty ? "\(systemInstructions)\n\nUser request: \(prompt)" : prompt)]
+        )
+        conversationHistory.append(userContent)
+        
+        // Keep last 10 turns to avoid exceeding context
+        if conversationHistory.count > 10 {
+            conversationHistory.removeFirst(conversationHistory.count - 10)
+        }
+        
         let geminiReq = GeminiRequest(
-            contents: [
-                .init(role: "user", parts: [.init(text: "\(systemInstructions)\n\nUser request: \(prompt)")])
-            ],
+            contents: conversationHistory,
             generationConfig: .init(responseMimeType: "application/json", temperature: 0.8)
         )
         
@@ -149,6 +165,9 @@ actor AIService {
         guard let rawJson = decoded.candidates?.first?.content?.parts?.first?.text else {
             throw NSError(domain: "AIService", code: 500, userInfo: [NSLocalizedDescriptionKey: "Empty response from Gemini"])
         }
+        
+        // Append model response to conversation history for future turns
+        conversationHistory.append(GeminiRequest.Content(role: "model", parts: [.init(text: rawJson)]))
         
         let outputData = Data(rawJson.utf8)
         return try JSONDecoder().decode(AIStructuredOutput.self, from: outputData)

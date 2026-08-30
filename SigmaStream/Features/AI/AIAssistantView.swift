@@ -3,7 +3,7 @@
 //  SigmaStream
 //
 //  Conversational AI Assistant featuring a centered Red/Green circular microphone button,
-//  multi-turn conversation memory, spoken Neural AI responses, and media curation.
+//  Siri Remote voice dictation, multi-turn conversation memory, spoken Neural AI, and media curation.
 //
 
 import SwiftUI
@@ -18,8 +18,9 @@ struct NoHighlightCircleButtonStyle: ButtonStyle {
 
 struct AIAssistantView: View {
     @Environment(AppState.self) private var appState
-    @State private var recordingService = AudioRecordingService()
     
+    @State private var voicePromptText: String = ""
+    @State private var isDictating: Bool = false
     @State private var movies: [MovieListItem] = []
     @State private var tvSeries: [TVSeriesListItem] = []
     @State private var isLoading: Bool = false
@@ -30,12 +31,13 @@ struct AIAssistantView: View {
     @State private var selectedSeries: TVSeriesSelection?
     
     @FocusState private var isMicButtonFocused: Bool
+    @FocusState private var isDictationFieldFocused: Bool
     
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 44) {
-                    if movies.isEmpty && tvSeries.isEmpty && !isLoading && !recordingService.isTranscribing {
+                    if movies.isEmpty && tvSeries.isEmpty && !isLoading && !isDictating {
                         Spacer(minLength: 120)
                     }
                     
@@ -47,7 +49,7 @@ struct AIAssistantView: View {
                         resultsSection
                     }
                     
-                    if movies.isEmpty && tvSeries.isEmpty && !isLoading && !recordingService.isTranscribing {
+                    if movies.isEmpty && tvSeries.isEmpty && !isLoading && !isDictating {
                         Spacer(minLength: 120)
                     }
                 }
@@ -62,11 +64,7 @@ struct AIAssistantView: View {
             .navigationDestination(item: $selectedSeries) { selection in
                 TVSeriesDetailView(seriesId: selection.id)
             }
-            .onPlayPauseCommand {
-                triggerVoiceInput()
-            }
             .onDisappear {
-                recordingService.stopRecording()
                 appState.voiceService.stopSpeaking()
             }
         }
@@ -74,31 +72,27 @@ struct AIAssistantView: View {
     
     // MARK: - Circular Microphone Button Section
     
-    private var isSentOrLoading: Bool {
-        isLoading || recordingService.isTranscribing
-    }
-    
     private var micButtonSection: some View {
         VStack(spacing: 28) {
             Button {
-                triggerVoiceInput()
+                handleMicButtonPress()
             } label: {
                 ZStack {
-                    // Pulsating ring when actively listening to Siri Remote
-                    if recordingService.isRecording {
+                    // Pulsating ring when dictation is active
+                    if isDictating {
                         Circle()
                             .stroke(Color.red.opacity(0.35), lineWidth: 16)
                             .frame(width: 230, height: 230)
-                            .scaleEffect(recordingService.isRecording ? 1.15 : 1.0)
-                            .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: recordingService.isRecording)
+                            .scaleEffect(isDictating ? 1.15 : 1.0)
+                            .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isDictating)
                     }
                     
-                    // Main Circular Button Body (Red when idle/recording, Green when prompt sent/loading)
+                    // Main Circular Button Body (Red when idle, Green when prompt sent/loading)
                     Circle()
-                        .fill(isSentOrLoading ? Color.green : Color.red)
+                        .fill(isLoading ? Color.green : Color.red)
                         .frame(width: 175, height: 175)
                         .shadow(
-                            color: (isSentOrLoading ? Color.green : Color.red).opacity(isMicButtonFocused ? 0.85 : 0.4),
+                            color: (isLoading ? Color.green : Color.red).opacity(isMicButtonFocused ? 0.85 : 0.4),
                             radius: isMicButtonFocused ? 36 : 16
                         )
                     
@@ -110,33 +104,35 @@ struct AIAssistantView: View {
                 .contentShape(Circle())
                 .scaleEffect(isMicButtonFocused ? 1.14 : 1.0)
                 .animation(.spring(response: 0.35, dampingFraction: 0.7), value: isMicButtonFocused)
-                .animation(.easeInOut(duration: 0.25), value: isSentOrLoading)
+                .animation(.easeInOut(duration: 0.25), value: isLoading)
             }
             .buttonStyle(NoHighlightCircleButtonStyle())
             .focused($isMicButtonFocused)
-            .simultaneousGesture(
-                LongPressGesture(minimumDuration: 0.4)
-                    .onEnded { _ in
-                        triggerVoiceInput()
-                    }
-            )
             
-            // Status Subtitle & New Chat option
-            VStack(spacing: 12) {
-                if recordingService.isRecording {
-                    HStack(spacing: 10) {
+            // Status Subtitle & Siri Remote Voice Dictation Field
+            VStack(spacing: 14) {
+                if isDictating {
+                    HStack(spacing: 12) {
                         Image(systemName: "waveform")
                             .symbolEffect(.variableColor.iterative.reversing)
                             .foregroundStyle(.red)
-                        Text("Listening... speak into your remote")
+                        
+                        TextField("Speak into Siri Remote (or type)...", text: $voicePromptText)
+                            .focused($isDictationFieldFocused)
                             .font(.title3)
-                            .fontWeight(.medium)
-                            .foregroundStyle(.white)
+                            .multilineTextAlignment(.center)
+                            .onSubmit {
+                                let prompt = voicePromptText
+                                isDictating = false
+                                voicePromptText = ""
+                                submitPrompt(prompt)
+                            }
                     }
-                } else if recordingService.isTranscribing {
-                    Text("Understanding speech...")
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 14)
+                    .background(Color.white.opacity(0.12))
+                    .clipShape(Capsule())
+                    .frame(maxWidth: 650)
                 } else if isLoading {
                     Text("Curating recommendations...")
                         .font(.title3)
@@ -163,18 +159,18 @@ struct AIAssistantView: View {
                         }
                         .buttonStyle(.plain)
                     }
-                } else if let error = recordingService.errorMessage ?? errorMessage {
+                } else if let error = errorMessage {
                     Text(error)
                         .font(.callout)
                         .foregroundStyle(.red)
                 } else {
-                    Text("Press or hold to speak into your Siri Remote")
+                    Text("Click to speak into your Siri Remote")
                         .font(.title3)
                         .foregroundStyle(.secondary)
                 }
             }
-            .animation(.easeInOut, value: recordingService.isRecording)
-            .animation(.easeInOut, value: isSentOrLoading)
+            .animation(.easeInOut, value: isDictating)
+            .animation(.easeInOut, value: isLoading)
         }
         .frame(maxWidth: .infinity)
     }
@@ -211,17 +207,16 @@ struct AIAssistantView: View {
     
     // MARK: - Actions & Conversational Flow
     
-    private func triggerVoiceInput() {
+    private func handleMicButtonPress() {
         if case .speaking = appState.voiceService.state {
             appState.voiceService.stopSpeaking()
         }
         
-        if recordingService.isRecording {
-            recordingService.finishRecording()
-        } else {
-            recordingService.startRecording { transcribedPrompt in
-                self.lastPrompt = transcribedPrompt
-                self.submitPrompt(transcribedPrompt)
+        voicePromptText = ""
+        isDictating.toggle()
+        if isDictating {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isDictationFieldFocused = true
             }
         }
     }
@@ -241,6 +236,7 @@ struct AIAssistantView: View {
         let cleanPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanPrompt.isEmpty else { return }
         
+        lastPrompt = cleanPrompt
         isLoading = true
         errorMessage = nil
         appState.voiceService.stopSpeaking()

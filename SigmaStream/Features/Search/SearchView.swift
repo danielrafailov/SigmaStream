@@ -34,7 +34,7 @@ struct SearchView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 32) {
-                    // MARK: - Search Mode Switcher (Standard vs AI)
+                    // MARK: - Search Mode Switcher (Basic vs AI)
                     HStack {
                         Picker("Search Mode", selection: $searchMode) {
                             ForEach(SearchMode.allCases) { mode in
@@ -186,4 +186,3 @@ struct SearchView: View {
     SearchView()
         .environment(AppState(apiKey: "placeholder"))
 }
-

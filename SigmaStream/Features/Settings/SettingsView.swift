@@ -27,63 +27,27 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 32) {
-                    
-                    // MARK: - Currently Active AI Voice Row
-                    HStack(spacing: 20) {
-                        Text("Currently Active AI Voice:")
-                            .font(.title2)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.secondary)
-                        
-                        Text(appState.voiceService.selectedVoiceAIName)
-                            .font(.title2)
-                            .fontWeight(.bold)
-                            .foregroundStyle(.primary)
-                        
-                        Button {
-                            let text = "Hello! I am your AI assistant on Apple TV, ready to find your next favorite movie."
-                            appState.voiceService.previewVoice(
-                                voiceId: appState.voiceService.selectedVoiceAIVoiceId,
-                                engine: .voiceAI,
-                                sampleText: text
-                            )
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "play.fill")
-                                Text("Play Sample")
-                            }
-                            .fontWeight(.semibold)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.blue)
-                        
-                        Spacer()
-                    }
-                    .padding(.horizontal, 48)
-                    .padding(.top, 28)
-                    
-                    // MARK: - Search Bar by Name
-                    HStack {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundStyle(.secondary)
-                        TextField("Search AI voices by name (e.g. Trump, Matt, Ellie, Emma, Lauren)...", text: $searchText)
-                    }
-                    .padding(18)
-                    .background(Color.white.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                    .padding(.horizontal, 48)
-                    
-                    // MARK: - Voices List
+                VStack(alignment: .leading, spacing: 28) {
                     if isLoadingVoices && availableVoices.isEmpty {
                         HStack {
                             Spacer()
-                            ProgressView("Loading available voices...")
+                            ProgressView("Loading voices...")
                                 .font(.headline)
                             Spacer()
                         }
+                        .frame(maxWidth: .infinity, minHeight: 350)
+                        .padding(.vertical, 40)
+                    } else if !searchText.isEmpty && filteredVoices.isEmpty {
+                        HStack {
+                            Spacer()
+                            ContentUnavailableView(
+                                "No voices found",
+                                systemImage: "person.wave.2",
+                                description: Text("Try searching for Trump, Matt, Ellie, Emma, Lauren, Alicia, or Dalton")
+                            )
+                            Spacer()
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 350)
                         .padding(.vertical, 40)
                     } else {
                         VStack(spacing: 16) {
@@ -92,12 +56,17 @@ struct SettingsView: View {
                             }
                         }
                         .padding(.horizontal, 48)
+                        .padding(.top, 16)
                     }
                 }
                 .scrollTargetLayout()
                 .padding(.vertical, 24)
             }
             .navigationTitle("")
+            .searchable(
+                text: $searchText,
+                prompt: "Search AI voices (e.g. Trump, Matt, Ellie, Emma, Lauren)..."
+            )
             .task {
                 isLoadingVoices = true
                 availableVoices = await appState.voiceService.fetchAvailableVoiceAIVoices()
@@ -120,7 +89,7 @@ struct SettingsView: View {
                     .font(.title3)
                     .fontWeight(.bold)
                 
-                Text(voice.voiceId == Secrets.voiceAITrumpVoiceId ? "Featured Celebrity Voice" : "Voice.ai Studio Voice")
+                Text(voice.voiceId == Secrets.voiceAITrumpVoiceId ? "Featured Voice • AI Model" : "Studio Neural Voice")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }

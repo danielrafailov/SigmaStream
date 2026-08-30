@@ -23,6 +23,22 @@ enum VoiceEngine: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+struct VoiceAIDeviceVoice: Codable, Identifiable, Hashable {
+    let voiceId: String
+    let name: String
+    let status: String?
+    let voiceVisibility: String?
+    
+    var id: String { voiceId }
+    
+    enum CodingKeys: String, CodingKey {
+        case voiceId = "voice_id"
+        case name
+        case status
+        case voiceVisibility = "voice_visibility"
+    }
+}
+
 @Observable
 final class VoiceAssistantService: NSObject, AVAudioPlayerDelegate {
     
@@ -205,6 +221,51 @@ final class VoiceAssistantService: NSObject, AVAudioPlayerDelegate {
     }
     
     // MARK: - Voice.ai TTS with Automatic Key Rotation
+    
+    func fetchAvailableVoiceAIVoices() async -> [VoiceAIDeviceVoice] {
+        let fallbackVoices = [
+            VoiceAIDeviceVoice(voiceId: Secrets.voiceAITrumpVoiceId, name: "Donald Trump", status: "AVAILABLE", voiceVisibility: "PUBLIC"),
+            VoiceAIDeviceVoice(voiceId: "c9530f8a-dcb5-4db3-aed0-690694247a1a", name: "Matt (American Male)", status: "AVAILABLE", voiceVisibility: "PUBLIC"),
+            VoiceAIDeviceVoice(voiceId: "d1bf0f33-8e0e-4fbf-acf8-45c3c6262513", name: "Ellie (Female)", status: "AVAILABLE", voiceVisibility: "PUBLIC"),
+            VoiceAIDeviceVoice(voiceId: "567bace0-2fee-4585-856d-292c8caf71db", name: "Dalton (American Male)", status: "AVAILABLE", voiceVisibility: "PUBLIC"),
+            VoiceAIDeviceVoice(voiceId: "44de4286-f7aa-4216-845f-807103e33ac8", name: "Emma (British Female)", status: "AVAILABLE", voiceVisibility: "PUBLIC"),
+            VoiceAIDeviceVoice(voiceId: "c22f0e4c-e437-4877-9fce-09d33336ca92", name: "Lauren (American Female)", status: "AVAILABLE", voiceVisibility: "PUBLIC"),
+            VoiceAIDeviceVoice(voiceId: "e16986bd-1ce9-4c1c-88e7-bbe02b1340d1", name: "Alicia (American Female)", status: "AVAILABLE", voiceVisibility: "PUBLIC"),
+            VoiceAIDeviceVoice(voiceId: "49f8497a-3cb2-4db8-bf94-1c0785fe5e87", name: "Lachlan (Australian Male)", status: "AVAILABLE", voiceVisibility: "PUBLIC"),
+            VoiceAIDeviceVoice(voiceId: "9556bcc7-ace2-4510-be5d-31f1165bcc87", name: "Ryan (South African)", status: "AVAILABLE", voiceVisibility: "PUBLIC")
+        ]
+        
+        let keys = Secrets.voiceAIApiKeys
+        guard !keys.isEmpty else { return fallbackVoices }
+        
+        for attempt in 0..<keys.count {
+            let keyIndex = (currentVoiceAIKeyIndex + attempt) % keys.count
+            let apiKey = keys[keyIndex]
+            
+            guard let url = URL(string: "https://dev.voice.ai/api/v1/tts/voices") else { continue }
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+            
+            do {
+                let (data, response) = try await session.data(for: request)
+                if let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) {
+                    let decoded = try JSONDecoder().decode([VoiceAIDeviceVoice].self, from: data)
+                    var list = [VoiceAIDeviceVoice(voiceId: Secrets.voiceAITrumpVoiceId, name: "Donald Trump", status: "AVAILABLE", voiceVisibility: "PUBLIC")]
+                    for v in decoded {
+                        if !list.contains(where: { $0.voiceId == v.voiceId }) {
+                            list.append(v)
+                        }
+                    }
+                    return list
+                }
+            } catch {
+                print("[VoiceAssistantService] ⚠️ Fetching voices failed: \(error.localizedDescription)")
+            }
+        }
+        
+        return fallbackVoices
+    }
     
     private func fetchVoiceAIAudioWithKeyRotation(text: String, voiceId: String) async throws -> Data {
         let keys = Secrets.voiceAIApiKeys

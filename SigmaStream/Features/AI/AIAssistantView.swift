@@ -3,7 +3,7 @@
 //  SigmaStream
 //
 //  Minimalist Voice-First AI Assistant featuring a circular Red/Green Remote Microphone button,
-//  automatic silence detection dictation, and spoken Neural AI movie curation.
+//  Siri Remote voice dictation, and spoken Neural AI movie curation.
 //
 
 import SwiftUI
@@ -11,18 +11,20 @@ import TMDb
 
 struct AIAssistantView: View {
     @Environment(AppState.self) private var appState
-    @State private var speechService = SpeechRecognitionService()
     
+    @State private var voicePromptText: String = ""
     @State private var aiResponse: String? = nil
     @State private var movies: [MovieListItem] = []
     @State private var tvSeries: [TVSeriesListItem] = []
     @State private var isLoading: Bool = false
     @State private var errorMessage: String? = nil
+    @State private var isDictationActive: Bool = false
     
     @State private var selectedMovie: MovieSelection?
     @State private var selectedSeries: TVSeriesSelection?
     
     @FocusState private var isMicButtonFocused: Bool
+    @FocusState private var isDictationFieldFocused: Bool
     
     var body: some View {
         NavigationStack {
@@ -54,7 +56,6 @@ struct AIAssistantView: View {
                 TVSeriesDetailView(seriesId: selection.id)
             }
             .onDisappear {
-                speechService.stopRecording()
                 appState.voiceService.stopSpeaking()
             }
         }
@@ -68,16 +69,16 @@ struct AIAssistantView: View {
                 handleMicButtonPress()
             } label: {
                 ZStack {
-                    // Pulsating ring when actively listening
-                    if speechService.isRecording {
+                    // Pulsating ring when dictation is active
+                    if isDictationActive {
                         Circle()
                             .stroke(Color.red.opacity(0.4), lineWidth: 16)
                             .frame(width: 220, height: 220)
-                            .scaleEffect(speechService.isRecording ? 1.15 : 1.0)
-                            .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: speechService.isRecording)
+                            .scaleEffect(isDictationActive ? 1.15 : 1.0)
+                            .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isDictationActive)
                     }
                     
-                    // Main Circular Button Body (Red when idle/recording, Green when sent/loading)
+                    // Main Circular Button Body (Red when idle, Green when prompt sent/loading)
                     Circle()
                         .fill(isLoading ? Color.green : Color.red)
                         .frame(width: 170, height: 170)
@@ -95,19 +96,33 @@ struct AIAssistantView: View {
             .buttonStyle(.plain)
             .focused($isMicButtonFocused)
             
-            // Status Subtitle
-            VStack(spacing: 8) {
-                if speechService.isRecording {
-                    Text(speechService.liveTranscript.isEmpty ? "Listening to your remote..." : "\"\(speechService.liveTranscript)\"")
-                        .font(.title3)
-                        .fontWeight(.medium)
-                        .foregroundStyle(.white)
-                        .multilineTextAlignment(.center)
+            // Status Subtitle & Dictation Overlay
+            VStack(spacing: 12) {
+                if isDictationActive {
+                    HStack(spacing: 12) {
+                        Image(systemName: "waveform")
+                            .symbolEffect(.variableColor.iterative.reversing)
+                            .foregroundStyle(.red)
+                        
+                        TextField("Speak into Siri Remote now...", text: $voicePromptText)
+                            .focused($isDictationFieldFocused)
+                            .font(.title3)
+                            .multilineTextAlignment(.center)
+                            .onSubmit {
+                                isDictationActive = false
+                                submitPrompt(voicePromptText)
+                            }
+                    }
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 14)
+                    .background(Color.white.opacity(0.12))
+                    .clipShape(Capsule())
+                    .frame(maxWidth: 600)
                 } else if isLoading {
                     Text("Finding recommendations...")
                         .font(.title3)
                         .foregroundStyle(.secondary)
-                } else if let error = speechService.errorMessage ?? errorMessage {
+                } else if let error = errorMessage {
                     Text(error)
                         .font(.callout)
                         .foregroundStyle(.red)
@@ -117,8 +132,7 @@ struct AIAssistantView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .frame(maxWidth: 700)
-            .animation(.easeInOut, value: speechService.isRecording)
+            .animation(.easeInOut, value: isDictationActive)
             .animation(.easeInOut, value: isLoading)
         }
         .frame(maxWidth: .infinity)
@@ -231,11 +245,11 @@ struct AIAssistantView: View {
             appState.voiceService.stopSpeaking()
         }
         
-        if speechService.isRecording {
-            speechService.finishAndSubmit()
-        } else {
-            speechService.startRecording { capturedPrompt in
-                submitPrompt(capturedPrompt)
+        voicePromptText = ""
+        isDictationActive.toggle()
+        if isDictationActive {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isDictationFieldFocused = true
             }
         }
     }
@@ -281,4 +295,5 @@ struct AIAssistantView: View {
     AIAssistantView()
         .environment(AppState(apiKey: "placeholder"))
 }
+
 

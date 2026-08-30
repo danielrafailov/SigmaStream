@@ -85,12 +85,12 @@ final class AudioRecordingService: NSObject, AVAudioRecorderDelegate {
         do {
             #if os(tvOS)
             let audioSession = AVAudioSession.sharedInstance()
-            try audioSession.setCategory(.playAndRecord, mode: .default, options: [.allowBluetooth])
-            try audioSession.setActive(true)
+            try? audioSession.setCategory(.record, mode: .default)
+            try? audioSession.setActive(true)
             #elseif os(iOS)
             let audioSession = AVAudioSession.sharedInstance()
-            try audioSession.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
-            try audioSession.setActive(true)
+            try? audioSession.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
+            try? audioSession.setActive(true)
             #endif
             
             let tempDir = FileManager.default.temporaryDirectory
@@ -202,6 +202,11 @@ final class AudioRecordingService: NSObject, AVAudioRecorderDelegate {
         audioRecorder = nil
         isRecording = false
         isTranscribing = false
+        
+        #if os(tvOS) || os(iOS)
+        let audioSession = AVAudioSession.sharedInstance()
+        try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+        #endif
     }
     
     // MARK: - HTTP Transcription Request

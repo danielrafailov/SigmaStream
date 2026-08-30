@@ -64,6 +64,12 @@ struct ContentView: View {
                     Label("For You", systemImage: "heart.fill")
                 }
                 .tag(5)
+
+            SettingsView()
+                .tabItem {
+                    Label("Settings", systemImage: "gearshape.fill")
+                }
+                .tag(6)
         }
     }
 }

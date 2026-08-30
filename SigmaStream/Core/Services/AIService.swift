@@ -55,12 +55,11 @@ private struct AIStructuredOutput: Decodable {
 }
 
 actor AIService {
-    private let apiKey: String
     private let session: URLSession
+    private var currentKeyIndex: Int = 0
     private var conversationHistory: [GeminiRequest.Content] = []
     
-    init(apiKey: String = Secrets.geminiApiKey) {
-        self.apiKey = apiKey
+    init() {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 25
         config.timeoutIntervalForResource = 35
@@ -83,8 +82,8 @@ actor AIService {
             )
         }
         
-        // If Gemini API key is valid, use Gemini LLM + Batch Parallel TMDb queries
-        if !apiKey.isEmpty && apiKey != "YOUR_GEMINI_API_KEY" {
+        // If Gemini API keys are configured, use Gemini LLM + Batch Parallel TMDb queries
+        if !Secrets.geminiApiKeys.isEmpty {
             do {
                 let structuredData = try await requestGemini(prompt: trimmedPrompt)
                 let limit = structuredData.targetCount ?? extractTargetCount(from: trimmedPrompt) ?? 20
@@ -127,7 +126,7 @@ actor AIService {
                     )
                 }
             } catch {
-                print("[AIService] ⚠️ Gemini request failed, falling back to local resolver: \(error.localizedDescription)")
+                print("[AIService] ⚠️ Gemini request failed on all keys, falling back to local resolver: \(error.localizedDescription)")
             }
         }
         
@@ -135,12 +134,12 @@ actor AIService {
         return try await performIntelligentCriteriaDiscovery(prompt: trimmedPrompt, tmdbService: tmdbService)
     }
     
-    // MARK: - Gemini API Call with Multi-Turn Memory
+    // MARK: - Gemini API Call with Multi-Turn Memory & Key Rotation
     
     private func requestGemini(prompt: String) async throws -> AIStructuredOutput {
-        let endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=\(apiKey)"
-        guard let url = URL(string: endpoint) else {
-            throw URLError(.badURL)
+        let keys = Secrets.geminiApiKeys
+        guard !keys.isEmpty else {
+            throw URLError(.userAuthenticationRequired)
         }
         
         let systemInstructions = """
@@ -181,29 +180,51 @@ actor AIService {
             contents: conversationHistory,
             generationConfig: .init(responseMimeType: "application/json", temperature: 0.7)
         )
+        let bodyData = try JSONEncoder().encode(geminiReq)
         
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(geminiReq)
-        
-        let (data, response) = try await session.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
-            let errorText = String(data: data, encoding: .utf8) ?? "Gemini API Error"
-            throw NSError(domain: "AIService", code: (response as? HTTPURLResponse)?.statusCode ?? 500, userInfo: [NSLocalizedDescriptionKey: errorText])
+        var lastError: Error?
+        for attempt in 0..<keys.count {
+            let keyIndex = (currentKeyIndex + attempt) % keys.count
+            let apiKey = keys[keyIndex]
+            
+            let endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=\(apiKey)"
+            guard let url = URL(string: endpoint) else { continue }
+            
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = bodyData
+            
+            do {
+                let (data, response) = try await session.data(for: request)
+                guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
+                    let code = (response as? HTTPURLResponse)?.statusCode ?? 500
+                    let errorText = String(data: data, encoding: .utf8) ?? "Gemini API Error"
+                    print("[AIService] ⚠️ Gemini Key #\(keyIndex + 1) returned HTTP \(code): \(errorText)")
+                    lastError = NSError(domain: "AIService", code: code, userInfo: [NSLocalizedDescriptionKey: errorText])
+                    self.currentKeyIndex = (keyIndex + 1) % keys.count
+                    continue
+                }
+                
+                let decoded = try JSONDecoder().decode(GeminiResponse.self, from: data)
+                guard let rawJson = decoded.candidates?.first?.content?.parts?.first?.text else {
+                    throw NSError(domain: "AIService", code: 500, userInfo: [NSLocalizedDescriptionKey: "Empty response from Gemini"])
+                }
+                
+                // Append model response to conversation history for future turns
+                conversationHistory.append(GeminiRequest.Content(role: "model", parts: [.init(text: rawJson)]))
+                
+                self.currentKeyIndex = keyIndex // Keep working key
+                let outputData = Data(rawJson.utf8)
+                return try JSONDecoder().decode(AIStructuredOutput.self, from: outputData)
+            } catch {
+                print("[AIService] ⚠️ Gemini request failed on Key #\(keyIndex + 1): \(error.localizedDescription)")
+                lastError = error
+                self.currentKeyIndex = (keyIndex + 1) % keys.count
+            }
         }
         
-        let decoded = try JSONDecoder().decode(GeminiResponse.self, from: data)
-        guard let rawJson = decoded.candidates?.first?.content?.parts?.first?.text else {
-            throw NSError(domain: "AIService", code: 500, userInfo: [NSLocalizedDescriptionKey: "Empty response from Gemini"])
-        }
-        
-        // Append model response to conversation history for future turns
-        conversationHistory.append(GeminiRequest.Content(role: "model", parts: [.init(text: rawJson)]))
-        
-        let outputData = Data(rawJson.utf8)
-        return try JSONDecoder().decode(AIStructuredOutput.self, from: outputData)
+        throw lastError ?? URLError(.badServerResponse)
     }
     
     // MARK: - Batch Parallel Title Resolution

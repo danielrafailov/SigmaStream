@@ -22,12 +22,11 @@ final class AppState {
 
     init(
         apiKey: String = Secrets.tmdbApiKey,
-        streamingBaseURL: String = Secrets.streamingServerBaseURL,
-        geminiApiKey: String = Secrets.geminiApiKey
+        streamingBaseURL: String = Secrets.streamingServerBaseURL
     ) {
         self.tmdbService = TMDbService(apiKey: apiKey)
         self.streamingService = StreamingService(baseURL: streamingBaseURL)
-        self.aiService = AIService(apiKey: geminiApiKey)
+        self.aiService = AIService()
         self.voiceService = VoiceAssistantService()
         self.myListManager = MyListManager()
         self.likedManager = LikedManager()

@@ -49,6 +49,9 @@ private struct AIStructuredOutput: Decodable {
     let spokenResponse: String
     let movieQueries: [String]?
     let tvQueries: [String]?
+    let personName: String?
+    let targetCount: Int?
+    let sortBy: String?
 }
 
 actor AIService {
@@ -84,18 +87,43 @@ actor AIService {
         if !apiKey.isEmpty && apiKey != "YOUR_GEMINI_API_KEY" {
             do {
                 let structuredData = try await requestGemini(prompt: trimmedPrompt)
+                let limit = structuredData.targetCount ?? extractTargetCount(from: trimmedPrompt) ?? 20
+                let sortPreference = structuredData.sortBy?.lowercased() ?? extractSortPreference(from: trimmedPrompt)
                 
-                // Execute parallel batch searches for each suggested title
+                // 1. Resolve direct title queries
                 async let moviesTask = resolveBatchMovieQueries(structuredData.movieQueries ?? [], tmdbService: tmdbService)
                 async let tvTask = resolveBatchTVQueries(structuredData.tvQueries ?? [], tmdbService: tmdbService)
                 
-                let (movies, tvSeries) = await (moviesTask, tvTask)
+                // 2. Resolve person cast if identified (e.g. "Alan Ritchson")
+                var personMovies: [MovieListItem] = []
+                var personTV: [TVSeriesListItem] = []
+                if let person = structuredData.personName, !person.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    do {
+                        let personResult = try await tmdbService.searchMoviesTVIncludingPersonCast(query: person)
+                        personMovies = personResult.movies
+                        personTV = personResult.tvSeries
+                    } catch {}
+                }
                 
-                if !movies.isEmpty || !tvSeries.isEmpty {
+                var (resolvedMovies, resolvedTV) = await (moviesTask, tvTask)
+                
+                // Merge title results with person cast results
+                var allMovies = mergeAndDeduplicateMovies(primary: resolvedMovies, secondary: personMovies)
+                var allTV = mergeAndDeduplicateTV(primary: resolvedTV, secondary: personTV)
+                
+                // Apply sorting
+                allMovies = applySorting(allMovies, sortBy: sortPreference)
+                allTV = applySorting(allTV, sortBy: sortPreference)
+                
+                // Apply requested count limit
+                let finalMovies = Array(allMovies.prefix(limit))
+                let finalTV = Array(allTV.prefix(limit))
+                
+                if !finalMovies.isEmpty || !finalTV.isEmpty {
                     return AIResponseResult(
                         spokenResponse: structuredData.spokenResponse,
-                        movies: movies,
-                        tvSeries: tvSeries
+                        movies: finalMovies,
+                        tvSeries: finalTV
                     )
                 }
             } catch {
@@ -116,19 +144,24 @@ actor AIService {
         }
         
         let systemInstructions = """
-        You are Sigma, an intelligent conversational movie and TV curator for Apple TV.
-        You support ongoing, multi-turn conversational exploration (e.g. user asks for movies with an actor, then refines to sci-fi only, or changes genre, or narrows results).
+        You are Sigma, an expert movie and TV AI curator for Apple TV.
+        Analyze user queries for criteria, actor/director names, release date sorting, quantity limits, studios (e.g. Disney, Marvel, A24), and genres.
         
         Respond with JSON matching this schema:
         {
-          "spokenResponse": "A natural, conversational 1-2 sentence spoken response tailored specifically to the user's ongoing request and refinements, mentioning 2-3 highlight titles found.",
+          "spokenResponse": "A natural, conversational 1-2 sentence spoken response tailored specifically to the user's ongoing request and filters, mentioning 2-3 highlight titles found.",
           "movieQueries": ["Title 1", "Title 2", "Title 3", ...],
-          "tvQueries": ["Show 1", "Show 2", ...]
+          "tvQueries": ["Show 1", "Show 2", ...],
+          "personName": "Name of actor/director if specified (e.g. 'Alan Ritchson')",
+          "targetCount": 35,
+          "sortBy": "newest | oldest | rating | popularity"
         }
 
         Instructions:
-        - Maintain conversation context from previous turns to refine or change results accordingly.
-        - If the user specifies a quantity (e.g. '10 movies', '5 shows'), return that exact number of distinct title recommendations.
+        - If the user asks for a specific count (e.g. 'Show 35 movies with Alan Ritchson', 'top 10 newest disney movies'), set 'targetCount' to that number and return up to that many distinct title queries.
+        - If the user asks for 'newest', 'latest', or 'recent', set 'sortBy' to 'newest' and list the newest released titles.
+        - If the user specifies an actor or person (e.g. 'Alan Ritchston', 'Tom Cruise'), set 'personName' to the correct actor name.
+        - If the user specifies a studio/franchise (e.g. 'Disney', 'Pixar', 'Marvel'), ensure all movieQueries belong to that studio.
         - Return precise standalone titles for accurate TMDb search resolution.
         """
         
@@ -146,7 +179,7 @@ actor AIService {
         
         let geminiReq = GeminiRequest(
             contents: conversationHistory,
-            generationConfig: .init(responseMimeType: "application/json", temperature: 0.8)
+            generationConfig: .init(responseMimeType: "application/json", temperature: 0.7)
         )
         
         var request = URLRequest(url: url)
@@ -195,7 +228,6 @@ actor AIService {
                 }
             }
             
-            // Preserve ranking order
             indexedResults.sort { $0.0 < $1.0 }
             
             var seenIds = Set<Int>()
@@ -244,113 +276,141 @@ actor AIService {
         }
     }
     
+    // MARK: - Helpers: Deduplication & Sorting
+    
+    private func mergeAndDeduplicateMovies(primary: [MovieListItem], secondary: [MovieListItem]) -> [MovieListItem] {
+        var seenIds = Set<Int>()
+        var result: [MovieListItem] = []
+        for movie in (primary + secondary) {
+            if !seenIds.contains(movie.id) {
+                seenIds.insert(movie.id)
+                result.append(movie)
+            }
+        }
+        return result
+    }
+    
+    private func mergeAndDeduplicateTV(primary: [TVSeriesListItem], secondary: [TVSeriesListItem]) -> [TVSeriesListItem] {
+        var seenIds = Set<Int>()
+        var result: [TVSeriesListItem] = []
+        for show in (primary + secondary) {
+            if !seenIds.contains(show.id) {
+                seenIds.insert(show.id)
+                result.append(show)
+            }
+        }
+        return result
+    }
+    
+    private func applySorting(_ movies: [MovieListItem], sortBy: String?) -> [MovieListItem] {
+        guard let sortBy = sortBy else { return movies }
+        switch sortBy {
+        case "newest", "recent", "latest":
+            return movies.sorted { ($0.releaseDate ?? .distantPast) > ($1.releaseDate ?? .distantPast) }
+        case "oldest", "classic":
+            return movies.sorted { ($0.releaseDate ?? .distantFuture) < ($1.releaseDate ?? .distantFuture) }
+        case "rating", "top":
+            return movies.sorted { ($0.voteAverage ?? 0) > ($1.voteAverage ?? 0) }
+        default:
+            return movies
+        }
+    }
+    
+    private func applySorting(_ tv: [TVSeriesListItem], sortBy: String?) -> [TVSeriesListItem] {
+        guard let sortBy = sortBy else { return tv }
+        switch sortBy {
+        case "newest", "recent", "latest":
+            return tv.sorted { ($0.firstAirDate ?? .distantPast) > ($1.firstAirDate ?? .distantPast) }
+        case "oldest", "classic":
+            return tv.sorted { ($0.firstAirDate ?? .distantFuture) < ($1.firstAirDate ?? .distantFuture) }
+        case "rating", "top":
+            return tv.sorted { ($0.voteAverage ?? 0) > ($1.voteAverage ?? 0) }
+        default:
+            return tv
+        }
+    }
+    
+    private func extractTargetCount(from prompt: String) -> Int? {
+        let pattern = #"\b(\d+)\b"#
+        if let regex = try? NSRegularExpression(pattern: pattern),
+           let match = regex.firstMatch(in: prompt, range: NSRange(prompt.startIndex..., in: prompt)),
+           let range = Range(match.range(at: 1), in: prompt),
+           let count = Int(prompt[range]), count > 0 {
+            return count
+        }
+        return nil
+    }
+    
+    private func extractSortPreference(from prompt: String) -> String? {
+        let lower = prompt.lowercased()
+        if lower.contains("newest") || lower.contains("latest") || lower.contains("recent") {
+            return "newest"
+        }
+        if lower.contains("oldest") || lower.contains("classic") {
+            return "oldest"
+        }
+        if lower.contains("top") || lower.contains("best") || lower.contains("highest rated") {
+            return "rating"
+        }
+        return nil
+    }
+    
     // MARK: - Intelligent Criteria Discovery (Local Parser)
     
     private func performIntelligentCriteriaDiscovery(prompt: String, tmdbService: TMDbService) async throws -> AIResponseResult {
         let lower = prompt.lowercased()
+        let count = extractTargetCount(from: prompt) ?? 20
+        let sortPreference = extractSortPreference(from: prompt)
         
-        // 1. Extract requested count (e.g. "10 random action movies" -> 10)
-        var count = 10
-        let numbers = ["1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, "9": 9, "10": 10, "15": 15, "20": 20, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "ten": 10]
-        for (word, val) in numbers {
-            if lower.contains("\(word) ") || lower.hasPrefix("\(word) ") {
-                count = val
-                break
-            }
-        }
-        
-        // 2. Determine target media types
         let isTVExclusive = lower.contains("tv show") || lower.contains("tv series") || lower.contains("shows") || lower.contains("series") || lower.contains("episodes")
         let isMovieExclusive = lower.contains("movie") || lower.contains("movies") || lower.contains("film") || lower.contains("films")
         
         let wantMovies = isMovieExclusive || !isTVExclusive
         let wantTV = isTVExclusive || !isMovieExclusive
         
-        // 3. Map Genres
-        let genreMap: [String: Int] = [
-            "action": 28,
-            "adventure": 12,
-            "animation": 16, "animated": 16, "anime": 16,
-            "comedy": 35, "funny": 35, "humor": 35,
-            "crime": 80, "gangster": 80, "heist": 80,
-            "documentary": 99, "doc": 99,
-            "drama": 18, "dramatic": 18,
-            "family": 10751, "kids": 10751, "children": 10751,
-            "fantasy": 14, "magical": 14,
-            "history": 36, "historical": 36,
-            "horror": 27, "scary": 27, "spooky": 27,
-            "music": 10402, "musical": 10402,
-            "mystery": 9648, "detective": 9648,
-            "romance": 10749, "romantic": 10749, "love": 10749,
-            "sci-fi": 878, "science fiction": 878, "space": 878, "alien": 878,
-            "thriller": 53, "suspense": 53,
-            "war": 10752, "military": 10752,
-            "western": 37, "cowboy": 37
-        ]
+        // Extract Actor / Query
+        var cleanQuery = prompt
+            .replacingOccurrences(of: "show me", with: "", options: .caseInsensitive)
+            .replacingOccurrences(of: "show", with: "", options: .caseInsensitive)
+            .replacingOccurrences(of: "find me", with: "", options: .caseInsensitive)
+            .replacingOccurrences(of: "top", with: "", options: .caseInsensitive)
+            .replacingOccurrences(of: "newest", with: "", options: .caseInsensitive)
+            .replacingOccurrences(of: "movies with", with: "", options: .caseInsensitive)
+            .replacingOccurrences(of: "movie with", with: "", options: .caseInsensitive)
+            .replacingOccurrences(of: "shows with", with: "", options: .caseInsensitive)
+            .replacingOccurrences(of: "with actor", with: "", options: .caseInsensitive)
+            .replacingOccurrences(of: "with", with: "", options: .caseInsensitive)
+            .replacingOccurrences(of: "starring", with: "", options: .caseInsensitive)
+            .replacingOccurrences(of: "movies", with: "", options: .caseInsensitive)
+            .replacingOccurrences(of: "movie", with: "", options: .caseInsensitive)
+            .replacingOccurrences(of: "shows", with: "", options: .caseInsensitive)
         
-        var matchedGenreIds: [Int] = []
-        var detectedGenreName: String? = nil
-        
-        for (keyword, id) in genreMap {
-            if lower.contains(keyword) {
-                matchedGenreIds.append(id)
-                if detectedGenreName == nil {
-                    detectedGenreName = keyword.capitalized
-                }
-            }
+        // Remove numbers from search string
+        if let regex = try? NSRegularExpression(pattern: #"\b\d+\b"#) {
+            cleanQuery = regex.stringByReplacingMatches(in: cleanQuery, range: NSRange(cleanQuery.startIndex..., in: cleanQuery), withTemplate: "")
         }
+        cleanQuery = cleanQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         
-        // 4. Determine page & sorting (e.g. "random" picks a random page)
-        let isRandom = lower.contains("random") || lower.contains("surprise") || lower.contains("any")
-        let page = isRandom ? Int.random(in: 1...6) : 1
+        let direct = try await tmdbService.searchMoviesTVIncludingPersonCast(query: cleanQuery.isEmpty ? prompt : cleanQuery)
         
-        var movies: [MovieListItem] = []
-        var tvSeries: [TVSeriesListItem] = []
+        var movies = wantMovies ? direct.movies : []
+        var tvSeries = wantTV ? direct.tvSeries : []
         
-        if wantMovies {
-            let filter = matchedGenreIds.isEmpty ? nil : DiscoverMovieFilter(genres: matchedGenreIds)
-            let sort: MovieSort = isRandom ? .popularity(descending: true) : .voteAverage(descending: true)
-            do {
-                let disc = try await tmdbService.discoverMovies(filter: filter, sortedBy: sort, page: page)
-                movies = Array(disc.prefix(count))
-            } catch {}
-        }
+        movies = applySorting(movies, sortBy: sortPreference)
+        tvSeries = applySorting(tvSeries, sortBy: sortPreference)
         
-        if wantTV {
-            let filter = matchedGenreIds.isEmpty ? nil : DiscoverTVSeriesFilter(genres: matchedGenreIds)
-            let sort: TVSeriesSort = isRandom ? .popularity(descending: true) : .voteAverage(descending: true)
-            do {
-                let disc = try await tmdbService.discoverTVSeries(filter: filter, sortedBy: sort, page: page)
-                tvSeries = Array(disc.prefix(count))
-            } catch {}
-        }
+        let finalMovies = Array(movies.prefix(count))
+        let finalTV = Array(tvSeries.prefix(count))
         
-        // Fallback to direct search if discover returned empty
-        if movies.isEmpty && tvSeries.isEmpty {
-            let cleanQuery = prompt
-                .replacingOccurrences(of: "show me", with: "", options: .caseInsensitive)
-                .replacingOccurrences(of: "find me", with: "", options: .caseInsensitive)
-                .replacingOccurrences(of: "random", with: "", options: .caseInsensitive)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            
-            let direct = try await tmdbService.searchMoviesTVIncludingPersonCast(query: cleanQuery.isEmpty ? prompt : cleanQuery)
-            movies = Array(direct.movies.prefix(count))
-            tvSeries = Array(direct.tvSeries.prefix(count))
-        }
-        
-        // 5. Craft intelligent spoken response tailored to criteria
         let spoken: String
-        let genreLabel = detectedGenreName ?? "matching"
-        
-        if !movies.isEmpty || !tvSeries.isEmpty {
-            let highlights = (movies.prefix(2).map(\.title) + tvSeries.prefix(2).map(\.name)).joined(separator: ", ")
-            
-            if !movies.isEmpty && !tvSeries.isEmpty {
-                spoken = "Here are \(movies.count) \(genreLabel.lowercased()) movies and \(tvSeries.count) shows matching your criteria, including \(highlights)."
-            } else if !movies.isEmpty {
-                spoken = "Here are \(movies.count) \(genreLabel.lowercased()) movies for you, including \(highlights)."
+        if !finalMovies.isEmpty || !finalTV.isEmpty {
+            let highlights = (finalMovies.prefix(2).map(\.title) + finalTV.prefix(2).map(\.name)).joined(separator: ", ")
+            if !finalMovies.isEmpty && !finalTV.isEmpty {
+                spoken = "Here are \(finalMovies.count) movies and \(finalTV.count) shows matching your request, including \(highlights)."
+            } else if !finalMovies.isEmpty {
+                spoken = "Here are \(finalMovies.count) movies matching your request, including \(highlights)."
             } else {
-                spoken = "Here are \(tvSeries.count) \(genreLabel.lowercased()) shows for you, including \(highlights)."
+                spoken = "Here are \(finalTV.count) shows matching your request, including \(highlights)."
             }
         } else {
             spoken = "I couldn't find any titles matching your exact criteria. Try asking with different genres, themes, or actors."
@@ -358,8 +418,8 @@ actor AIService {
         
         return AIResponseResult(
             spokenResponse: spoken,
-            movies: movies,
-            tvSeries: tvSeries
+            movies: finalMovies,
+            tvSeries: finalTV
         )
     }
 }

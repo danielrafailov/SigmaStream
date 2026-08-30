@@ -9,7 +9,7 @@ import SwiftUI
 import TMDb
 
 enum SearchMode: String, CaseIterable, Identifiable {
-    case standard = "Standard Search"
+    case standard = "Basic"
     case ai = "AI Mode ✨"
     
     var id: String { rawValue }
@@ -100,26 +100,6 @@ struct SearchView: View {
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 48)
                             .padding(.vertical, 40)
-                    } else if searchMode == .ai {
-                        // Helpful Prompt Guidance when empty
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack(spacing: 10) {
-                                Image(systemName: "sparkles")
-                                    .foregroundStyle(.cyan)
-                                Text("AI Mode Active")
-                                    .font(.headline)
-                                    .fontWeight(.bold)
-                            }
-                            Text("Speak into your Siri Remote or type natural queries like:\n• \"Mind-bending 90s sci-fi movies\"\n• \"Dark comedies with clever plot twists\"\n• \"Space exploration thrillers\"")
-                                .font(.title3)
-                                .foregroundStyle(.secondary)
-                                .lineSpacing(6)
-                        }
-                        .padding(28)
-                        .background(Color.white.opacity(0.06))
-                        .clipShape(RoundedRectangle(cornerRadius: 20))
-                        .padding(.horizontal, 48)
-                        .padding(.top, 20)
                     }
                 }
                 .scrollTargetLayout()

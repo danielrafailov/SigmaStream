@@ -141,7 +141,7 @@ final class VoiceAssistantService: NSObject, AVAudioPlayerDelegate {
         guard let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return nil }
         let dir = cachesDir.appendingPathComponent("VoiceSamples", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("sample_\(cleanSlug).wav")
+        return dir.appendingPathComponent("sample_rvc_\(cleanSlug).wav")
     }
     
     @MainActor

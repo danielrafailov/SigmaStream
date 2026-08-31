@@ -12,3 +12,7 @@ DerivedData/
 .venv/
 __pycache__/
 *.pyc
+*.pth
+*.pt
+backend/voice_clone/models/
+backend/voice_clone/weights/

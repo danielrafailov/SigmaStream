@@ -5,13 +5,13 @@ import torch
 import numpy as np
 import soundfile as sf
 import librosa
+import torchaudio
 from pathlib import Path
-from transformers import HubertModel
 
-# Set device
+# Device configuration
 if torch.backends.mps.is_available():
     device = "mps"
-    is_half = False  # MPS works best with float32 for complex convolutions
+    is_half = False
 elif torch.cuda.is_available():
     device = "cuda"
     is_half = True
@@ -34,11 +34,12 @@ class RVCEngine:
         self.is_half = is_half
         self.loaded_models = {}
         
-        # 1. Load HuBERT
-        print("[RVCEngine] ⏳ Loading HuBERT embedding model...")
-        self.hubert = HubertModel.from_pretrained("facebook/hubert-base-ls960").to(self.device)
+        # 1. Load exact Fairseq HuBERT model via torchaudio
+        print("[RVCEngine] ⏳ Loading exact HuBERT SSL embedding model...")
+        bundle = torchaudio.pipelines.HUBERT_BASE
+        self.hubert = bundle.get_model().to(self.device)
         self.hubert.eval()
-        print("[RVCEngine] ✅ HuBERT loaded.")
+        print("[RVCEngine] ✅ HuBERT SSL model loaded.")
         
         # 2. Load RMVPE Pitch Extractor
         rmvpe_path = MODELS_DIR / "rmvpe.pt"
@@ -48,7 +49,7 @@ class RVCEngine:
             print("[RVCEngine] ✅ RMVPE loaded.")
         else:
             self.rmvpe = None
-            print("[RVCEngine] ⚠️ rmvpe.pt not found, pitch will be estimated via crepe/harvest.")
+            print("[RVCEngine] ⚠️ rmvpe.pt not found.")
     
     def get_model(self, model_slug: str):
         if model_slug in self.loaded_models:
@@ -56,7 +57,6 @@ class RVCEngine:
         
         pth_path = WEIGHTS_DIR / f"{model_slug}.pth"
         if not pth_path.exists():
-            # Check fallback or first available
             available = list(WEIGHTS_DIR.glob("*.pth"))
             if available:
                 pth_path = available[0]
@@ -102,13 +102,14 @@ class RVCEngine:
 
     def convert_audio(self, audio_data: np.ndarray, sr: int, voice_slug: str, pitch_shift: int = 0) -> tuple[np.ndarray, int]:
         """
-        Converts input voice waveform into target celebrity voice.
+        Converts input voice waveform into target celebrity voice using exact HuBERT embeddings.
         """
         model_info = self.get_model(voice_slug)
         net_g = model_info["net_g"]
         target_sr = model_info["target_sr"]
+        version = model_info.get("version", "v2")
         
-        # 1. Resample to 16kHz mono for HuBERT & RMVPE
+        # 1. Resample to 16kHz mono
         if audio_data.ndim > 1:
             audio_data = np.mean(audio_data, axis=1)
         
@@ -117,31 +118,37 @@ class RVCEngine:
         else:
             audio_16k = audio_data
         
-        # 2. Extract HuBERT features
+        # Normalize audio amplitude
+        max_val = np.abs(audio_16k).max()
+        if max_val > 0.95:
+            audio_16k = audio_16k / max_val * 0.95
+        
+        # 2. Extract HuBERT features (layer 12 for v2, layer 9 for v1)
         feats_tensor = torch.from_numpy(audio_16k).float().unsqueeze(0).to(self.device)
         with torch.no_grad():
-            outputs = self.hubert(feats_tensor, output_hidden_states=True)
-            # RVC v2 uses 12th layer (index 12 in hidden_states) or last_hidden_state
-            feats = outputs.hidden_states[12] if len(outputs.hidden_states) > 12 else outputs.last_hidden_state
-            feats = feats.squeeze(0) # [T, 768]
-            feats = torch.repeat_interleave(feats, 2, dim=0) # [2T, 768]
+            features_list, _ = self.hubert.extract_features(feats_tensor)
+            # RVC v2 uses layer 12 (index 11), v1 uses layer 9 (index 8)
+            layer_idx = 11 if version == "v2" else 8
+            if layer_idx >= len(features_list):
+                layer_idx = len(features_list) - 1
+            feat = features_list[layer_idx].squeeze(0) # [T, 768] or [T, 256]
+            feat = torch.repeat_interleave(feat, 2, dim=0) # Double frame rate to 100fps
         
-        # 3. Extract F0 Pitch using RMVPE
+        # 3. Extract F0 Pitch with RMVPE
         if self.rmvpe is not None:
             f0_arr = self.rmvpe.infer_from_audio(audio_16k, thred=0.03)
         else:
-            f0_arr = np.zeros(feats.shape[0])
+            f0_arr = np.zeros(feat.shape[0])
         
-        # Apply pitch shift (semitones)
         if pitch_shift != 0:
             f0_arr = f0_arr * (2 ** (pitch_shift / 12.0))
         
-        # Align lengths
-        min_len = min(feats.shape[0], len(f0_arr))
-        feats = feats[:min_len].unsqueeze(0) # [1, T, 768]
+        # Align frame lengths
+        min_len = min(feat.shape[0], len(f0_arr))
+        feat = feat[:min_len].unsqueeze(0) # [1, T, dim]
         f0_arr = f0_arr[:min_len]
         
-        # Quantize coarse pitch for NSF
+        # Quantize coarse pitch for NSF harmonic oscillator
         f0_mel = 1127 * np.log(1 + f0_arr / 700)
         f0_mel[f0_arr <= 0] = 0
         f0_mel_min = 1127 * np.log(1 + 50 / 700)
@@ -160,8 +167,10 @@ class RVCEngine:
         sid = torch.tensor([0], device=self.device).long()
         
         with torch.no_grad():
-            audio_out = net_g.infer(feats, p_len, pitch_coarse, pitchf, sid)[0][0, 0].data.cpu().float().numpy()
+            audio_out = net_g.infer(feat, p_len, pitch_coarse, pitchf, sid)[0][0, 0].data.cpu().float().numpy()
         
+        # Clip any potential overflow
+        audio_out = np.clip(audio_out, -1.0, 1.0)
         return audio_out, target_sr
 
 if __name__ == "__main__":

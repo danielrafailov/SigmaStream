@@ -15,12 +15,14 @@ struct CelebrityVoice: Identifiable, Hashable {
 
 struct SettingsView: View {
     @Environment(AppState.self) private var appState
+    @State private var selectedVoiceId: String = ""
     
     private let voices: [CelebrityVoice] = [
         CelebrityVoice(id: "40d320d7-558b-4207-b9e9-45772b0ce167", name: "Trump", icon: "🇺🇸"),
         CelebrityVoice(id: "4aab5641-8f84-404a-be30-1d620d856dee", name: "Michael Jackson", icon: "🕺"),
         CelebrityVoice(id: "06baf53c-9f1e-43ba-adf0-0385dd022991", name: "Saul Goodman", icon: "⚖️"),
         CelebrityVoice(id: "56e0b000-b8fb-4fd3-832a-03bde62f8dbc", name: "David Attenborough", icon: "🌿"),
+        CelebrityVoice(id: "c8909e12-a6d3-46d3-a4a2-c55b628acae0", name: "Eric Cartman", icon: "🧢"),
         CelebrityVoice(id: "43ce1296-4969-4af6-bdc1-22ef5e347d08", name: "Mandalorian", icon: "🛡️"),
         CelebrityVoice(id: "40e41528-8f28-4f6d-94ac-7670f9fec4a9", name: "Walter White", icon: "🧪"),
         CelebrityVoice(id: "280e1b27-a62d-47a3-8840-b7ff288941aa", name: "Gordon Ramsay", icon: "🍳"),
@@ -60,11 +62,14 @@ struct SettingsView: View {
             .scrollTargetLayout()
             .padding(.vertical, 24)
         }
+        .onAppear {
+            selectedVoiceId = appState.voiceService.selectedVoiceId
+        }
     }
     
     // MARK: - Single Voice Row
     private func voiceRow(voice: CelebrityVoice) -> some View {
-        let isActive = appState.voiceService.selectedVoiceId == voice.id
+        let isActive = (selectedVoiceId.isEmpty ? appState.voiceService.selectedVoiceId : selectedVoiceId) == voice.id
         
         return HStack(spacing: 20) {
             Text(voice.icon)
@@ -100,8 +105,11 @@ struct SettingsView: View {
                 
                 // Select / Active Button
                 Button {
-                    appState.voiceService.selectedVoiceId = voice.id
-                    appState.voiceService.selectedVoiceName = voice.name
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        selectedVoiceId = voice.id
+                        appState.voiceService.selectedVoiceId = voice.id
+                        appState.voiceService.selectedVoiceName = voice.name
+                    }
                 } label: {
                     if isActive {
                         Label("Active", systemImage: "checkmark")

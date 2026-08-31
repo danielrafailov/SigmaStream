@@ -21,22 +21,16 @@ final class VoiceAssistantService: NSObject, AVAudioPlayerDelegate {
     var state: VoiceAssistantState = .idle
     var isMicrophoneAvailable: Bool = true
     
-    // User Settings (Stored persistently in UserDefaults)
-    var selectedVoiceId: String {
-        get {
-            UserDefaults.standard.string(forKey: "selected_voice_id") ?? "40d320d7-558b-4207-b9e9-45772b0ce167"
-        }
-        set {
-            UserDefaults.standard.set(newValue, forKey: "selected_voice_id")
+    // User Settings (Stored persistently in UserDefaults with @Observable tracking)
+    var selectedVoiceId: String = UserDefaults.standard.string(forKey: "selected_voice_id") ?? "40d320d7-558b-4207-b9e9-45772b0ce167" {
+        didSet {
+            UserDefaults.standard.set(selectedVoiceId, forKey: "selected_voice_id")
         }
     }
     
-    var selectedVoiceName: String {
-        get {
-            UserDefaults.standard.string(forKey: "selected_voice_name") ?? "Trump"
-        }
-        set {
-            UserDefaults.standard.set(newValue, forKey: "selected_voice_name")
+    var selectedVoiceName: String = UserDefaults.standard.string(forKey: "selected_voice_name") ?? "Trump" {
+        didSet {
+            UserDefaults.standard.set(selectedVoiceName, forKey: "selected_voice_name")
         }
     }
     

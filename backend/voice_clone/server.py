@@ -48,7 +48,11 @@ PITCH_OFFSETS = {
     "mandalorian": -2,
     "snoop_dogg": 0,
     "walter_white": -1,
-    "joe_rogan": 0
+    "joe_rogan": 0,
+    "saul_goodman": 0,
+    "david_attenborough": 0,
+    "tom_holland": 1,
+    "lebron_james": -1
 }
 
 # Base TTS voice selection per character for ideal acoustic timbre match
@@ -60,7 +64,14 @@ BASE_VOICES = {
     "arnold_schwarzenegger": "en-US-GuyNeural",
     "trump": "en-US-GuyNeural",
     "gordon_ramsay": "en-GB-RyanNeural",
-    "mandalorian": "en-US-ChristopherNeural"
+    "mandalorian": "en-US-ChristopherNeural",
+    "snoop_dogg": "en-US-ChristopherNeural",
+    "joe_rogan": "en-US-GuyNeural",
+    "tom_holland": "en-GB-ThomasNeural",
+    "walter_white": "en-US-GuyNeural",
+    "saul_goodman": "en-US-BrianNeural",
+    "david_attenborough": "en-GB-RyanNeural",
+    "lebron_james": "en-US-AndrewNeural"
 }
 
 @app.on_event("startup")
@@ -133,15 +144,15 @@ async def generate_cloned_tts(req: TTSRequest):
         pitch_shift = PITCH_OFFSETS.get(voice_slug, 0)
         
         if pth_file.exists():
-            converted_audio, out_sr = rvc_engine.convert_audio(
-                base_audio, base_sr, voice_slug, pitch_shift=pitch_shift
-            )
+            target_model = voice_slug
+        elif (WEIGHTS_DIR / "trump.pth").exists():
+            target_model = "trump"
         else:
-            # Fallback to nearest available RVC model
-            fallback_slug = "trump"
-            converted_audio, out_sr = rvc_engine.convert_audio(
-                base_audio, base_sr, fallback_slug, pitch_shift=pitch_shift
-            )
+            target_model = list(WEIGHTS_DIR.glob("*.pth"))[0].stem
+            
+        converted_audio, out_sr = rvc_engine.convert_audio(
+            base_audio, base_sr, target_model, pitch_shift=pitch_shift
+        )
         
         t_total = time.time() - start_time
         

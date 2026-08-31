@@ -3,12 +3,14 @@
     "version": "1.0.0",
     "type": "module",
     "scripts": {
-        "dev": "tsx watch src/server.ts",
+        "dev": "npm run build && node dist/server.js",
         "build": "tsc",
         "start": "npm run build && node dist/server.js",
         "format": "prettier --write src",
         "clean": "npx rimraf dist",
-        "dev:awake": "caffeinate -is tsx watch src/server.ts",
+        "dev:awake": "caffeinate -is sh -c 'npm run build && node dist/server.js'",
+        "clone:start": "bash voice_clone/start.sh",
+        "clone:setup": "bash voice_clone/setup.sh",
         "postinstall": "patch-package"
     },
     "dependencies": {
@@ -28,6 +30,6 @@
         "patch-package": "^8.0.1",
         "prettier": "^3.3.3",
         "tsx": "^4.23.13",
-        "typescript": "^5.6.2"
+        "typescript": "^5.6.3"
     }
 }

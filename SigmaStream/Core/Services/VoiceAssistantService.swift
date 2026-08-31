@@ -2,14 +2,17 @@
 //  VoiceAssistantService.swift
 //  SigmaStream
 //
-//  Streams studio-grade Neural Text-to-Speech from Voice.ai, ElevenLabs, or local Mac Kokoro.
+//  Created by Daniel Rafailov on 2026-08-30.
 //
 
 import Foundation
 import AVFoundation
+import SwiftUI
+import Observation
 
 enum VoiceAssistantState: Equatable {
     case idle
+    case listening
     case processing
     case speaking(text: String)
     case error(String)
@@ -22,6 +25,12 @@ final class VoiceAssistantService: NSObject, AVAudioPlayerDelegate {
     var isMicrophoneAvailable: Bool = true
     
     // User Settings (Stored persistently in UserDefaults with @Observable tracking)
+    var selectedVoiceSlug: String = UserDefaults.standard.string(forKey: "selected_voice_slug") ?? "trump" {
+        didSet {
+            UserDefaults.standard.set(selectedVoiceSlug, forKey: "selected_voice_slug")
+        }
+    }
+    
     var selectedVoiceId: String = UserDefaults.standard.string(forKey: "selected_voice_id") ?? "40d320d7-558b-4207-b9e9-45772b0ce167" {
         didSet {
             UserDefaults.standard.set(selectedVoiceId, forKey: "selected_voice_id")
@@ -49,7 +58,7 @@ final class VoiceAssistantService: NSObject, AVAudioPlayerDelegate {
         
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 12
-        config.timeoutIntervalForResource = 18
+        config.timeoutIntervalForResource = 25
         self.session = URLSession(configuration: config)
         
         super.init()
@@ -71,8 +80,17 @@ final class VoiceAssistantService: NSObject, AVAudioPlayerDelegate {
             do {
                 var audioData: Data? = nil
                 
-                // 1. Try Voice.ai with currently active voice ID and key rotation
-                if !Secrets.voiceAIApiKeys.isEmpty {
+                // 1. Try Local Zero-Shot Voice Clone Server (100% Free, GPU-accelerated on Mac)
+                let voiceSlug = self.selectedVoiceSlug
+                do {
+                    audioData = try await self.fetchLocalVoiceCloneAudio(text: cleanText, voice: voiceSlug)
+                    print("[VoiceAssistantService] 🚀 Synthesized speech via local Mac voice cloning engine (Voice: \(voiceSlug))")
+                } catch {
+                    print("[VoiceAssistantService] ⚠️ Local clone engine unavailable: \(error.localizedDescription). Trying Voice.ai fallback...")
+                }
+                
+                // 2. Try Voice.ai with currently active voice ID and key rotation
+                if audioData == nil && !Secrets.voiceAIApiKeys.isEmpty {
                     do {
                         audioData = try await self.fetchVoiceAIAudioWithKeyRotation(
                             text: cleanText,
@@ -83,7 +101,7 @@ final class VoiceAssistantService: NSObject, AVAudioPlayerDelegate {
                     }
                 }
                 
-                // 2. Try ElevenLabs fallback with key rotation
+                // 3. Try ElevenLabs fallback with key rotation
                 if audioData == nil && !Secrets.elevenLabsApiKeys.isEmpty {
                     do {
                         audioData = try await self.fetchElevenLabsAudioWithKeyRotation(text: cleanText)
@@ -92,7 +110,7 @@ final class VoiceAssistantService: NSObject, AVAudioPlayerDelegate {
                     }
                 }
                 
-                // 3. Fallback to Local Mac Neural TTS (Kokoro-82M)
+                // 4. Fallback to Local Kokoro-82M
                 if audioData == nil {
                     audioData = try await self.fetchLocalTTSAudio(text: cleanText)
                 }
@@ -117,44 +135,54 @@ final class VoiceAssistantService: NSObject, AVAudioPlayerDelegate {
         }
     }
     
-    private func sampleCacheURL(for voiceId: String) -> URL? {
-        let cleanId = voiceId.filter { $0.isLetter || $0.isNumber || $0 == "-" }
-        guard !cleanId.isEmpty else { return nil }
+    private func sampleCacheURL(for voiceSlug: String) -> URL? {
+        let cleanSlug = voiceSlug.filter { $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" }
+        guard !cleanSlug.isEmpty else { return nil }
         guard let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return nil }
         let dir = cachesDir.appendingPathComponent("VoiceSamples", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("sample_\(cleanId).mp3")
+        return dir.appendingPathComponent("sample_\(cleanSlug).wav")
     }
     
     @MainActor
-    func previewVoice(voiceId: String, sampleText: String) {
+    func previewVoice(voiceSlug: String, voiceId: String, sampleText: String) {
         stopSpeaking()
         state = .speaking(text: sampleText)
         
-        let cacheURL = sampleCacheURL(for: voiceId)
+        let cacheURL = sampleCacheURL(for: voiceSlug)
         
         // 1. Check if cached locally on disk
         if let cacheURL = cacheURL, FileManager.default.fileExists(atPath: cacheURL.path),
            let cachedData = try? Data(contentsOf: cacheURL) {
-            print("[VoiceAssistantService] 💾 Playing cached sample audio for voice: \(voiceId)")
+            print("[VoiceAssistantService] 💾 Playing cached sample audio for voice: \(voiceSlug)")
             self.playAudioData(cachedData, text: sampleText)
             return
         }
         
-        // 2. Otherwise fetch from API and cache to disk
+        // 2. Otherwise fetch from local clone engine or Voice.ai and cache to disk
         activeTTSJob = Task { [weak self] in
             guard let self else { return }
             do {
-                let audioData = try await self.fetchVoiceAIAudioWithKeyRotation(text: sampleText, voiceId: voiceId)
+                var audioData: Data? = nil
+                
+                // Try local clone engine first
+                do {
+                    audioData = try await self.fetchLocalVoiceCloneAudio(text: sampleText, voice: voiceSlug)
+                } catch {
+                    // Fallback to Voice.ai
+                    audioData = try await self.fetchVoiceAIAudioWithKeyRotation(text: sampleText, voiceId: voiceId)
+                }
+                
+                guard let finalAudio = audioData else { return }
                 
                 if let cacheURL = cacheURL {
-                    try? audioData.write(to: cacheURL, options: .atomic)
+                    try? finalAudio.write(to: cacheURL, options: .atomic)
                     print("[VoiceAssistantService] 💾 Saved sample audio to local cache: \(cacheURL.lastPathComponent)")
                 }
                 
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
-                    self.playAudioData(audioData, text: sampleText)
+                    self.playAudioData(finalAudio, text: sampleText)
                 }
             } catch {
                 guard !Task.isCancelled else { return }
@@ -183,7 +211,32 @@ final class VoiceAssistantService: NSObject, AVAudioPlayerDelegate {
         }
     }
     
-    // MARK: - Voice.ai TTS with Automatic Key Rotation
+    // MARK: - Local Mac Zero-Shot Voice Clone Server
+    
+    private func fetchLocalVoiceCloneAudio(text: String, voice: String) async throws -> Data {
+        let endpoint = "\(serverBaseURL)/api/tts"
+        guard let url = URL(string: endpoint) else { throw URLError(.badURL) }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 25
+        
+        let payload: [String: String] = [
+            "text": text,
+            "voice": voice
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        
+        return data
+    }
+    
+    // MARK: - Voice.ai TTS with Automatic Key Rotation (Fallback)
     
     private func fetchVoiceAIAudioWithKeyRotation(text: String, voiceId: String) async throws -> Data {
         let keys = Secrets.voiceAIApiKeys
@@ -219,30 +272,31 @@ final class VoiceAssistantService: NSObject, AVAudioPlayerDelegate {
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 15
         
-        var bodyPayload: [String: Any] = [
+        let body: [String: Any] = [
             "text": text,
             "model": "voiceai-tts-v1-latest",
+            "voice_id": voiceId,
             "language": "en"
         ]
-        let cleanVoiceId = voiceId.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !cleanVoiceId.isEmpty {
-            bodyPayload["voice_id"] = cleanVoiceId
-        }
-        request.httpBody = try JSONSerialization.data(withJSONObject: bodyPayload)
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
         
         let (data, response) = try await session.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
-            let errorText = String(data: data, encoding: .utf8) ?? "Voice.ai HTTP error"
-            print("[VoiceAssistantService] ❌ Voice.ai Error: \(errorText)")
-            throw NSError(domain: "VoiceAssistantService", code: (response as? HTTPURLResponse)?.statusCode ?? 500, userInfo: [NSLocalizedDescriptionKey: errorText])
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw URLError(.badServerResponse)
         }
         
-        print("[VoiceAssistantService] ✅ Successfully fetched \(data.count) bytes of audio from Voice.ai!")
-        return data
+        if (200...299).contains(httpResponse.statusCode) {
+            return data
+        } else {
+            let errorMsg = String(data: data, encoding: .utf8) ?? "HTTP \(httpResponse.statusCode)"
+            print("[VoiceAssistantService] ❌ Voice.ai returned status \(httpResponse.statusCode): \(errorMsg)")
+            throw URLError(.init(rawValue: httpResponse.statusCode))
+        }
     }
     
-    // MARK: - ElevenLabs TTS with Automatic Key Rotation
+    // MARK: - ElevenLabs TTS with Key Rotation (Fallback)
     
     private func fetchElevenLabsAudioWithKeyRotation(text: String) async throws -> Data {
         let keys = Secrets.elevenLabsApiKeys
@@ -258,10 +312,10 @@ final class VoiceAssistantService: NSObject, AVAudioPlayerDelegate {
             print("[VoiceAssistantService] 🎙️ Trying ElevenLabs Key #\(keyIndex + 1)...")
             do {
                 let data = try await performElevenLabsRequest(text: text, apiKey: apiKey)
-                self.currentElevenKeyIndex = keyIndex // Preserve working key
+                self.currentElevenKeyIndex = keyIndex
                 return data
             } catch {
-                print("[VoiceAssistantService] ⚠️ ElevenLabs Key #\(keyIndex + 1) failed/expired: \(error.localizedDescription)")
+                print("[VoiceAssistantService] ⚠️ ElevenLabs Key #\(keyIndex + 1) quota exceeded/failed: \(error.localizedDescription)")
                 lastError = error
                 self.currentElevenKeyIndex = (keyIndex + 1) % keys.count
             }
@@ -271,112 +325,90 @@ final class VoiceAssistantService: NSObject, AVAudioPlayerDelegate {
     }
     
     private func performElevenLabsRequest(text: String, apiKey: String) async throws -> Data {
-        let defaultVoice = "21m00Tcm4TlvDq8ikWAM"
-        let endpoint = "https://api.elevenlabs.io/v1/text-to-speech/\(defaultVoice)?output_format=mp3_44100_128"
+        let voiceId = "21m00Tcm4TlvDq8ikWAM"
+        let endpoint = "https://api.elevenlabs.io/v1/text-to-speech/\(voiceId)?output_format=mp3_44100_128"
         guard let url = URL(string: endpoint) else { throw URLError(.badURL) }
         
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue(apiKey, forHTTPHeaderField: "xi-api-key")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 12
         
-        let bodyPayload: [String: Any] = [
+        let body: [String: Any] = [
             "text": text,
-            "model_id": "eleven_turbo_v2_5",
+            "model_id": "eleven_multilingual_v2",
             "voice_settings": [
                 "stability": 0.5,
-                "similarity_boost": 0.85
+                "similarity_boost": 0.75
             ]
         ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: bodyPayload)
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
         
         let (data, response) = try await session.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
-            let errorText = String(data: data, encoding: .utf8) ?? "ElevenLabs HTTP error"
-            print("[VoiceAssistantService] ❌ ElevenLabs Error: \(errorText)")
-            throw NSError(domain: "VoiceAssistantService", code: (response as? HTTPURLResponse)?.statusCode ?? 500, userInfo: [NSLocalizedDescriptionKey: errorText])
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw URLError(.badServerResponse)
         }
         
-        print("[VoiceAssistantService] ✅ Successfully fetched \(data.count) bytes of MP3 audio from ElevenLabs!")
-        return data
+        if (200...299).contains(httpResponse.statusCode) {
+            return data
+        } else {
+            let errorMsg = String(data: data, encoding: .utf8) ?? "HTTP \(httpResponse.statusCode)"
+            print("[VoiceAssistantService] ❌ ElevenLabs returned status \(httpResponse.statusCode): \(errorMsg)")
+            throw URLError(.init(rawValue: httpResponse.statusCode))
+        }
     }
     
-    // MARK: - Local Mac Neural TTS Request
+    // MARK: - Local Mac Server TTS (Kokoro-82M Fallback)
     
     private func fetchLocalTTSAudio(text: String) async throws -> Data {
-        let base = serverBaseURL.hasSuffix("/") ? String(serverBaseURL.dropLast()) : serverBaseURL
-        
-        var candidateURLs: [URL] = []
-        if let primary = URL(string: "\(base)/api/tts") {
-            candidateURLs.append(primary)
-        }
-        if let localhost = URL(string: "http://127.0.0.1:3000/api/tts"), !candidateURLs.contains(localhost) {
-            candidateURLs.append(localhost)
+        guard let url = URL(string: "\(serverBaseURL)/api/tts") else {
+            throw URLError(.badURL)
         }
         
-        let bodyPayload: [String: String] = [
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let payload: [String: String] = [
             "text": text,
             "voice": voiceName
         ]
-        let postData = try JSONSerialization.data(withJSONObject: bodyPayload)
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
         
-        var lastError: Error?
-        for candidateURL in candidateURLs {
-            print("[VoiceAssistantService] 🌐 Connecting to TTS endpoint: \(candidateURL.absoluteString)...")
-            var request = URLRequest(url: candidateURL)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = postData
-            
-            do {
-                let (data, response) = try await session.data(for: request)
-                if let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) {
-                    print("[VoiceAssistantService] ✅ Successfully fetched \(data.count) bytes of WAV audio from \(candidateURL.absoluteString)!")
-                    return data
-                } else {
-                    let code = (response as? HTTPURLResponse)?.statusCode ?? 500
-                    let errorMsg = String(data: data, encoding: .utf8) ?? "HTTP \(code)"
-                    print("[VoiceAssistantService] ⚠️ Server \(candidateURL.absoluteString) returned status \(code): \(errorMsg)")
-                }
-            } catch {
-                print("[VoiceAssistantService] ⚠️ Connection to \(candidateURL.absoluteString) failed: \(error.localizedDescription)")
-                lastError = error
-            }
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
+            throw URLError(.badServerResponse)
         }
         
-        throw lastError ?? URLError(.badServerResponse)
+        return data
     }
     
-    @MainActor
+    // MARK: - Audio Playback
+    
     private func playAudioData(_ data: Data, text: String) {
         do {
-            #if os(tvOS) || os(iOS)
+            #if os(iOS) || os(tvOS)
             let audioSession = AVAudioSession.sharedInstance()
-            try? audioSession.setCategory(.playback, mode: .default)
-            try? audioSession.setActive(true)
+            try audioSession.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+            try audioSession.setActive(true)
             #endif
             
-            let player = try AVAudioPlayer(data: data)
-            player.delegate = self
-            player.volume = 1.0
-            self.audioPlayer = player
-            self.state = .speaking(text: text)
+            audioPlayer = try AVAudioPlayer(data: data)
+            audioPlayer?.delegate = self
+            audioPlayer?.prepareToPlay()
+            audioPlayer?.play()
             
-            player.prepareToPlay()
-            let started = player.play()
-            print("[VoiceAssistantService] 🔊 AVAudioPlayer started playing! Success: \(started), Duration: \(String(format: "%.2f", player.duration))s, Volume: \(player.volume)")
+            self.state = .speaking(text: text)
         } catch {
-            print("[VoiceAssistantService] ❌ AVAudioPlayer error: \(error.localizedDescription)")
-            if case .speaking = self.state {
-                self.state = .idle
-            }
+            print("[VoiceAssistantService] ❌ Audio playback error: \(error.localizedDescription)")
+            self.state = .idle
         }
     }
     
     // MARK: - AVAudioPlayerDelegate
     
-    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        print("[VoiceAssistantService] 🏁 Audio playback finished successfully: \(flag)")
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         Task { @MainActor in
             if case .speaking = self.state {
                 self.state = .idle
@@ -384,9 +416,11 @@ final class VoiceAssistantService: NSObject, AVAudioPlayerDelegate {
         }
     }
     
-    nonisolated func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: (any Error)?) {
-        print("[VoiceAssistantService] ❌ Audio decode error: \(error?.localizedDescription ?? "unknown")")
+    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
         Task { @MainActor in
+            if let error = error {
+                print("[VoiceAssistantService] ❌ Audio decode error: \(error.localizedDescription)")
+            }
             if case .speaking = self.state {
                 self.state = .idle
             }

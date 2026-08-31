@@ -117,10 +117,33 @@ async function main() {
                 .status(400)
                 .send({ error: 'Missing text parameter in body' });
         }
+
+        // 1. Try Local Zero-Shot Voice Cloning Engine (Port 5050)
+        try {
+            const cloneResponse = await fetch('http://127.0.0.1:5050/api/tts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text, voice: voice || 'trump' }),
+                signal: AbortSignal.timeout(30000)
+            });
+
+            if (cloneResponse.ok) {
+                const arrayBuffer = await cloneResponse.arrayBuffer();
+                const buffer = Buffer.from(arrayBuffer);
+                reply.header('Content-Type', 'audio/wav');
+                reply.header('Content-Length', buffer.length);
+                reply.header('Cache-Control', 'public, max-age=86400');
+                return reply.send(buffer);
+            }
+        } catch (cloneErr) {
+            // Local clone server offline or loading, fallback gracefully
+        }
+
+        // 2. Fallback to local Kokoro Neural Voice
         try {
             const wavBuffer = await generateSpeechWav(
                 text,
-                voice || 'af_heart'
+                voice && voice.startsWith('a') ? voice : 'am_adam'
             );
             reply.header('Content-Type', 'audio/wav');
             reply.header('Content-Length', wavBuffer.length);

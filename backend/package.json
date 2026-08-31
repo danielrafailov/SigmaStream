@@ -24,7 +24,7 @@
     },
     "devDependencies": {
         "@types/crypto-js": "^4.2.2",
-        "@types/node": "^22.7.4",
+        "@types/node": "^26.4.0",
         "patch-package": "^8.0.1",
         "prettier": "^3.3.3",
         "tsx": "^4.23.13",

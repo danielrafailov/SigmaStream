@@ -7,91 +7,77 @@
 
 import SwiftUI
 
+struct CelebrityVoice: Identifiable, Hashable {
+    let id: String // voice_id
+    let name: String
+    let icon: String
+}
+
 struct SettingsView: View {
     @Environment(AppState.self) private var appState
     
-    @State private var searchText: String = ""
-    @State private var availableVoices: [VoiceAIDeviceVoice] = []
-    @State private var isLoadingVoices: Bool = false
-    
-    private var filteredVoices: [VoiceAIDeviceVoice] {
-        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            return availableVoices
-        }
-        return availableVoices.filter {
-            $0.name.localizedCaseInsensitiveContains(trimmed)
-        }
-    }
+    private let voices: [CelebrityVoice] = [
+        CelebrityVoice(id: "40d320d7-558b-4207-b9e9-45772b0ce167", name: "Trump", icon: "🇺🇸"),
+        CelebrityVoice(id: "4aab5641-8f84-404a-be30-1d620d856dee", name: "Michael Jackson", icon: "🕺"),
+        CelebrityVoice(id: "06baf53c-9f1e-43ba-adf0-0385dd022991", name: "Saul Goodman", icon: "⚖️"),
+        CelebrityVoice(id: "56e0b000-b8fb-4fd3-832a-03bde62f8dbc", name: "David Attenborough", icon: "🌿"),
+        CelebrityVoice(id: "43ce1296-4969-4af6-bdc1-22ef5e347d08", name: "Mandalorian", icon: "🛡️"),
+        CelebrityVoice(id: "40e41528-8f28-4f6d-94ac-7670f9fec4a9", name: "Walter White", icon: "🧪"),
+        CelebrityVoice(id: "280e1b27-a62d-47a3-8840-b7ff288941aa", name: "Gordon Ramsay", icon: "🍳"),
+        CelebrityVoice(id: "3caf42ba-3d92-4aed-8fda-1a70a4abd47c", name: "Tom Holland", icon: "🕷️"),
+        CelebrityVoice(id: "489b1783-5724-45e8-84dc-ace995595845", name: "Lebron James", icon: "🏀"),
+        CelebrityVoice(id: "a0cf2b27-25c9-45b8-a53d-21e7029c5bb1", name: "Morgan Freeman", icon: "🎬"),
+        CelebrityVoice(id: "2c61b0ed-c7e4-461d-a6d1-5a4f02fc8278", name: "Arnold Schwarzenegger", icon: "🦾"),
+        CelebrityVoice(id: "9a7860b8-70f8-461f-b0c7-d005d0b1504c", name: "Snoop Dogg", icon: "🕶️"),
+        CelebrityVoice(id: "6a6d4859-fff1-4405-9f8a-a259768679be", name: "Joe Rogan", icon: "🎧"),
+        CelebrityVoice(id: "c1745484-ba67-4cba-b8f3-19f9bc538f61", name: "Daffy Duck", icon: "🦆")
+    ]
     
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 28) {
-                    if isLoadingVoices && availableVoices.isEmpty {
-                        HStack {
-                            Spacer()
-                            ProgressView("Loading voices...")
-                                .font(.headline)
-                            Spacer()
-                        }
-                        .frame(maxWidth: .infinity, minHeight: 350)
-                        .padding(.vertical, 40)
-                    } else if !searchText.isEmpty && filteredVoices.isEmpty {
-                        HStack {
-                            Spacer()
-                            ContentUnavailableView(
-                                "No voices found",
-                                systemImage: "person.wave.2",
-                                description: Text("Try searching for Trump, Matt, Ellie, Emma, Lauren, Alicia, or Dalton")
-                            )
-                            Spacer()
-                        }
-                        .frame(maxWidth: .infinity, minHeight: 350)
-                        .padding(.vertical, 40)
-                    } else {
-                        VStack(spacing: 16) {
-                            ForEach(filteredVoices) { voice in
-                                voiceRow(voice: voice)
-                            }
-                        }
-                        .padding(.horizontal, 48)
-                        .padding(.top, 16)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                
+                // Header
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("AI Voice Assistant Settings")
+                        .font(.largeTitle)
+                        .fontWeight(.bold)
+                    Text("Sample and select your preferred celebrity AI voice personality for movie recommendations.")
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 48)
+                .padding(.top, 24)
+                
+                // Voices List
+                LazyVStack(spacing: 16) {
+                    ForEach(voices) { voice in
+                        voiceRow(voice: voice)
                     }
                 }
-                .scrollTargetLayout()
-                .padding(.vertical, 24)
+                .padding(.horizontal, 48)
             }
-            .navigationTitle("")
-            .searchable(
-                text: $searchText,
-                prompt: "Search AI voices (e.g. Trump, Matt, Ellie, Emma, Lauren)..."
-            )
-            .task {
-                isLoadingVoices = true
-                availableVoices = await appState.voiceService.fetchAvailableVoiceAIVoices()
-                isLoadingVoices = false
-            }
+            .scrollTargetLayout()
+            .padding(.vertical, 24)
         }
     }
     
     // MARK: - Single Voice Row
-    private func voiceRow(voice: VoiceAIDeviceVoice) -> some View {
-        let isActive = appState.voiceService.selectedVoiceAIVoiceId == voice.voiceId
+    private func voiceRow(voice: CelebrityVoice) -> some View {
+        let isActive = appState.voiceService.selectedVoiceId == voice.id
         
         return HStack(spacing: 20) {
-            Image(systemName: "person.wave.2.fill")
-                .font(.title2)
-                .foregroundStyle(isActive ? .blue : .secondary)
+            Text(voice.icon)
+                .font(.system(size: 38))
             
             VStack(alignment: .leading, spacing: 4) {
                 Text(voice.name)
                     .font(.title3)
                     .fontWeight(.bold)
                 
-                Text(voice.voiceId == Secrets.voiceAITrumpVoiceId ? "Featured Voice • AI Model" : "Studio Neural Voice")
+                Text(isActive ? "Active Assistant Voice" : "Voice.ai Personality")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(isActive ? .blue : .secondary)
             }
             
             Spacer()
@@ -101,8 +87,7 @@ struct SettingsView: View {
                 Button {
                     let sampleText = "Hello, this is \(voice.name) speaking on SigmaStream."
                     appState.voiceService.previewVoice(
-                        voiceId: voice.voiceId,
-                        engine: .voiceAI,
+                        voiceId: voice.id,
                         sampleText: sampleText
                     )
                 } label: {
@@ -115,9 +100,8 @@ struct SettingsView: View {
                 
                 // Select / Active Button
                 Button {
-                    appState.voiceService.selectedVoiceAIVoiceId = voice.voiceId
-                    appState.voiceService.selectedVoiceAIName = voice.name
-                    appState.voiceService.selectedEngine = .voiceAI
+                    appState.voiceService.selectedVoiceId = voice.id
+                    appState.voiceService.selectedVoiceName = voice.name
                 } label: {
                     if isActive {
                         Label("Active", systemImage: "checkmark")

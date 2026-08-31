@@ -16,7 +16,10 @@
         "cheerio": "^1.2.0",
         "crypto-js": "^4.2.0",
         "dotenv": "^16.4.5",
+        "ioredis": "^6.0.0",
         "kokoro-js": "^1.2.1",
+        "semver": "^7.8.5",
+        "toad-cache": "^3.7.0",
         "wavefile": "^11.0.0"
     },
     "devDependencies": {
@@ -24,7 +27,7 @@
         "@types/node": "^22.7.4",
         "patch-package": "^8.0.1",
         "prettier": "^3.3.3",
-        "tsx": "^4.19.1",
+        "tsx": "^4.23.13",
         "typescript": "^5.6.2"
     }
 }

@@ -35,8 +35,7 @@ export function extractUrl(data: any): ExtractedStream | null {
         return wrap(d.m3u8, headers);
 
     const srcsPrimary = (d.sources as Record<string, unknown>)?.primary as
-        | Record<string, unknown>
-        | undefined;
+        Record<string, unknown> | undefined;
     if (srcsPrimary?.url)
         return wrap(
             srcsPrimary.url,

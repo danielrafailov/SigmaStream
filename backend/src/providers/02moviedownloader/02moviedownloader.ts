@@ -309,8 +309,7 @@ export class MovieDownloader extends BaseProvider {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             const raw = (await response.json()) as
-                | MovieDownloaderResponse
-                | EncryptedResponse;
+                MovieDownloaderResponse | EncryptedResponse;
             if ('encrypted' in raw && raw.encrypted === true) {
                 return this.decryptPayload(raw.data, token);
             }

@@ -59,8 +59,7 @@ export class VidRockProvider extends BaseProvider {
 
                 if (stream.url.includes('hls2.vdrk.site')) {
                     const secondData = (await this.fetchPage(stream.url)) as
-                        | VidrockCDN[]
-                        | null;
+                        VidrockCDN[] | null;
                     if (!secondData) continue;
 
                     secondData.forEach((obj) => {

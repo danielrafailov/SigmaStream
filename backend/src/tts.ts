@@ -1,14 +1,13 @@
-import { KokoroTTS } from 'kokoro-js';
+let ttsInstance: any = null;
+let initPromise: Promise<any> | null = null;
 
-let ttsInstance: KokoroTTS | null = null;
-let initPromise: Promise<KokoroTTS> | null = null;
-
-export async function getTTS(): Promise<KokoroTTS> {
+export async function getTTS(): Promise<any> {
     if (ttsInstance) return ttsInstance;
     if (initPromise) return initPromise;
 
     initPromise = (async () => {
         console.log('[TTS] Loading local Kokoro Neural TTS model...');
+        const { KokoroTTS } = await import('kokoro-js');
         const tts = await KokoroTTS.from_pretrained(
             'onnx-community/Kokoro-82M-v1.0-ONNX',
             {

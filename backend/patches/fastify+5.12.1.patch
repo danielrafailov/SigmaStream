@@ -1,18 +1,3 @@
-diff --git a/node_modules/fastify/lib/hooks.js b/node_modules/fastify/lib/hooks.js
-index 3895ac4..73d7871 100644
---- a/node_modules/fastify/lib/hooks.js
-+++ b/node_modules/fastify/lib/hooks.js
-@@ -37,6 +37,10 @@ const {
-   kRequestPayloadStream
- } = require('./symbols')
- 
-+module.exports.Hooks = Hooks
-+module.exports.lifecycleHooks = lifecycleHooks
-+module.exports.supportedHooks = supportedHooks
-+
- function Hooks () {
-   this.onRequest = []
-   this.preParsing = []
 diff --git a/node_modules/fastify/lib/initial-config-validation.js b/node_modules/fastify/lib/initial-config-validation.js
 index d8f3d6f..790af83 100644
 --- a/node_modules/fastify/lib/initial-config-validation.js
@@ -41,31 +26,26 @@ index d8f3d6f..790af83 100644
 +module.exports.defaultInitOptions = defaultInitOptions
  module.exports.utils = { deepFreezeObject }
 diff --git a/node_modules/fastify/lib/server.js b/node_modules/fastify/lib/server.js
-index 2b8b935..a409d4c 100644
+index 2b8b935..2060223 100644
 --- a/node_modules/fastify/lib/server.js
 +++ b/node_modules/fastify/lib/server.js
-@@ -18,7 +18,7 @@ const {
- const noopSet = require('./noop-set')
- const PonyPromise = require('./promise')
- 
--module.exports.createServer = createServer
-+module.exports = { createServer }
- 
- function defaultResolveServerListeningText (address) {
-   return `Server listening at ${address}`
-@@ -335,10 +335,11 @@ function getServerInstance (options, httpHandler) {
-   // HTTP1 server instance
+@@ -336,9 +336,16 @@ function getServerInstance (options, httpHandler) {
    const server = httpsOptions
      ? https.createServer(httpsOptions, httpHandler)
--    : http.createServer(options.http, httpHandler)
+     : http.createServer(options.http, httpHandler)
 -  server.keepAliveTimeout = options.keepAliveTimeout
 -  server.requestTimeout = options.requestTimeout
 -  server.setTimeout(options.connectionTimeout)
-+    : http.createServer(httpHandler)
-+  server.keepAliveTimeout = options.keepAliveTimeout || 72000
-+  server.headersTimeout = Math.max(server.keepAliveTimeout + 1000, 75000)
-+  server.requestTimeout = options.requestTimeout || 0
-+  if (options.connectionTimeout) server.setTimeout(options.connectionTimeout)
++  if (options.keepAliveTimeout) {
++    server.keepAliveTimeout = options.keepAliveTimeout
++    server.headersTimeout = Math.max(server.headersTimeout || 60000, options.keepAliveTimeout + 1000)
++  }
++  if (options.requestTimeout) {
++    server.requestTimeout = options.requestTimeout
++  }
++  if (options.connectionTimeout) {
++    server.setTimeout(options.connectionTimeout)
++  }
    // We treat zero as null(node default) so we do not pass zero to the server instance
    if (options.maxRequestsPerSocket > 0) {
      server.maxRequestsPerSocket = options.maxRequestsPerSocket

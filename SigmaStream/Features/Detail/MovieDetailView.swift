@@ -315,6 +315,7 @@ struct MovieDetailView: View {
 
     private func cancelStreamResolution() {
         streamResolutionTask?.cancel()
+        streamError = nil
     }
 
     private func startResolveStream(fromBeginning: Bool) {

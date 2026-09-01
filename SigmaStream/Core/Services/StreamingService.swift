@@ -209,6 +209,13 @@ private struct OMSSErrorObject: Decodable {
 /// Messages for SwiftUI when OMSS playback resolution fails (network, decode, no sources).
 func userFacingStreamingErrorMessage(for error: Error) -> String {
     if error is CancellationError { return "" }
+    if let urlError = error as? URLError, urlError.code == .cancelled { return "" }
+    let nsError = error as NSError
+    if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled { return "" }
+    if nsError.domain == NSCocoaErrorDomain && nsError.code == NSUserCancelledError { return "" }
+    let desc = error.localizedDescription.lowercased()
+    if desc.contains("cancelled") || desc.contains("canceled") { return "" }
+
     if let streaming = error as? StreamingError {
         return streaming.errorDescription ?? "Could not load streams"
     }

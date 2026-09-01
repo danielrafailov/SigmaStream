@@ -353,6 +353,7 @@ struct TVSeriesDetailView: View {
 
     private func cancelStreamResolution() {
         streamResolutionTask?.cancel()
+        streamError = nil
     }
 
     private func startResolveStream(season: Int, episode: Int, title: String, fromBeginning: Bool) {

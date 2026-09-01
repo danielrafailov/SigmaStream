@@ -33,7 +33,7 @@ export class StreamBufferService {
     // Cache of downloaded video segments: URL -> CachedSegment
     private segmentCache: Map<string, CachedSegment> = new Map();
 
-    // In-flight download promises for deduplication: URL -> Promise<CachedSegment>
+    // In-flight download promises for deduplication: URL -> Promise<CachedSegment | null>
     private inFlightRequests: Map<string, Promise<CachedSegment | null>> =
         new Map();
 
@@ -120,15 +120,9 @@ export class StreamBufferService {
                 });
             }
 
-            console.log(
-                `[StreamBuffer] 📋 Registered playlist (${segments.length} segments): ${manifestUrl.slice(0, 80)}...`
-            );
-
-            // Trigger immediate pre-roll prefetch for the first 3 segments on startup!
-            if (segments.length > 0) {
-                for (let k = 0; k < Math.min(3, segments.length); k++) {
-                    this.queuePrefetch(segments[k], requestHeaders);
-                }
+            // Trigger immediate pre-roll prefetch for the first 3 segments on startup
+            for (let k = 0; k < Math.min(3, segments.length); k++) {
+                this.queuePrefetch(segments[k], requestHeaders);
             }
         } catch (err) {
             console.warn('[StreamBuffer] Failed to register manifest:', err);
@@ -155,9 +149,7 @@ export class StreamBufferService {
         // 1. Check RAM Cache (HIT)
         const cached = this.segmentCache.get(normUrl);
         if (cached) {
-            // Refresh timestamp for LRU
             cached.cachedAt = Date.now();
-            // Trigger lookahead prefetch in background
             this.triggerLookahead(normUrl, customHeaders);
             return cached;
         }
@@ -214,7 +206,6 @@ export class StreamBufferService {
     private putSegment(normUrl: string, segment: CachedSegment): void {
         // Enforce max capacity
         if (this.segmentCache.size >= this.MAX_TOTAL_SEGMENTS) {
-            // Evict oldest entry
             let oldestKey: string | null = null;
             let oldestTime = Infinity;
 
@@ -250,7 +241,7 @@ export class StreamBufferService {
         const currentIndex = lookup.index;
         const total = playlist.segments.length;
 
-        // Lookahead: Pre-fetch next N segments (e.g. index+1 through index+10)
+        // Lookahead: Pre-fetch next N segments
         const forwardLimit = Math.min(
             total,
             currentIndex + 1 + this.FORWARD_PREFETCH_COUNT
@@ -300,7 +291,7 @@ export class StreamBufferService {
                 const reqHeaders: Record<string, string> = {
                     'User-Agent':
                         headers?.['User-Agent'] ||
-                        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+                        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.6912.95 Safari/537.36',
                     ...(headers || {})
                 };
                 delete reqHeaders['range'];
@@ -329,11 +320,6 @@ export class StreamBufferService {
                         statusCode: res.status,
                         cachedAt: Date.now()
                     });
-
-                    // Log lookahead hit
-                    const segName =
-                        segmentUrl.split('/').pop()?.split('?')[0] || 'segment';
-                    // console.log(`[StreamBuffer] ⚡ Prefetched: ${segName} (${(buf.length / 1024 / 1024).toFixed(2)} MB)`);
                 }
             } catch (err: any) {
                 // Background prefetch errors are non-critical

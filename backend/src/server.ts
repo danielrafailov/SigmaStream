@@ -99,7 +99,7 @@ async function main() {
                 ) {
                     const cached = await streamBuffer.getOrFetchSegment(
                         targetUrl,
-                        async (fetchUrl) => {
+                        async (fetchUrl: string) => {
                             const controller = new AbortController();
                             const timer = setTimeout(
                                 () => controller.abort(),

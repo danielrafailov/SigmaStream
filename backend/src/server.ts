@@ -1,6 +1,5 @@
-import dotenv from 'dotenv';
-dotenv.config();
 import { OMSSServer } from '@omss/framework';
+import 'dotenv/config';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { knownThirdPartyProxies } from './thirdPartyProxies.js';

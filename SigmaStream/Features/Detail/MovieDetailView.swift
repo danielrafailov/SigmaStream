@@ -351,10 +351,15 @@ struct MovieDetailView: View {
                 if let quality { streamQuality = quality }
                 playableContent = makeMoviePlayableContent(urls: urls, quality: quality, fromBeginning: fromBeginning)
             } catch is CancellationError {
+                streamError = nil
                 return
             } catch {
+                if Task.isCancelled {
+                    streamError = nil
+                    return
+                }
                 let msg = userFacingStreamingErrorMessage(for: error)
-                streamError = msg.isEmpty ? "Could not load streams" : msg
+                streamError = msg.isEmpty ? nil : msg
             }
         }
     }
@@ -396,10 +401,15 @@ struct MovieDetailView: View {
                 streamPickerSources = playable
                 showStreamPicker = true
             } catch is CancellationError {
+                streamError = nil
                 return
             } catch {
+                if Task.isCancelled {
+                    streamError = nil
+                    return
+                }
                 let msg = userFacingStreamingErrorMessage(for: error)
-                streamError = msg.isEmpty ? "Could not load streams" : msg
+                streamError = msg.isEmpty ? nil : msg
             }
         }
     }

@@ -61,8 +61,8 @@ export class StreamBufferService {
     private readonly FORWARD_PREFETCH_COUNT = 60;
     // Trailing backward retain depth (up to 30 segments ~ 4 to 5 minutes behind for instant rewind)
     private readonly BACKWARD_PREFETCH_COUNT = 30;
-    // Maximum concurrent background downloads (4 steady workers to prevent CDN rate limiting)
-    private readonly MAX_CONCURRENT_PREFETCH = 4;
+    // Maximum concurrent background downloads (up to 8 parallel workers for instant burst filling)
+    private readonly MAX_CONCURRENT_PREFETCH = 8;
 
     private activePrefetchWorkers = 0;
     private prefetchQueue: Array<{
@@ -156,9 +156,10 @@ export class StreamBufferService {
                 `[StreamBuffer] 📋 Registered ${segments.length} segments for: ${pName}`
             );
 
-            // Trigger immediate burst pre-roll prefetch for the first 6 segments on startup
-            for (let k = 0; k < Math.min(6, segments.length); k++) {
-                this.queuePrefetch(segments[k], requestHeaders, 100 - k);
+            // Trigger immediate aggressive burst pre-roll prefetch for the first 30 segments (~4-5 mins of video) on startup
+            const initialBurstCount = Math.min(30, segments.length);
+            for (let k = 0; k < initialBurstCount; k++) {
+                this.queuePrefetch(segments[k], requestHeaders, 150 - k);
             }
         } catch (err) {
             console.warn('[StreamBuffer] Failed to register manifest:', err);

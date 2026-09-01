@@ -544,9 +544,15 @@ struct TVSeriesMoreEpisodesView: View {
                     fromBeginning: fromBeginning
                 )
             }
+        } catch is CancellationError {
+            streamError = nil
         } catch {
+            if Task.isCancelled {
+                streamError = nil
+                return
+            }
             let msg = userFacingStreamingErrorMessage(for: error)
-            streamError = msg.isEmpty ? "Could not load streams" : msg
+            streamError = msg.isEmpty ? nil : msg
         }
     }
 
@@ -593,9 +599,15 @@ struct TVSeriesMoreEpisodesView: View {
                 streamPickerEpisode = (season, episode, title)
                 showStreamPicker = true
             }
+        } catch is CancellationError {
+            streamError = nil
         } catch {
+            if Task.isCancelled {
+                streamError = nil
+                return
+            }
             let msg = userFacingStreamingErrorMessage(for: error)
-            streamError = msg.isEmpty ? "Could not load streams" : msg
+            streamError = msg.isEmpty ? nil : msg
         }
     }
 

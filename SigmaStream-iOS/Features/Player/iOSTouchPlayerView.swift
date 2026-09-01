@@ -1,0 +1,451 @@
+//
+//  iOSTouchPlayerView.swift
+//  SigmaStream-iOS
+//
+//  Created by Daniel Rafailov on 2026-09-01.
+//
+
+import SwiftUI
+import AVKit
+import MediaPlayer
+
+#if os(iOS)
+struct iOSTouchPlayerView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(AppState.self) private var appState
+
+    let playableContent: PlayableContent
+
+    @State private var player: AVPlayer?
+    @State private var isPlaying = false
+    @State private var currentTime: Double = 0
+    @State private var duration: Double = 0
+    @State private var showControls = true
+    @State private var controlsTimer: Task<Void, Never>?
+    @State private var isDraggingSlider = false
+    @State private var dragTime: Double = 0
+    @State private var selectedQuality: String?
+    @State private var timeObserverToken: Any?
+
+    // Double-tap skip ripples
+    @State private var leftRipple = false
+    @State private var rightRipple = false
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+
+            // Video Player Layer
+            if let player {
+                CustomVideoPlayerRepresentable(player: player)
+                    .ignoresSafeArea()
+                    .onTapGesture(count: 2) { location in
+                        // Double-tap to seek
+                        let screenWidth = UIScreen.main.bounds.width
+                        if location.x < screenWidth / 2 {
+                            seekRelative(-10)
+                            triggerLeftRipple()
+                        } else {
+                            seekRelative(10)
+                            triggerRightRipple()
+                        }
+                    }
+                    .onTapGesture(count: 1) {
+                        toggleControls()
+                    }
+            } else {
+                ProgressView("Loading Stream...")
+                    .tint(.white)
+                    .foregroundStyle(.white)
+            }
+
+            // Left / Right Double-Tap Indicator Overlays
+            HStack {
+                if leftRipple {
+                    VStack {
+                        Image(systemName: "gobackward.10")
+                            .font(.system(size: 40, weight: .bold))
+                            .foregroundStyle(.white)
+                        Text("10s")
+                            .font(.caption.bold())
+                            .foregroundStyle(.white)
+                    }
+                    .padding(30)
+                    .background(.ultraThinMaterial)
+                    .clipShape(Circle())
+                    .transition(.opacity.combined(with: .scale))
+                }
+                Spacer()
+                if rightRipple {
+                    VStack {
+                        Image(systemName: "goforward.10")
+                            .font(.system(size: 40, weight: .bold))
+                            .foregroundStyle(.white)
+                        Text("10s")
+                            .font(.caption.bold())
+                            .foregroundStyle(.white)
+                    }
+                    .padding(30)
+                    .background(.ultraThinMaterial)
+                    .clipShape(Circle())
+                    .transition(.opacity.combined(with: .scale))
+                }
+            }
+            .padding(.horizontal, 60)
+            .allowsHitTesting(false)
+
+            // Touch HUD Controls Overlay
+            if showControls {
+                ZStack {
+                    // Dark gradient scrim
+                    LinearGradient(
+                        colors: [Color.black.opacity(0.8), Color.clear, Color.black.opacity(0.85)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+
+                    VStack(spacing: 0) {
+                        // Top Bar
+                        HStack(alignment: .center, spacing: 16) {
+                            Button {
+                                cleanupAndDismiss()
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 18, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .padding(10)
+                                    .background(.ultraThinMaterial)
+                                    .clipShape(Circle())
+                            }
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(playableContent.title)
+                                    .font(.headline)
+                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
+
+                                if let q = selectedQuality ?? playableContent.quality {
+                                    Text(q.uppercased())
+                                        .font(.caption2.bold())
+                                        .foregroundStyle(.cyan)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(Color.cyan.opacity(0.2))
+                                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                                }
+                            }
+
+                            Spacer()
+
+                            // AirPlay Route Picker
+                            AirPlayView()
+                                .frame(width: 36, height: 36)
+                                .background(.ultraThinMaterial)
+                                .clipShape(Circle())
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.top, 16)
+
+                        Spacer()
+
+                        // Center Playback Controls
+                        HStack(spacing: 48) {
+                            Button {
+                                seekRelative(-10)
+                                scheduleControlsHide()
+                            } label: {
+                                Image(systemName: "gobackward.10")
+                                    .font(.system(size: 32, weight: .semibold))
+                                    .foregroundStyle(.white)
+                            }
+
+                            Button {
+                                togglePlayPause()
+                                scheduleControlsHide()
+                            } label: {
+                                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                                    .font(.system(size: 48, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 72, height: 72)
+                                    .background(.ultraThinMaterial)
+                                    .clipShape(Circle())
+                            }
+
+                            Button {
+                                seekRelative(10)
+                                scheduleControlsHide()
+                            } label: {
+                                Image(systemName: "goforward.10")
+                                    .font(.system(size: 32, weight: .semibold))
+                                    .foregroundStyle(.white)
+                            }
+                        }
+
+                        Spacer()
+
+                        // Bottom Scrubber Bar & Timestamps
+                        VStack(spacing: 8) {
+                            // Slider
+                            GeometryReader { geo in
+                                ZStack(alignment: .leading) {
+                                    // Track Background
+                                    Capsule()
+                                        .fill(Color.white.opacity(0.3))
+                                        .frame(height: isDraggingSlider ? 8 : 5)
+
+                                    // Progress Track
+                                    Capsule()
+                                        .fill(Color.red)
+                                        .frame(
+                                            width: max(0, min(geo.size.width, geo.size.width * CGFloat(progressFraction))),
+                                            height: isDraggingSlider ? 8 : 5
+                                        )
+
+                                    // Scrubber Thumb
+                                    Circle()
+                                        .fill(Color.white)
+                                        .frame(width: isDraggingSlider ? 18 : 12, height: isDraggingSlider ? 18 : 12)
+                                        .shadow(color: .black.opacity(0.5), radius: 3)
+                                        .offset(x: max(0, min(geo.size.width - 12, geo.size.width * CGFloat(progressFraction) - 6)))
+                                }
+                                .frame(height: 24)
+                                .contentShape(Rectangle())
+                                .gesture(
+                                    DragGesture(minimumDistance: 0)
+                                        .onChanged { value in
+                                            isDraggingSlider = true
+                                            let fraction = max(0, min(1, value.location.x / geo.size.width))
+                                            dragTime = duration * Double(fraction)
+                                            resetControlsTimer()
+                                        }
+                                        .onEnded { value in
+                                            let fraction = max(0, min(1, value.location.x / geo.size.width))
+                                            let targetTime = duration * Double(fraction)
+                                            seek(to: targetTime)
+                                            isDraggingSlider = false
+                                            scheduleControlsHide()
+                                        }
+                                )
+                            }
+                            .frame(height: 24)
+
+                            // Time Labels
+                            HStack {
+                                Text(formatTime(isDraggingSlider ? dragTime : currentTime))
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.white)
+
+                                Spacer()
+
+                                Text("-" + formatTime(max(0, duration - (isDraggingSlider ? dragTime : currentTime))))
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.horizontal, 24)
+                        .padding(.bottom, 24)
+                    }
+                }
+                .transition(.opacity.animation(.easeInOut(duration: 0.25)))
+            }
+        }
+        .statusBarHidden(!showControls)
+        .onAppear {
+            setupPlayer()
+        }
+        .onDisappear {
+            teardownPlayer()
+        }
+    }
+
+    private var progressFraction: Double {
+        guard duration > 0 else { return 0 }
+        let time = isDraggingSlider ? dragTime : currentTime
+        return max(0, min(1, time / duration))
+    }
+
+    private func setupPlayer() {
+        guard let url = playableContent.urls.first else { return }
+        selectedQuality = playableContent.quality
+
+        let item = AVPlayerItem(url: url)
+        let avPlayer = AVPlayer(playerItem: item)
+        avPlayer.automaticallyWaitsToMinimizeStalling = true
+        self.player = avPlayer
+
+        // Observe periodic playback time
+        let interval = CMTime(seconds: 0.5, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
+        timeObserverToken = avPlayer.addPeriodicTimeObserver(forInterval: interval, queue: .main) { time in
+            if !isDraggingSlider {
+                self.currentTime = time.seconds
+                if let currentItem = avPlayer.currentItem, currentItem.duration.isNumeric {
+                    self.duration = currentItem.duration.seconds
+                }
+                saveProgress()
+            }
+        }
+
+        // Resume from saved playback position if available
+        if let startTime = playableContent.startTime, startTime > 5 {
+            let cmTime = CMTime(seconds: startTime, preferredTimescale: 600)
+            avPlayer.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
+        }
+
+        avPlayer.play()
+        isPlaying = true
+        scheduleControlsHide()
+    }
+
+    private func teardownPlayer() {
+        if let token = timeObserverToken, let player {
+            player.removeTimeObserver(token)
+            timeObserverToken = nil
+        }
+        saveProgress()
+        player?.pause()
+        player = nil
+    }
+
+    private func cleanupAndDismiss() {
+        teardownPlayer()
+        dismiss()
+    }
+
+    private func togglePlayPause() {
+        guard let player else { return }
+        if isPlaying {
+            player.pause()
+            isPlaying = false
+        } else {
+            player.play()
+            isPlaying = true
+        }
+    }
+
+    private func seek(to targetSeconds: Double) {
+        guard let player else { return }
+        let cmTime = CMTime(seconds: targetSeconds, preferredTimescale: 600)
+        player.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
+        self.currentTime = targetSeconds
+        saveProgress()
+    }
+
+    private func seekRelative(_ deltaSeconds: Double) {
+        let newTime = max(0, min(duration, currentTime + deltaSeconds))
+        seek(to: newTime)
+    }
+
+    private func saveProgress() {
+        guard duration > 60, currentTime > 5 else { return }
+        if let movieId = playableContent.movieId {
+            appState.watchProgressManager.saveMoviePlayback(
+                movieId: movieId,
+                currentTime: currentTime,
+                duration: duration
+            )
+        } else if let tvId = playableContent.tvSeriesId,
+                  let season = playableContent.season,
+                  let episode = playableContent.episode {
+            appState.watchProgressManager.saveEpisodePlayback(
+                seriesId: tvId,
+                season: season,
+                episode: episode,
+                currentTime: currentTime,
+                duration: duration
+            )
+        }
+    }
+
+    private func toggleControls() {
+        withAnimation {
+            showControls.toggle()
+        }
+        if showControls {
+            scheduleControlsHide()
+        }
+    }
+
+    private func resetControlsTimer() {
+        controlsTimer?.cancel()
+        controlsTimer = nil
+    }
+
+    private func scheduleControlsHide() {
+        resetControlsTimer()
+        controlsTimer = Task {
+            try? await Task.sleep(nanoseconds: 3_500_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                withAnimation {
+                    if isPlaying && !isDraggingSlider {
+                        showControls = false
+                    }
+                }
+            }
+        }
+    }
+
+    private func triggerLeftRipple() {
+        withAnimation(.easeIn(duration: 0.15)) { leftRipple = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            withAnimation(.easeOut(duration: 0.25)) { leftRipple = false }
+        }
+    }
+
+    private func triggerRightRipple() {
+        withAnimation(.easeIn(duration: 0.15)) { rightRipple = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            withAnimation(.easeOut(duration: 0.25)) { rightRipple = false }
+        }
+    }
+
+    private func formatTime(_ totalSeconds: Double) -> String {
+        guard !totalSeconds.isNaN && !totalSeconds.isInfinite else { return "0:00" }
+        let total = Int(totalSeconds)
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        let seconds = total % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        } else {
+            return String(format: "%d:%02d", minutes, seconds)
+        }
+    }
+}
+
+// UIKit AVPlayerLayer Representable for smooth rendering
+struct CustomVideoPlayerRepresentable: UIViewRepresentable {
+    let player: AVPlayer
+
+    func makeUIView(context: Context) -> CustomPlayerUIView {
+        let view = CustomPlayerUIView()
+        view.playerLayer.player = player
+        view.playerLayer.videoGravity = .resizeAspect
+        return view
+    }
+
+    func updateUIView(_ uiView: CustomPlayerUIView, context: Context) {
+        uiView.playerLayer.player = player
+    }
+}
+
+class CustomPlayerUIView: UIView {
+    override static var layerClass: AnyClass { AVPlayerLayer.self }
+    var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
+}
+
+// Native AirPlay Route Picker Button
+struct AirPlayView: UIViewRepresentable {
+    func makeUIView(context: Context) -> AVRoutePickerView {
+        let routePicker = AVRoutePickerView()
+        routePicker.tintColor = .white
+        routePicker.activeTintColor = .cyan
+        routePicker.prioritizesVideoDevices = true
+        return routePicker
+    }
+
+    func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
+}
+#endif

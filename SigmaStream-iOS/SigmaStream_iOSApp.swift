@@ -1,28 +1,29 @@
 //
-//  SigmaStreamApp.swift
-//  SigmaStream
+//  SigmaStream_iOSApp.swift
+//  SigmaStream-iOS
 //
-//  Created by Daniel Rafailov on 2026-03-16.
+//  Created by Daniel Rafailov on 2026-09-01.
 //
 
 import SwiftUI
 
-#if os(tvOS)
+#if os(iOS)
 @main
-struct SigmaStreamApp: App {
+struct SigmaStream_iOSApp: App {
     @State private var appState = AppState()
 
     init() {
-        // Increase URLCache for image caching (AsyncImage uses URLSession)
-        let memoryCapacity = 50 * 1024 * 1024  // 50 MB
-        let diskCapacity = 200 * 1024 * 1024   // 200 MB
+        // High-capacity image caching for smooth poster scrolling
+        let memoryCapacity = 64 * 1024 * 1024  // 64 MB RAM
+        let diskCapacity = 256 * 1024 * 1024   // 256 MB Disk
         URLCache.shared = URLCache(memoryCapacity: memoryCapacity, diskCapacity: diskCapacity)
     }
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            MainTabView()
                 .environment(appState)
+                .preferredColorScheme(.dark)
                 .task {
                     await appState.loadConfiguration()
                 }

@@ -7,6 +7,7 @@
 
 import SwiftUI
 
+#if os(tvOS)
 struct ContentView: View {
     @Environment(AppState.self) private var appState
     @State private var selectedTab = 1
@@ -41,12 +42,12 @@ struct ContentView: View {
             }
             .tag(2)
 
-            TVShowsView(
+            TVSeriesView(
                 shouldLoad: selectedTab == 3 && !tvDataLoaded,
                 onLoadComplete: { tvDataLoaded = true }
             )
             .tabItem {
-                Label("Shows", systemImage: "tv.fill")
+                Label("TV Shows", systemImage: "tv.fill")
             }
             .tag(3)
 
@@ -55,21 +56,27 @@ struct ContentView: View {
                 onLoadComplete: { collectionsDataLoaded = true }
             )
             .tabItem {
-                Label("Collections", systemImage: "square.stack.3d.up.fill")
+                Label("Collections", systemImage: "square.grid.2x2.fill")
             }
             .tag(4)
 
-            ForYouView()
+            VoiceAssistantView()
                 .tabItem {
-                    Label("For You", systemImage: "heart.fill")
+                    Label("AI Assistant", systemImage: "waveform.circle.fill")
                 }
                 .tag(5)
 
-            SettingsView()
+            MyListView()
                 .tabItem {
-                    Label("Settings", systemImage: "gearshape.fill")
+                    Label("My List", systemImage: "bookmark.fill")
                 }
                 .tag(6)
+
+            LikedView()
+                .tabItem {
+                    Label("Liked", systemImage: "heart.fill")
+                }
+                .tag(7)
         }
     }
 }
@@ -78,3 +85,4 @@ struct ContentView: View {
     ContentView()
         .environment(AppState(apiKey: "placeholder"))
 }
+#endif

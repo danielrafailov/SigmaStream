@@ -1,5 +1,6 @@
+import dotenv from 'dotenv';
+dotenv.config();
 import { OMSSServer } from '@omss/framework';
-import 'dotenv/config';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { knownThirdPartyProxies } from './thirdPartyProxies.js';
@@ -277,14 +278,6 @@ async function main() {
         }
     });
 
-    // Warm up local TTS and STT models in background so first request is instant
-    getTTS().catch((err) =>
-        console.warn('[TTS] Background model warmup notice:', err.message)
-    );
-    getTranscriber().catch((err) =>
-        console.warn('[STT] Background model warmup notice:', err.message)
-    );
-
     // Register providers
     const registry = server.getRegistry();
     console.log('[Server] Discovering providers...');
@@ -292,6 +285,16 @@ async function main() {
 
     console.log('[Server] Binding to port...');
     await server.start();
+
+    // Warm up local TTS and STT models in background after server is live
+    setTimeout(() => {
+        getTTS().catch((err) =>
+            console.warn('[TTS] Background model warmup notice:', err.message)
+        );
+        getTranscriber().catch((err) =>
+            console.warn('[STT] Background model warmup notice:', err.message)
+        );
+    }, 500);
 }
 
 main().catch((error) => {

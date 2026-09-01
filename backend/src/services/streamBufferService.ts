@@ -53,16 +53,16 @@ export class StreamBufferService {
         { playlistId: string; index: number }
     > = new Map();
 
-    // Max segments to keep in memory across all streams (holds ~25 mins of 1080p video)
-    private readonly MAX_TOTAL_SEGMENTS = 200;
-    // Segment expiration TTL (15 minutes)
-    private readonly SEGMENT_TTL_MS = 15 * 60 * 1000;
-    // Lookahead forward prefetch depth (up to 24 segments ~ 2 to 3 minutes ahead)
-    private readonly FORWARD_PREFETCH_COUNT = 24;
-    // Trailing backward retain depth (up to 8 segments behind)
-    private readonly BACKWARD_PREFETCH_COUNT = 6;
-    // Maximum concurrent background downloads
-    private readonly MAX_CONCURRENT_PREFETCH = 6;
+    // Max segments to keep in memory across all streams (holds ~60+ mins of 1080p video, ~1.2GB RAM)
+    private readonly MAX_TOTAL_SEGMENTS = 500;
+    // Segment expiration TTL (20 minutes)
+    private readonly SEGMENT_TTL_MS = 20 * 60 * 1000;
+    // Lookahead forward prefetch depth (up to 60 segments ~ 8 to 10 minutes ahead)
+    private readonly FORWARD_PREFETCH_COUNT = 60;
+    // Trailing backward retain depth (up to 30 segments ~ 4 to 5 minutes behind for instant rewind)
+    private readonly BACKWARD_PREFETCH_COUNT = 30;
+    // Maximum concurrent background downloads (4 steady workers to prevent CDN rate limiting)
+    private readonly MAX_CONCURRENT_PREFETCH = 4;
 
     private activePrefetchWorkers = 0;
     private prefetchQueue: Array<{
@@ -170,9 +170,7 @@ export class StreamBufferService {
      */
     public async getOrFetchSegment(
         segmentUrl: string,
-        fetchFn: (
-            url: string
-        ) => Promise<{
+        fetchFn: (url: string) => Promise<{
             data: Buffer;
             contentType: string;
             headers: Record<string, string>;

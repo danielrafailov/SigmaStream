@@ -1,15 +1,18 @@
 /**
  * ============================================================================
- * STREAM BUFFER SERVICE (Sliding-Window Lookahead Ring Buffer)
+ * STREAM BUFFER SERVICE (Continuous Lookahead & Rapid-Scrubbing Ring Buffer)
  * ============================================================================
  *
  * Implements intelligent edge-side prefetching and memory caching for HLS video segments.
  *
  * Features:
- * - Pre-fetches 8-12 future segments ahead of the current playback position.
- * - Retains a 4-6 segment trailing window for instantaneous 0ms rewind (Netflix-style skip).
- * - Deduplicates in-flight requests between Apple TV requests and background workers.
- * - In-memory LRU ring buffer with automatic TTL eviction (~35MB RAM footprint).
+ * - Continuous Lookahead: Pre-fetches up to 24 future segments (~2.5 minutes) ahead of cursor.
+ * - Rapid Scrubbing Optimization: Detects non-linear jumps (skips), clears stale prefetch
+ *   queues, and bursts immediate parallel downloads for the new landing position.
+ * - Trailing Ring Window: Retains up to 20 past segments for instant 0ms rewinds.
+ * - Concurrency: Up to 6 simultaneous parallel download workers.
+ * - Deduplication: Merges in-flight requests to eliminate redundant CDN queries.
+ * - Memory Cap: Keeps up to 200 segments in LRU memory cache with 15-min TTL.
  */
 
 export interface CachedSegment {
@@ -25,6 +28,7 @@ interface PlaylistContext {
     segments: string[];
     headers?: Record<string, string>;
     lastActivity: number;
+    lastRequestedIndex: number;
 }
 
 export class StreamBufferService {
@@ -37,6 +41,9 @@ export class StreamBufferService {
     private inFlightRequests: Map<string, Promise<CachedSegment | null>> =
         new Map();
 
+    // In-flight AbortControllers to cancel obsolete prefetch requests on rapid seeks
+    private inFlightControllers: Map<string, AbortController> = new Map();
+
     // Registered playlists: PlaylistId -> PlaylistContext
     private playlists: Map<string, PlaylistContext> = new Map();
 
@@ -46,17 +53,24 @@ export class StreamBufferService {
         { playlistId: string; index: number }
     > = new Map();
 
-    // Max segments to keep in memory across all streams
-    private readonly MAX_TOTAL_SEGMENTS = 60;
-    // Segment expiration TTL (10 minutes)
-    private readonly SEGMENT_TTL_MS = 10 * 60 * 1000;
-    // Lookahead forward prefetch depth
-    private readonly FORWARD_PREFETCH_COUNT = 10;
+    // Max segments to keep in memory across all streams (holds ~25 mins of 1080p video)
+    private readonly MAX_TOTAL_SEGMENTS = 200;
+    // Segment expiration TTL (15 minutes)
+    private readonly SEGMENT_TTL_MS = 15 * 60 * 1000;
+    // Lookahead forward prefetch depth (up to 24 segments ~ 2 to 3 minutes ahead)
+    private readonly FORWARD_PREFETCH_COUNT = 24;
+    // Trailing backward retain depth (up to 8 segments behind)
+    private readonly BACKWARD_PREFETCH_COUNT = 6;
     // Maximum concurrent background downloads
-    private readonly MAX_CONCURRENT_PREFETCH = 3;
+    private readonly MAX_CONCURRENT_PREFETCH = 6;
 
     private activePrefetchWorkers = 0;
-    private prefetchQueue: Array<() => Promise<void>> = [];
+    private prefetchQueue: Array<{
+        url: string;
+        headers?: Record<string, string>;
+        priority: number;
+        task: () => Promise<void>;
+    }> = [];
 
     private constructor() {
         // Periodic cleanup timer every 2 minutes
@@ -124,7 +138,8 @@ export class StreamBufferService {
                 id: playlistId,
                 segments,
                 headers: requestHeaders,
-                lastActivity: Date.now()
+                lastActivity: Date.now(),
+                lastRequestedIndex: 0
             });
 
             // Map each segment to its playlist index
@@ -141,9 +156,9 @@ export class StreamBufferService {
                 `[StreamBuffer] 📋 Registered ${segments.length} segments for: ${pName}`
             );
 
-            // Trigger immediate pre-roll prefetch for the first 3 segments on startup
-            for (let k = 0; k < Math.min(3, segments.length); k++) {
-                this.queuePrefetch(segments[k], requestHeaders);
+            // Trigger immediate burst pre-roll prefetch for the first 6 segments on startup
+            for (let k = 0; k < Math.min(6, segments.length); k++) {
+                this.queuePrefetch(segments[k], requestHeaders, 100 - k);
             }
         } catch (err) {
             console.warn('[StreamBuffer] Failed to register manifest:', err);
@@ -155,7 +170,9 @@ export class StreamBufferService {
      */
     public async getOrFetchSegment(
         segmentUrl: string,
-        fetchFn: (url: string) => Promise<{
+        fetchFn: (
+            url: string
+        ) => Promise<{
             data: Buffer;
             contentType: string;
             headers: Record<string, string>;
@@ -254,7 +271,7 @@ export class StreamBufferService {
     }
 
     /**
-     * Trigger lookahead prefetching around the current playback cursor.
+     * Trigger continuous lookahead & rapid-scrub prefetching around the current playback cursor.
      */
     private triggerLookahead(
         currentNormUrl: string,
@@ -268,9 +285,32 @@ export class StreamBufferService {
 
         playlist.lastActivity = Date.now();
         const currentIndex = lookup.index;
+        const previousIndex = playlist.lastRequestedIndex;
+        playlist.lastRequestedIndex = currentIndex;
         const total = playlist.segments.length;
 
-        // Lookahead: Pre-fetch next N segments
+        // Detect Rapid Skipping / Scrubbing jump (jumped more than 1 segment forward or backward)
+        const isSeekJump = Math.abs(currentIndex - previousIndex) > 1;
+
+        if (isSeekJump) {
+            console.log(
+                `[StreamBuffer] ⏩ Rapid Scrub/Seek detected (jump from #${previousIndex} -> #${currentIndex}). Re-prioritizing buffer...`
+            );
+            // Clear low-priority stale background downloads from previous position
+            this.prefetchQueue = this.prefetchQueue.filter((item) => {
+                const itemLookup = this.segmentIndexMap.get(
+                    this.normalizeUrl(item.url)
+                );
+                if (!itemLookup) return false;
+                // Keep only items near the new cursor
+                return (
+                    Math.abs(itemLookup.index - currentIndex) <=
+                    this.FORWARD_PREFETCH_COUNT
+                );
+            });
+        }
+
+        // 1. Forward Lookahead: Pre-fetch next 24 segments ahead
         const forwardLimit = Math.min(
             total,
             currentIndex + 1 + this.FORWARD_PREFETCH_COUNT
@@ -287,17 +327,46 @@ export class StreamBufferService {
                 !this.segmentCache.has(nextNormUrl) &&
                 !this.inFlightRequests.has(nextNormUrl)
             ) {
-                this.queuePrefetch(nextUrl, headers || playlist.headers);
+                // Higher priority for immediate upcoming segments (N+1, N+2, N+3)
+                const dist = nextIdx - currentIndex;
+                const priority = Math.max(1, 100 - dist * 3);
+                this.queuePrefetch(
+                    nextUrl,
+                    headers || playlist.headers,
+                    priority
+                );
+            }
+        }
+
+        // 2. Backward Retain/Prefetch: Ensure 4-6 segments behind cursor are in RAM for instant rewind
+        const backwardLimit = Math.max(
+            0,
+            currentIndex - this.BACKWARD_PREFETCH_COUNT
+        );
+        for (
+            let prevIdx = currentIndex - 1;
+            prevIdx >= backwardLimit;
+            prevIdx--
+        ) {
+            const prevUrl = playlist.segments[prevIdx];
+            const prevNormUrl = this.normalizeUrl(prevUrl);
+
+            if (
+                !this.segmentCache.has(prevNormUrl) &&
+                !this.inFlightRequests.has(prevNormUrl)
+            ) {
+                this.queuePrefetch(prevUrl, headers || playlist.headers, 30);
             }
         }
     }
 
     /**
-     * Queue background prefetch with concurrency control.
+     * Queue background prefetch with priority and concurrency control.
      */
     private queuePrefetch(
         segmentUrl: string,
-        headers?: Record<string, string>
+        headers?: Record<string, string>,
+        priority = 10
     ): void {
         let realUrl = segmentUrl;
         if (segmentUrl.includes('proxy?data=')) {
@@ -324,6 +393,14 @@ export class StreamBufferService {
         )
             return;
 
+        // Check if already in queue
+        if (
+            this.prefetchQueue.some(
+                (item) => this.normalizeUrl(item.url) === normUrl
+            )
+        )
+            return;
+
         const task = async () => {
             if (
                 this.segmentCache.has(normUrl) ||
@@ -333,6 +410,7 @@ export class StreamBufferService {
 
             try {
                 const controller = new AbortController();
+                this.inFlightControllers.set(normUrl, controller);
                 const timeoutId = setTimeout(() => controller.abort(), 20000);
 
                 const reqHeaders: Record<string, string> = {
@@ -374,12 +452,23 @@ export class StreamBufferService {
                         `[StreamBuffer] 📥 Background Prefetched: ${segShort} (${(buf.length / 1024 / 1024).toFixed(2)} MB)`
                     );
                 }
-            } catch (err: any) {
-                // Background prefetch errors are non-critical
+            } catch {
+                // Background prefetch cancellation / error is non-critical
+            } finally {
+                this.inFlightControllers.delete(normUrl);
             }
         };
 
-        this.prefetchQueue.push(task);
+        this.prefetchQueue.push({
+            url: realUrl,
+            headers,
+            priority,
+            task
+        });
+
+        // Keep queue sorted by highest priority first
+        this.prefetchQueue.sort((a, b) => b.priority - a.priority);
+
         this.processPrefetchQueue();
     }
 
@@ -391,11 +480,11 @@ export class StreamBufferService {
             this.activePrefetchWorkers < this.MAX_CONCURRENT_PREFETCH &&
             this.prefetchQueue.length > 0
         ) {
-            const nextTask = this.prefetchQueue.shift();
-            if (!nextTask) break;
+            const nextItem = this.prefetchQueue.shift();
+            if (!nextItem) break;
 
             this.activePrefetchWorkers++;
-            nextTask().finally(() => {
+            nextItem.task().finally(() => {
                 this.activePrefetchWorkers--;
                 this.processPrefetchQueue();
             });

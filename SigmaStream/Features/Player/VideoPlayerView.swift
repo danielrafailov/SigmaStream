@@ -38,8 +38,8 @@ struct VideoPlayerView: View {
     private let foundMessageDuration: TimeInterval = 0
     private let progressSaveInterval: TimeInterval = 15
 
-    /// Larger forward buffer reduces intermittent freezes on high-bitrate streams.
-    private let preferredForwardBufferDuration: TimeInterval = 25
+    /// Forward buffer duration (35 seconds) to leverage the backend lookahead ring buffer
+    private let preferredForwardBufferDuration: TimeInterval = 35
     /// Cap adaptive bitrate (~6 Mbps) so Apple TV prefers stable 1080p-class variants.
     private let preferredPeakBitRate: Double = 6_000_000
 
@@ -115,7 +115,7 @@ struct VideoPlayerView: View {
     private func configurePlaybackItem(_ item: AVPlayerItem) {
         item.preferredForwardBufferDuration = preferredForwardBufferDuration
         item.preferredPeakBitRate = preferredPeakBitRate
-        item.canUseNetworkResourcesForLiveStreamingWhilePaused = false
+        item.canUseNetworkResourcesForLiveStreamingWhilePaused = true
     }
 
     private func makeConfiguredPlayer(url: URL) -> AVPlayer {

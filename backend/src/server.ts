@@ -80,113 +80,91 @@ async function main() {
     const app = server.getInstance();
     const streamBuffer = StreamBufferService.getInstance();
 
-    // 1. Intercept video segment requests (/v1/proxy?data=...) with Lookahead Ring Buffer
-    app.addHook('onRequest', async (request, reply) => {
-        if (request.url.startsWith('/v1/proxy')) {
-            const query = request.query as { data?: string };
-            if (!query.data) return;
+    // Hook into ProxyService for Sliding-Window Lookahead Segment Buffering
+    const origProxyRequest = (server as any).proxyService.proxyRequest.bind(
+        (server as any).proxyService
+    );
 
-            try {
-                const decoded = decodeURIComponent(query.data);
-                const proxyData = JSON.parse(decoded);
-                const targetUrl = proxyData.url;
+    (server as any).proxyService.proxyRequest = async function (
+        encodedData: string
+    ) {
+        let proxyData: any;
+        try {
+            const decoded = decodeURIComponent(encodedData);
+            proxyData = JSON.parse(decoded);
+        } catch {
+            return origProxyRequest(encodedData);
+        }
 
-                // Match HLS / DASH / MP4 video segments (.ts, .m4s, etc.)
-                if (
-                    /\.(ts|m4s)($|\?)/i.test(targetUrl) ||
-                    targetUrl.includes('/segment') ||
-                    targetUrl.includes('seg-')
-                ) {
-                    const cached = await streamBuffer.getOrFetchSegment(
-                        targetUrl,
-                        async (fetchUrl: string) => {
-                            const controller = new AbortController();
-                            const timer = setTimeout(
-                                () => controller.abort(),
-                                25000
-                            );
+        const targetUrl = proxyData.url;
 
-                            const reqHeaders: Record<string, string> = {
-                                'User-Agent':
-                                    proxyData.headers?.['User-Agent'] ||
-                                    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.6912.95 Safari/537.36',
-                                ...(proxyData.headers || {})
-                            };
-                            delete reqHeaders['range'];
-                            delete reqHeaders['Range'];
-
-                            const res = await fetch(fetchUrl, {
-                                method: 'GET',
-                                headers: reqHeaders,
-                                signal: controller.signal
-                            });
-                            clearTimeout(timer);
-
-                            const arrayBuf = await res.arrayBuffer();
-                            return {
-                                data: Buffer.from(arrayBuf),
-                                contentType:
-                                    res.headers.get('content-type') ||
-                                    'video/mp2t',
-                                headers: {
-                                    'Content-Disposition': 'inline',
-                                    'Accept-Ranges': 'bytes',
-                                    'Cache-Control': 'public, max-age=7200'
-                                },
-                                statusCode: res.status
-                            };
-                        },
-                        proxyData.headers
-                    );
-
-                    if (cached) {
-                        reply.header(
-                            'Content-Type',
-                            cached.contentType || 'video/mp2t'
-                        );
-                        reply.header('Content-Length', cached.data.length);
-                        reply.header('Accept-Ranges', 'bytes');
-                        reply.header('Cache-Control', 'public, max-age=7200');
-                        reply.header('Access-Control-Allow-Origin', '*');
-                        reply.header(
-                            'Access-Control-Expose-Headers',
-                            'Content-Disposition, Content-Length, Content-Range'
-                        );
-                        return reply
-                            .status(cached.statusCode || 200)
-                            .send(cached.data);
+        // 1. If it's a TS / M4S video or audio segment, serve via Lookahead Ring Buffer
+        if (
+            /\.(ts|m4s)($|\?)/i.test(targetUrl) ||
+            targetUrl.includes('/segment') ||
+            targetUrl.includes('seg-')
+        ) {
+            const cached = await streamBuffer.getOrFetchSegment(
+                targetUrl,
+                async (fetchUrl: string) => {
+                    const res = await origProxyRequest(encodedData);
+                    if ('data' in res) {
+                        return {
+                            data: res.data,
+                            contentType: res.contentType,
+                            headers: res.headers,
+                            statusCode: res.statusCode
+                        };
                     }
-                }
-            } catch (err) {
-                // If decoding fails, fall through to framework default proxy handler
-            }
-        }
-    });
+                    const chunks: Buffer[] = [];
+                    for await (const chunk of res.stream) {
+                        chunks.push(
+                            Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+                        );
+                    }
+                    return {
+                        data: Buffer.concat(chunks),
+                        contentType: res.contentType,
+                        headers: res.headers,
+                        statusCode: res.statusCode
+                    };
+                },
+                proxyData.headers
+            );
 
-    // 2. Register parsed M3U8 playlists in StreamBufferService to trigger pre-roll prefetching
-    app.addHook('onSend', async (request, reply, payload) => {
-        if (request.url.startsWith('/v1/proxy')) {
-            const query = request.query as { data?: string };
-            if (
-                query?.data &&
-                typeof payload === 'string' &&
-                payload.includes('#EXTM3U')
-            ) {
-                try {
-                    const decoded = decodeURIComponent(query.data);
-                    const proxyData = JSON.parse(decoded);
-                    streamBuffer.registerManifest(
-                        proxyData.url,
-                        payload,
-                        proxyData.headers
-                    );
-                } catch (e) {
-                    // Ignore parsing error
-                }
+            if (cached) {
+                return {
+                    data: cached.data,
+                    contentType: cached.contentType,
+                    statusCode: cached.statusCode || 200,
+                    headers: {
+                        ...(cached.headers || {}),
+                        'Content-Length': String(cached.data.length),
+                        'Accept-Ranges': 'bytes',
+                        'Cache-Control': 'public, max-age=7200',
+                        'Access-Control-Allow-Origin': '*'
+                    }
+                };
             }
         }
-        return payload;
-    });
+
+        // 2. Run original proxy request for manifests / keys / subtitles
+        const res = await origProxyRequest(encodedData);
+
+        // 3. If it's an M3U8 manifest, register its segments in StreamBufferService
+        if ('data' in res && Buffer.isBuffer(res.data)) {
+            const text = res.data.toString('utf-8');
+            if (text.includes('#EXTM3U')) {
+                streamBuffer.registerManifest(
+                    targetUrl,
+                    text,
+                    proxyData.headers
+                );
+            }
+        }
+
+        return res;
+    };
 
     // Support raw audio buffers for Fastify
     app.addContentTypeParser(

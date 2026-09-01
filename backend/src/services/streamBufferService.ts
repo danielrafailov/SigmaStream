@@ -79,7 +79,7 @@ export class StreamBufferService {
         requestHeaders?: Record<string, string>
     ): void {
         try {
-            const playlistId = this.normalizeUrl(manifestUrl);
+            const playlistId = manifestUrl; // Preserve query parameters for distinct audio/video sub-playlists
             const lines = content.split('\n');
             const segments: string[] = [];
 
@@ -87,11 +87,26 @@ export class StreamBufferService {
                 const line = lines[i].trim();
                 if (!line || line.startsWith('#')) continue;
 
-                // Resolved segment URL
-                let segmentUrl: string;
-                if (line.startsWith('http://') || line.startsWith('https://')) {
-                    segmentUrl = line;
-                } else {
+                let segmentUrl = line;
+
+                // Unwrap proxied segment URLs (/v1/proxy?data=...) to extract the real CDN URL
+                if (line.includes('proxy?data=')) {
+                    try {
+                        const dataMatch = line.match(/[?&]data=([^&\s]+)/);
+                        if (dataMatch) {
+                            const decoded = decodeURIComponent(dataMatch[1]);
+                            const parsed = JSON.parse(decoded);
+                            if (parsed.url) {
+                                segmentUrl = parsed.url;
+                            }
+                        }
+                    } catch {
+                        // Fall back to line
+                    }
+                } else if (
+                    !line.startsWith('http://') &&
+                    !line.startsWith('https://')
+                ) {
                     try {
                         segmentUrl = new URL(line, manifestUrl).toString();
                     } catch {
@@ -120,6 +135,12 @@ export class StreamBufferService {
                 });
             }
 
+            const pName =
+                manifestUrl.split('?')[0].split('/').pop() || 'playlist';
+            console.log(
+                `[StreamBuffer] 📋 Registered ${segments.length} segments for: ${pName}`
+            );
+
             // Trigger immediate pre-roll prefetch for the first 3 segments on startup
             for (let k = 0; k < Math.min(3, segments.length); k++) {
                 this.queuePrefetch(segments[k], requestHeaders);
@@ -134,9 +155,7 @@ export class StreamBufferService {
      */
     public async getOrFetchSegment(
         segmentUrl: string,
-        fetchFn: (
-            url: string
-        ) => Promise<{
+        fetchFn: (url: string) => Promise<{
             data: Buffer;
             contentType: string;
             headers: Record<string, string>;
@@ -145,11 +164,15 @@ export class StreamBufferService {
         customHeaders?: Record<string, string>
     ): Promise<CachedSegment | null> {
         const normUrl = this.normalizeUrl(segmentUrl);
+        const segShort = segmentUrl.split('?')[0].split('/').pop() || 'segment';
 
         // 1. Check RAM Cache (HIT)
         const cached = this.segmentCache.get(normUrl);
         if (cached) {
             cached.cachedAt = Date.now();
+            console.log(
+                `[StreamBuffer] ⚡ Cache HIT: ${segShort} (0ms from RAM, ${(cached.data.length / 1024 / 1024).toFixed(2)} MB)`
+            );
             this.triggerLookahead(normUrl, customHeaders);
             return cached;
         }
@@ -159,6 +182,9 @@ export class StreamBufferService {
         if (inFlight) {
             const result = await inFlight;
             if (result) {
+                console.log(
+                    `[StreamBuffer] ⚡ In-Flight HIT: ${segShort} (awaited prefetch, ${(result.data.length / 1024 / 1024).toFixed(2)} MB)`
+                );
                 this.triggerLookahead(normUrl, customHeaders);
                 return result;
             }
@@ -177,6 +203,9 @@ export class StreamBufferService {
                 };
 
                 this.putSegment(normUrl, segment);
+                console.log(
+                    `[StreamBuffer] 🌐 Fetched from CDN: ${segShort} (${(res.data.length / 1024 / 1024).toFixed(2)} MB)`
+                );
                 return segment;
             } catch (err) {
                 console.error(
@@ -270,7 +299,25 @@ export class StreamBufferService {
         segmentUrl: string,
         headers?: Record<string, string>
     ): void {
-        const normUrl = this.normalizeUrl(segmentUrl);
+        let realUrl = segmentUrl;
+        if (segmentUrl.includes('proxy?data=')) {
+            try {
+                const dataMatch = segmentUrl.match(/[?&]data=([^&\s]+)/);
+                if (dataMatch) {
+                    const decoded = decodeURIComponent(dataMatch[1]);
+                    const parsed = JSON.parse(decoded);
+                    if (parsed.url) {
+                        realUrl = parsed.url;
+                        headers = {
+                            ...(headers || {}),
+                            ...(parsed.headers || {})
+                        };
+                    }
+                }
+            } catch {}
+        }
+
+        const normUrl = this.normalizeUrl(realUrl);
         if (
             this.segmentCache.has(normUrl) ||
             this.inFlightRequests.has(normUrl)
@@ -297,7 +344,7 @@ export class StreamBufferService {
                 delete reqHeaders['range'];
                 delete reqHeaders['Range'];
 
-                const res = await fetch(segmentUrl, {
+                const res = await fetch(realUrl, {
                     headers: reqHeaders,
                     signal: controller.signal
                 });
@@ -320,6 +367,12 @@ export class StreamBufferService {
                         statusCode: res.status,
                         cachedAt: Date.now()
                     });
+
+                    const segShort =
+                        realUrl.split('?')[0].split('/').pop() || 'segment';
+                    console.log(
+                        `[StreamBuffer] 📥 Background Prefetched: ${segShort} (${(buf.length / 1024 / 1024).toFixed(2)} MB)`
+                    );
                 }
             } catch (err: any) {
                 // Background prefetch errors are non-critical

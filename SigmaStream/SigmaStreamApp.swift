@@ -7,7 +7,6 @@
 
 import SwiftUI
 
-#if os(tvOS)
 @main
 struct SigmaStreamApp: App {
     @State private var appState = AppState()
@@ -29,4 +28,3 @@ struct SigmaStreamApp: App {
         }
     }
 }
-#endif

@@ -154,7 +154,6 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				4B64EB5C2F68EAE600884849 /* SigmaStream */,
 				4B86B7FA3047934B00CA8E37 /* SigmaStream-iOS */,
 			);
 			name = "SigmaStream-iOS";

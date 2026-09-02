@@ -6,28 +6,27 @@
 //
 
 import SwiftUI
+import SwiftData
 
-#if os(iOS)
 @main
 struct SigmaStream_iOSApp: App {
-    @State private var appState = AppState()
+    var sharedModelContainer: ModelContainer = {
+        let schema = Schema([
+            Item.self,
+        ])
+        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
-    init() {
-        // High-capacity image caching for smooth poster scrolling
-        let memoryCapacity = 64 * 1024 * 1024  // 64 MB RAM
-        let diskCapacity = 256 * 1024 * 1024   // 256 MB Disk
-        URLCache.shared = URLCache(memoryCapacity: memoryCapacity, diskCapacity: diskCapacity)
-    }
+        do {
+            return try ModelContainer(for: schema, configurations: [modelConfiguration])
+        } catch {
+            fatalError("Could not create ModelContainer: \(error)")
+        }
+    }()
 
     var body: some Scene {
         WindowGroup {
-            MainTabView()
-                .environment(appState)
-                .preferredColorScheme(.dark)
-                .task {
-                    await appState.loadConfiguration()
-                }
+            ContentView()
         }
+        .modelContainer(sharedModelContainer)
     }
 }
-#endif

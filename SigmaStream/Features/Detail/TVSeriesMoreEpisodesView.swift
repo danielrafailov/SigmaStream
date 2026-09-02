@@ -523,36 +523,15 @@ struct TVSeriesMoreEpisodesView: View {
     }
 
     private func playEpisode(season: Int, episode: Int, title: String, fromBeginning: Bool) async {
-        guard !isResolvingStream else { return }
-        isResolvingStream = true
-        streamError = nil
-        defer { isResolvingStream = false }
-
-        do {
-            let (urls, quality) = try await appState.streamingService.playableURLsAndQualityForEpisode(seriesId: seriesId, season: season, episode: episode)
-            guard !urls.isEmpty else {
-                streamError = "No stream was found (none marked playable)."
-                return
-            }
-            await MainActor.run {
-                playableContent = makeEpisodePlayableContent(
-                    urls: urls,
-                    quality: quality,
-                    season: season,
-                    episode: episode,
-                    title: title,
-                    fromBeginning: fromBeginning
-                )
-            }
-        } catch is CancellationError {
-            streamError = nil
-        } catch {
-            if Task.isCancelled {
-                streamError = nil
-                return
-            }
-            let msg = userFacingStreamingErrorMessage(for: error)
-            streamError = msg.isEmpty ? nil : msg
+        await MainActor.run {
+            playableContent = makeEpisodePlayableContent(
+                urls: [],
+                quality: nil,
+                season: season,
+                episode: episode,
+                title: title,
+                fromBeginning: fromBeginning
+            )
         }
     }
 

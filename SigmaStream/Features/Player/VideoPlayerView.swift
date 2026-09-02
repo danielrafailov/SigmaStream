@@ -9,33 +9,51 @@ import AVKit
 import Foundation
 import SwiftUI
 
-private enum StreamStatus: Equatable {
-    case trying(index: Int, total: Int)
-    case failed(index: Int)
-    case found
+struct CyclingThreeDotsView: View {
+    @State private var activeIndex = 0
+    @State private var timer: Timer?
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ForEach(0..<3, id: \.self) { index in
+                Circle()
+                    .fill(Color.white.opacity(activeIndex == index ? 1.0 : 0.25))
+                    .frame(width: 14, height: 14)
+                    .scaleEffect(activeIndex == index ? 1.35 : 0.85)
+                    .animation(.easeInOut(duration: 0.25), value: activeIndex)
+            }
+        }
+        .onAppear {
+            timer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { _ in
+                activeIndex = (activeIndex + 1) % 3
+            }
+        }
+        .onDisappear {
+            timer?.invalidate()
+            timer = nil
+        }
+    }
 }
 
 struct VideoPlayerView: View {
-    let urls: [URL]
-    let title: String
-    var startTime: TimeInterval? = nil
-    var onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil
+    let playableContent: PlayableContent
     var onPlaybackEnded: (() -> Void)? = nil
+
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppState.self) private var appState
 
     @State private var player: AVPlayer?
     @State private var loadError: String?
     @State private var currentURLIndex = 0
+    @State private var resolvedURLs: [URL] = []
+    @State private var isResolving = true
     @State private var endObserver: NSObjectProtocol?
     @State private var stallObserver: NSObjectProtocol?
     @State private var timeObserver: Any?
     @State private var didApplyStartTime = false
-    @State private var streamStatus: StreamStatus?
 
     private let loadTimeout: TimeInterval = 20
-    private let failedMessageDuration: TimeInterval = 0.35
     private let pollInterval: TimeInterval = 0.2
-    private let foundMessageDuration: TimeInterval = 0
     private let progressSaveInterval: TimeInterval = 15
 
     /// Larger forward buffer reduces intermittent freezes on high-bitrate streams.
@@ -45,20 +63,31 @@ struct VideoPlayerView: View {
 
     var body: some View {
         ZStack {
-            if let player {
+            Color.black.ignoresSafeArea()
+
+            if let player, !isResolving {
                 VideoPlayer(player: player)
                     .ignoresSafeArea()
-            }
-
-            if let status = streamStatus {
-                streamStatusOverlay(status: status)
-            }
-
-            if let error = loadError {
+            } else if let error = loadError {
                 loadErrorOverlay(message: error)
+            } else {
+                // Fullscreen Searching for Streams Loading Screen with Dot Animation
+                VStack(spacing: 24) {
+                    Text("Searching for streams")
+                        .font(.system(size: 38, weight: .bold))
+                        .foregroundStyle(.white)
+
+                    CyclingThreeDotsView()
+                        .padding(.vertical, 4)
+
+                    Text(playableContent.title)
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
         }
-        .navigationTitle(title)
+        .navigationTitle(playableContent.title)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Done") {
@@ -66,9 +95,8 @@ struct VideoPlayerView: View {
                 }
             }
         }
-        .task(id: currentURLIndex) {
-            didApplyStartTime = false
-            await startPlaybackAndObserve()
+        .task {
+            await resolveAndStartPlayback()
         }
         .onDisappear {
             flushProgress()
@@ -83,7 +111,7 @@ struct VideoPlayerView: View {
             endObserver = nil
         }
         if let observer = stallObserver {
-            NotificationCenter.default.removeObserver(observer)
+            NotificationCenter.default.removeObserver(stallObserver)
             stallObserver = nil
         }
         if let timeObserver, let player {
@@ -98,7 +126,21 @@ struct VideoPlayerView: View {
         let duration = item.duration.seconds
         guard position.isFinite, position >= 0 else { return }
         let dur = duration.isFinite && duration > 0 ? duration : 0
-        onProgress?(position, dur)
+        guard dur > 60, position > 5 else { return }
+
+        if let movieId = playableContent.movieId {
+            appState.watchProgressManager.updateMovieProgress(movieId: movieId, position: position, duration: dur)
+        } else if let seriesId = playableContent.tvSeriesId,
+                  let season = playableContent.season,
+                  let episode = playableContent.episode {
+            appState.watchProgressManager.updateEpisodeProgress(
+                seriesId: seriesId,
+                season: season,
+                episode: episode,
+                position: position,
+                duration: dur
+            )
+        }
     }
 
     private func selectEnglishAudioIfAvailable(for item: AVPlayerItem) {
@@ -148,6 +190,21 @@ struct VideoPlayerView: View {
         }
     }
 
+    private func installEndObserver(for item: AVPlayerItem) {
+        if let endObserver {
+            NotificationCenter.default.removeObserver(endObserver)
+            self.endObserver = nil
+        }
+        endObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { [self] _ in
+            onPlaybackEnded?()
+            dismiss()
+        }
+    }
+
     private func installStallRecovery(for item: AVPlayerItem, player: AVPlayer) {
         if let stallObserver {
             NotificationCenter.default.removeObserver(stallObserver)
@@ -177,18 +234,54 @@ struct VideoPlayerView: View {
         }
     }
 
-    private func startPlaybackAndObserve() async {
-        guard currentURLIndex < urls.count else {
-            await MainActor.run { loadError = "No stream was found" }
+    private func resolveAndStartPlayback() async {
+        if resolvedURLs.isEmpty {
+            if !playableContent.urls.isEmpty {
+                resolvedURLs = playableContent.urls
+            } else {
+                do {
+                    if let movieId = playableContent.movieId {
+                        let (urls, _) = try await appState.streamingService.playableURLsAndQualityForMovie(tmdbId: movieId)
+                        resolvedURLs = urls
+                    } else if let seriesId = playableContent.tvSeriesId,
+                              let season = playableContent.season,
+                              let episode = playableContent.episode {
+                        let (urls, _) = try await appState.streamingService.playableURLsAndQualityForEpisode(seriesId: seriesId, season: season, episode: episode)
+                        resolvedURLs = urls
+                    }
+                } catch {
+                    await MainActor.run {
+                        loadError = "Unable to locate an active stream for this title."
+                        isResolving = false
+                    }
+                    return
+                }
+            }
+        }
+
+        guard !resolvedURLs.isEmpty else {
+            await MainActor.run {
+                loadError = "No stream was found (none marked playable)."
+                isResolving = false
+            }
             return
         }
-        loadError = nil
-        await MainActor.run {
-            streamStatus = .trying(index: currentURLIndex + 1, total: urls.count)
+
+        await startPlaybackForCurrentIndex()
+    }
+
+    private func startPlaybackForCurrentIndex() async {
+        guard currentURLIndex < resolvedURLs.count else {
+            await MainActor.run {
+                loadError = "No working stream was found."
+                isResolving = false
+            }
+            return
         }
-        let url = urls[currentURLIndex]
+
+        let url = resolvedURLs[currentURLIndex]
         let newPlayer = makeConfiguredPlayer(url: url)
-        await MainActor.run { player = newPlayer }
+        installProgressObserver(on: newPlayer)
 
         let maxPolls = Int(loadTimeout / pollInterval)
         for _ in 0..<maxPolls {
@@ -196,131 +289,48 @@ struct VideoPlayerView: View {
             guard let item = newPlayer.currentItem else { continue }
             switch item.status {
             case .failed:
-                let message = playbackFailureMessage(for: item, url: url)
-                await MainActor.run {
-                    streamStatus = .failed(index: currentURLIndex + 1)
-                }
-                try? await Task.sleep(nanoseconds: UInt64(failedMessageDuration * 1_000_000_000))
-                await MainActor.run {
-                    player = nil
-                    tearDownObservers()
-                    currentURLIndex += 1
-                    if currentURLIndex >= urls.count {
-                        streamStatus = nil
-                        loadError = message
+                tearDownObservers()
+                currentURLIndex += 1
+                if currentURLIndex >= resolvedURLs.count {
+                    await MainActor.run {
+                        loadError = "Stream failed to load."
+                        isResolving = false
                     }
+                } else {
+                    await startPlaybackForCurrentIndex()
                 }
                 return
             case .readyToPlay:
                 selectEnglishAudioIfAvailable(for: item)
-                if !didApplyStartTime, let start = startTime, start > 0 {
+                if !didApplyStartTime, let start = playableContent.startTime, start > 0 {
                     let seekTime = CMTime(seconds: start, preferredTimescale: 600)
                     let tolerance = CMTime(seconds: 1, preferredTimescale: 600)
                     await newPlayer.seek(to: seekTime, toleranceBefore: tolerance, toleranceAfter: tolerance)
                     didApplyStartTime = true
                 }
-                let token = NotificationCenter.default.addObserver(
-                    forName: .AVPlayerItemDidPlayToEndTime,
-                    object: item,
-                    queue: .main
-                ) { _ in
-                    onPlaybackEnded?()
-                    dismiss()
-                }
+                installStallRecovery(for: item, player: newPlayer)
+                installEndObserver(for: item)
                 await MainActor.run {
-                    endObserver = token
-                    installStallRecovery(for: item, player: newPlayer)
-                    installProgressObserver(on: newPlayer)
+                    self.player = newPlayer
+                    self.isResolving = false
                 }
                 newPlayer.play()
-                await MainActor.run {
-                    streamStatus = .found
-                }
-                try? await Task.sleep(nanoseconds: UInt64(foundMessageDuration * 1_000_000_000))
-                await MainActor.run {
-                    streamStatus = nil
-                }
                 return
-            case .unknown:
-                break
-            @unknown default:
+            default:
                 break
             }
         }
-        await MainActor.run {
-            streamStatus = .failed(index: currentURLIndex + 1)
-        }
-        try? await Task.sleep(nanoseconds: UInt64(failedMessageDuration * 1_000_000_000))
-        await MainActor.run {
-            player = nil
-            tearDownObservers()
-            currentURLIndex += 1
-            if currentURLIndex >= urls.count {
-                streamStatus = nil
-                loadError = "No stream was found (timed out while loading)"
-            }
-        }
-    }
 
-    private func playbackFailureMessage(for item: AVPlayerItem, url: URL) -> String {
-        if let err = item.error {
-            return "Stream failed: \(err.localizedDescription)"
+        // Timed out on this stream
+        currentURLIndex += 1
+        if currentURLIndex >= resolvedURLs.count {
+            await MainActor.run {
+                loadError = "Timed out searching for stream."
+                isResolving = false
+            }
+        } else {
+            await startPlaybackForCurrentIndex()
         }
-        if let log = item.errorLog(),
-           let event = log.events.last {
-            if let statusCode = event.errorStatusCode as Int?,
-               statusCode != 0 {
-                return "Stream failed (HTTP \(statusCode))"
-            }
-            if let errorComment = event.errorComment,
-               !errorComment.isEmpty {
-                return "Stream failed: \(errorComment)"
-            }
-        }
-        return "No stream was found for \(url.host ?? "this source")"
-    }
-
-    @ViewBuilder
-    private func streamStatusOverlay(status: StreamStatus) -> some View {
-        Color.black
-            .ignoresSafeArea()
-            .overlay {
-                VStack(spacing: 24) {
-                    switch status {
-                    case .trying(let index, let total):
-                        ProgressView()
-                            .scaleEffect(1.2)
-                            .tint(.white)
-                        Text("Trying stream \(index) of \(total)")
-                            .font(.title3)
-                            .fontWeight(.medium)
-                            .foregroundStyle(.white)
-                    case .failed(let index):
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 48))
-                            .foregroundStyle(.red)
-                        Text("Stream \(index) failed")
-                            .font(.title3)
-                            .fontWeight(.medium)
-                            .foregroundStyle(.red)
-                    case .found:
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 48))
-                            .foregroundStyle(.green)
-                        Text("Found stream!")
-                            .font(.title3)
-                            .fontWeight(.medium)
-                            .foregroundStyle(.green)
-                    }
-                    if case .trying = status {
-                        Button("Cancel") {
-                            dismiss()
-                        }
-                        .buttonStyle(.bordered)
-                        .padding(.top, 8)
-                    }
-                }
-            }
     }
 
     @ViewBuilder
@@ -340,8 +350,10 @@ struct VideoPlayerView: View {
                     HStack(spacing: 16) {
                         Button("Retry") {
                             loadError = nil
+                            isResolving = true
                             currentURLIndex = 0
                             didApplyStartTime = false
+                            Task { await resolveAndStartPlayback() }
                         }
                         Button("Done") {
                             dismiss()
@@ -354,34 +366,13 @@ struct VideoPlayerView: View {
 }
 
 extension VideoPlayerView {
-    init(content: PlayableContent, watchProgress: WatchProgressManager, onPlaybackEnded: (() -> Void)? = nil) {
-        self.urls = content.urls
-        self.title = content.title
-        self.startTime = content.startTime
+    init(content: PlayableContent, watchProgress: WatchProgressManager? = nil, onPlaybackEnded: (() -> Void)? = nil) {
+        self.playableContent = content
         self.onPlaybackEnded = onPlaybackEnded
-        self.onProgress = { position, duration in
-            if let movieId = content.movieId {
-                watchProgress.updateMovieProgress(movieId: movieId, position: position, duration: duration)
-            } else if let seriesId = content.tvSeriesId,
-                      let season = content.season,
-                      let episode = content.episode {
-                watchProgress.updateEpisodeProgress(
-                    seriesId: seriesId,
-                    season: season,
-                    episode: episode,
-                    position: position,
-                    duration: duration
-                )
-            }
-        }
     }
-}
 
-#Preview {
-    NavigationStack {
-        VideoPlayerView(
-            urls: [URL(string: "https://example.com/sample.m3u8")!],
-            title: "Sample"
-        )
+    init(urls: [URL], title: String, startTime: TimeInterval? = nil, onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil, onPlaybackEnded: (() -> Void)? = nil) {
+        self.playableContent = PlayableContent(urls: urls, title: title, startTime: startTime)
+        self.onPlaybackEnded = onPlaybackEnded
     }
 }

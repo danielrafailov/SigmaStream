@@ -91,12 +91,6 @@ struct MovieDetailView: View {
                                 thumbsAndButtonsSection(contentWidth: contentWidth)
                                     .padding(.leading, 24)
 
-                                if isResolvingStream {
-                                    resolvingStreamsRow(onCancel: cancelStreamResolution)
-                                        .padding(.leading, 24)
-                                        .padding(.top, 4)
-                                }
-
                                 if let streamErr = streamError {
                                     Text(streamErr)
                                         .foregroundStyle(.red)
@@ -319,49 +313,16 @@ struct MovieDetailView: View {
     }
 
     private func startResolveStream(fromBeginning: Bool) {
-        guard !isResolvingStream else { return }
-        streamResolutionTask?.cancel()
-        streamResolutionTask = Task { @MainActor in
-            isResolvingStream = true
-            streamError = nil
-            defer {
-                isResolvingStream = false
-                streamResolutionTask = nil
-            }
-            do {
-                try Task.checkCancellation()
-                if let cached = prefetchedMoviePlayback {
-                    prefetchedMoviePlayback = nil
-                    moviePrefetchTask?.cancel()
-                    moviePrefetchTask = nil
-                    guard !cached.urls.isEmpty else {
-                        streamError = "No stream was found (none marked playable)."
-                        return
-                    }
-                    if let q = cached.quality { streamQuality = q }
-                    playableContent = makeMoviePlayableContent(urls: cached.urls, quality: cached.quality, fromBeginning: fromBeginning)
-                    return
-                }
-                let (urls, quality) = try await appState.streamingService.playableURLsAndQualityForMovie(tmdbId: movieId)
-                try Task.checkCancellation()
-                guard !urls.isEmpty else {
-                    streamError = "No stream was found (none marked playable)."
-                    return
-                }
-                if let quality { streamQuality = quality }
-                playableContent = makeMoviePlayableContent(urls: urls, quality: quality, fromBeginning: fromBeginning)
-            } catch is CancellationError {
-                streamError = nil
-                return
-            } catch {
-                if Task.isCancelled {
-                    streamError = nil
-                    return
-                }
-                let msg = userFacingStreamingErrorMessage(for: error)
-                streamError = msg.isEmpty ? nil : msg
-            }
+        if let cached = prefetchedMoviePlayback, !cached.urls.isEmpty {
+            prefetchedMoviePlayback = nil
+            moviePrefetchTask?.cancel()
+            moviePrefetchTask = nil
+            if let q = cached.quality { streamQuality = q }
+            playableContent = makeMoviePlayableContent(urls: cached.urls, quality: cached.quality, fromBeginning: fromBeginning)
+            return
         }
+        // Immediately present fullscreen VideoPlayerView with dynamic stream resolution
+        playableContent = makeMoviePlayableContent(urls: [], quality: streamQuality, fromBeginning: fromBeginning)
     }
 
     private func makeMoviePlayableContent(urls: [URL], quality: String?, fromBeginning: Bool) -> PlayableContent {

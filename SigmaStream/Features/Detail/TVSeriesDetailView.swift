@@ -102,12 +102,6 @@ struct TVSeriesDetailView: View {
                                 thumbsAndButtonsSection(contentWidth: contentWidth)
                                     .padding(.leading, 24)
 
-                                if isResolvingStream {
-                                    resolvingStreamsRow(onCancel: cancelStreamResolution)
-                                        .padding(.leading, 24)
-                                        .padding(.top, 4)
-                                }
-
                                 if let streamErr = streamError {
                                     Text(streamErr)
                                         .foregroundStyle(.red)
@@ -357,65 +351,32 @@ struct TVSeriesDetailView: View {
     }
 
     private func startResolveStream(season: Int, episode: Int, title: String, fromBeginning: Bool) {
-        guard !isResolvingStream else { return }
-        streamResolutionTask?.cancel()
-        streamResolutionTask = Task { @MainActor in
-            isResolvingStream = true
-            streamError = nil
-            defer {
-                isResolvingStream = false
-                streamResolutionTask = nil
-            }
-            do {
-                try Task.checkCancellation()
-                let epKey = "\(season)-\(episode)"
-                if prefetchedEpisodeKey == epKey, let cached = prefetchedEpisodePlayback {
-                    prefetchedEpisodeKey = nil
-                    prefetchedEpisodePlayback = nil
-                    episodePrefetchTask?.cancel()
-                    episodePrefetchTask = nil
-                    guard !cached.urls.isEmpty else {
-                        streamError = "No stream was found (none marked playable)."
-                        return
-                    }
-                    if let q = cached.quality { streamQuality = q }
-                    playableContent = makeEpisodePlayableContent(
-                        urls: cached.urls,
-                        quality: cached.quality,
-                        season: season,
-                        episode: episode,
-                        title: title,
-                        fromBeginning: fromBeginning
-                    )
-                    return
-                }
-                let (urls, quality) = try await appState.streamingService.playableURLsAndQualityForEpisode(seriesId: seriesId, season: season, episode: episode)
-                try Task.checkCancellation()
-                guard !urls.isEmpty else {
-                    streamError = "No stream was found (none marked playable)."
-                    return
-                }
-                if let quality { streamQuality = quality }
-                playableContent = makeEpisodePlayableContent(
-                    urls: urls,
-                    quality: quality,
-                    season: season,
-                    episode: episode,
-                    title: title,
-                    fromBeginning: fromBeginning
-                )
-            } catch is CancellationError {
-                streamError = nil
-                return
-            } catch {
-                if Task.isCancelled {
-                    streamError = nil
-                    return
-                }
-                let msg = userFacingStreamingErrorMessage(for: error)
-                streamError = msg.isEmpty ? nil : msg
-            }
+        let epKey = "\(season)-\(episode)"
+        if prefetchedEpisodeKey == epKey, let cached = prefetchedEpisodePlayback, !cached.urls.isEmpty {
+            prefetchedEpisodeKey = nil
+            prefetchedEpisodePlayback = nil
+            episodePrefetchTask?.cancel()
+            episodePrefetchTask = nil
+            if let q = cached.quality { streamQuality = q }
+            playableContent = makeEpisodePlayableContent(
+                urls: cached.urls,
+                quality: cached.quality,
+                season: season,
+                episode: episode,
+                title: title,
+                fromBeginning: fromBeginning
+            )
+            return
         }
+        // Immediately present fullscreen VideoPlayerView with dynamic stream resolution
+        playableContent = makeEpisodePlayableContent(
+            urls: [],
+            quality: streamQuality,
+            season: season,
+            episode: episode,
+            title: title,
+            fromBeginning: fromBeginning
+        )
     }
 
     private func makeEpisodePlayableContent(

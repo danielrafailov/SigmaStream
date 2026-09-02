@@ -167,6 +167,114 @@ async function main() {
         return res;
     };
 
+    // Hook into SourceService for Instant First-Success Stream Resolution
+    const sourceService = (server as any).sourceService;
+    if (sourceService) {
+        sourceService.fetchFromProviders = async function (
+            type: 'movie' | 'tv',
+            media: any
+        ) {
+            const providers = this.registry.getProviders();
+            if (providers.length === 0) {
+                console.warn('[SourceService] No providers registered');
+                return [];
+            }
+
+            const supportedProviders = providers
+                .filter((p: any) =>
+                    p.capabilities.supportedContentTypes.includes(
+                        type === 'movie' ? 'movies' : 'tv'
+                    )
+                )
+                .filter((p: any) => p.enabled);
+
+            console.log(
+                `[SourceService] 🚀 Concurrent fetch across ${supportedProviders.length} provider(s) (first-working-stream wins)`
+            );
+
+            return new Promise((resolve) => {
+                let isResolved = false;
+                let pendingCount = supportedProviders.length;
+                const collectedResults: any[] = [];
+
+                if (supportedProviders.length === 0) {
+                    return resolve([]);
+                }
+
+                supportedProviders.forEach(async (provider: any) => {
+                    try {
+                        const startTime = Date.now();
+                        let result: any;
+                        if (type === 'movie') {
+                            result = await provider.getMovieSources(media);
+                        } else {
+                            result = await provider.getTVSources(media);
+                        }
+
+                        if (
+                            result &&
+                            result.sources &&
+                            result.sources.length > 0
+                        ) {
+                            // Parallel validation of returned sources
+                            const validatedSources = await Promise.allSettled(
+                                result.sources.map(async (source: any) => {
+                                    try {
+                                        const urlObj = new URL(source.url);
+                                        const data =
+                                            urlObj.searchParams.get('data');
+                                        if (!data) return source;
+                                        const proxyData = (
+                                            server as any
+                                        ).proxyService.constructor.decodeProxyData(
+                                            data
+                                        );
+                                        const isValid =
+                                            await sourceService.validateSourceUrl(
+                                                proxyData
+                                            );
+                                        return isValid ? source : null;
+                                    } catch {
+                                        return source;
+                                    }
+                                })
+                            );
+
+                            const validSources = validatedSources
+                                .filter(
+                                    (r: any) =>
+                                        r.status === 'fulfilled' && r.value
+                                )
+                                .map((r: any) => r.value);
+
+                            if (validSources.length > 0) {
+                                result.sources = validSources;
+                                const duration = Date.now() - startTime;
+                                console.log(
+                                    `[SourceService] ⚡ First working stream found by '${provider.name}' (${validSources.length} sources) in ${duration}ms! Returning immediately.`
+                                );
+                                if (!isResolved) {
+                                    isResolved = true;
+                                    return resolve([result]);
+                                }
+                            }
+                        }
+
+                        if (result) collectedResults.push(result);
+                    } catch (err: any) {
+                        // Provider error
+                    } finally {
+                        pendingCount--;
+                        if (!isResolved && pendingCount === 0) {
+                            isResolved = true;
+                            resolve(collectedResults);
+                        }
+                    }
+                });
+            });
+        };
+    }
+
     // Support raw audio buffers for Fastify
     app.addContentTypeParser(
         ['audio/wav', 'audio/x-wav', 'application/octet-stream'],

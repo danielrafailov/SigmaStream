@@ -316,141 +316,153 @@ struct iOSHomeView: View {
         }
     }
 
-    // MARK: - Netflix-Style 3D Depth Hero Carousel
+    // MARK: - Netflix-Style 3D Depth Hero Carousel (Infinite Looping)
+    @ViewBuilder
     private func heroCarousel(items: [MediaListItem], isTV: Bool) -> some View {
-        TabView(selection: $selectedHeroIndex) {
-            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                GeometryReader { geo in
-                    let screenWidth = UIScreen.main.bounds.width
-                    let midX = geo.frame(in: .global).midX
-                    let distanceFromCenter = midX - (screenWidth / 2)
-                    let normalizedDistance = max(-1.0, min(1.0, distanceFromCenter / screenWidth))
-                    
-                    // 3D Depth & Perspective transforms
-                    let scale = max(0.88, 1.0 - abs(normalizedDistance) * 0.12)
-                    let rotation = Double(normalizedDistance * -16)
-                    let opacity = max(0.65, 1.0 - abs(normalizedDistance) * 0.35)
+        if !items.isEmpty {
+            let count = items.count
+            let virtualCount = count * 200
 
-                    ZStack(alignment: .bottom) {
-                        // Portrait Poster Art (Fills Card)
-                        if let posterURL = item.posterURL {
-                            AsyncImage(url: posterURL) { phase in
-                                if let img = phase.image {
-                                    img
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fill)
-                                        .frame(width: geo.size.width, height: geo.size.height)
-                                        .clipped()
-                                } else {
-                                    Color.white.opacity(0.08)
-                                }
-                            }
-                        }
+            TabView(selection: $selectedHeroIndex) {
+                ForEach(0..<virtualCount, id: \.self) { vIndex in
+                    let item = items[vIndex % count]
+                    GeometryReader { geo in
+                        let screenWidth = UIScreen.main.bounds.width
+                        let midX = geo.frame(in: .global).midX
+                        let distanceFromCenter = midX - (screenWidth / 2)
+                        let normalizedDistance = max(-1.0, min(1.0, distanceFromCenter / screenWidth))
+                        
+                        // 3D Depth & Perspective transforms
+                        let scale = max(0.88, 1.0 - abs(normalizedDistance) * 0.12)
+                        let rotation = Double(normalizedDistance * -16)
+                        let opacity = max(0.65, 1.0 - abs(normalizedDistance) * 0.35)
 
-                        // Bottom Gradient Scrim
-                        LinearGradient(
-                            colors: [
-                                Color.clear,
-                                Color.black.opacity(0.15),
-                                Color.black.opacity(0.65),
-                                Color.black.opacity(0.95)
-                            ],
-                            startPoint: .center,
-                            endPoint: .bottom
-                        )
-
-                        // Bottom Overlay: Title, Subtitle, and 2 Big Pill Buttons
-                        VStack(spacing: 12) {
-                            // Title
-                            Text(item.title)
-                                .font(.system(size: 26, weight: .heavy, design: .rounded))
-                                .foregroundStyle(.white)
-                                .multilineTextAlignment(.center)
-                                .lineLimit(2)
-                                .shadow(color: .black.opacity(0.8), radius: 6, y: 2)
-                                .padding(.horizontal, 16)
-
-                            // Tagline / Subtitle
-                            Text(isTV ? "Watch All Episodes Now" : "Watch Now")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.white.opacity(0.92))
-                                .shadow(color: .black.opacity(0.7), radius: 4)
-
-                            // Action Buttons Row: [Play Show / Movie] [My List]
-                            HStack(spacing: 12) {
-                                // Play Button (White filled)
-                                Button {
-                                    if isTV {
-                                        selectedTVSeriesId = item.id
+                        ZStack(alignment: .bottom) {
+                            // Portrait Poster Art (Fills Card)
+                            if let posterURL = item.posterURL {
+                                AsyncImage(url: posterURL) { phase in
+                                    if let img = phase.image {
+                                        img
+                                            .resizable()
+                                            .aspectRatio(contentMode: .fill)
+                                            .frame(width: geo.size.width, height: geo.size.height)
+                                            .clipped()
                                     } else {
-                                        selectedMovieId = item.id
+                                        Color.white.opacity(0.08)
                                     }
-                                } label: {
-                                    HStack(spacing: 8) {
-                                        Image(systemName: "play.fill")
-                                            .font(.system(size: 16, weight: .bold))
-                                        Text(isTV ? "Play Show" : "Play Movie")
-                                            .font(.system(size: 15, weight: .bold))
-                                    }
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 12)
-                                    .background(Color.white)
-                                    .foregroundStyle(.black)
-                                    .clipShape(Capsule())
-                                    .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
-                                }
-
-                                // My List Button (+ / checkmark)
-                                let inList = isTV ? appState.myListManager.isSeriesInList(item.id) : appState.myListManager.isMovieInList(item.id)
-                                Button {
-                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                        if isTV {
-                                            appState.myListManager.toggleSeries(item.id)
-                                        } else {
-                                            appState.myListManager.toggleMovie(item.id)
-                                        }
-                                    }
-                                } label: {
-                                    HStack(spacing: 8) {
-                                        Image(systemName: inList ? "checkmark" : "plus")
-                                            .font(.system(size: 16, weight: .bold))
-                                        Text("My List")
-                                            .font(.system(size: 15, weight: .bold))
-                                    }
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 12)
-                                    .background(Color.white.opacity(0.22))
-                                    .foregroundStyle(.white)
-                                    .clipShape(Capsule())
-                                    .overlay(
-                                        Capsule()
-                                            .stroke(Color.white.opacity(0.2), lineWidth: 1)
-                                    )
                                 }
                             }
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 16)
+
+                            // Bottom Gradient Scrim
+                            LinearGradient(
+                                colors: [
+                                    Color.clear,
+                                    Color.black.opacity(0.15),
+                                    Color.black.opacity(0.65),
+                                    Color.black.opacity(0.95)
+                                ],
+                                startPoint: .center,
+                                endPoint: .bottom
+                            )
+
+                            // Bottom Overlay: Title, Subtitle, and 2 Big Pill Buttons
+                            VStack(spacing: 12) {
+                                // Title
+                                Text(item.title)
+                                    .font(.system(size: 26, weight: .heavy, design: .rounded))
+                                    .foregroundStyle(.white)
+                                    .multilineTextAlignment(.center)
+                                    .lineLimit(2)
+                                    .shadow(color: .black.opacity(0.8), radius: 6, y: 2)
+                                    .padding(.horizontal, 16)
+
+                                // Tagline / Subtitle
+                                Text(isTV ? "Watch All Episodes Now" : "Watch Now")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.white.opacity(0.92))
+                                    .shadow(color: .black.opacity(0.7), radius: 4)
+
+                                // Action Buttons Row: [Play Show / Movie] [My List]
+                                HStack(spacing: 12) {
+                                    // Play Button (White filled)
+                                    Button {
+                                        if isTV {
+                                            selectedTVSeriesId = item.id
+                                        } else {
+                                            selectedMovieId = item.id
+                                        }
+                                    } label: {
+                                        HStack(spacing: 8) {
+                                            Image(systemName: "play.fill")
+                                                .font(.system(size: 16, weight: .bold))
+                                            Text(isTV ? "Play Show" : "Play Movie")
+                                                .font(.system(size: 15, weight: .bold))
+                                        }
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 12)
+                                        .background(Color.white)
+                                        .foregroundStyle(.black)
+                                        .clipShape(Capsule())
+                                        .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
+                                    }
+
+                                    // My List Button (+ / checkmark)
+                                    let inList = isTV ? appState.myListManager.isSeriesInList(item.id) : appState.myListManager.isMovieInList(item.id)
+                                    Button {
+                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                            if isTV {
+                                                appState.myListManager.toggleSeries(item.id)
+                                            } else {
+                                                appState.myListManager.toggleMovie(item.id)
+                                            }
+                                        }
+                                    } label: {
+                                        HStack(spacing: 8) {
+                                            Image(systemName: inList ? "checkmark" : "plus")
+                                                .font(.system(size: 16, weight: .bold))
+                                            Text("My List")
+                                                .font(.system(size: 15, weight: .bold))
+                                        }
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 12)
+                                        .background(Color.white.opacity(0.22))
+                                        .foregroundStyle(.white)
+                                        .clipShape(Capsule())
+                                        .overlay(
+                                            Capsule()
+                                                .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                                        )
+                                    }
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.bottom, 16)
+                            }
                         }
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                        )
+                        .shadow(color: .black.opacity(0.4), radius: 12, y: 6)
+                        .scaleEffect(scale)
+                        .rotation3DEffect(.degrees(rotation), axis: (x: 0, y: 1, z: 0), perspective: 0.5)
+                        .opacity(opacity)
                     }
-                    .frame(width: geo.size.width, height: geo.size.height)
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                    )
-                    .shadow(color: .black.opacity(0.4), radius: 12, y: 6)
-                    .scaleEffect(scale)
-                    .rotation3DEffect(.degrees(rotation), axis: (x: 0, y: 1, z: 0), perspective: 0.5)
-                    .opacity(opacity)
+                    .padding(.horizontal, 20)
+                    .tag(vIndex)
                 }
-                .padding(.horizontal, 20)
-                .tag(index)
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .frame(height: 500)
+            .padding(.top, 4)
+            .padding(.bottom, 10)
+            .onAppear {
+                if selectedHeroIndex == 0 {
+                    selectedHeroIndex = (virtualCount / 2) - ((virtualCount / 2) % count)
+                }
             }
         }
-        .tabViewStyle(.page(indexDisplayMode: .never))
-        .frame(height: 500)
-        .padding(.top, 4)
-        .padding(.bottom, 10)
     }
 
     // MARK: - Data Loading

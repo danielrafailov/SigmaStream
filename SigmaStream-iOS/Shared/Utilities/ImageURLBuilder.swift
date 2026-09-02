@@ -51,4 +51,14 @@ enum ImageURLBuilder {
         guard let config else { return nil }
         return config.images.backdropURL(for: path, idealWidth: idealWidth)
     }
+
+    /// Build profile URL for cast/crew photos.
+    static func profileURL(
+        for path: URL?,
+        config: APIConfiguration?,
+        idealWidth: Int = 185
+    ) -> URL? {
+        guard let config else { return nil }
+        return config.images.posterURL(for: path, idealWidth: idealWidth)
+    }
 }

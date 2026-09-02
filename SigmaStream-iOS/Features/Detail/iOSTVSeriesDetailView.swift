@@ -29,43 +29,15 @@ struct iOSTVSeriesDetailView: View {
 
     var body: some View {
         GeometryReader { geometry in
+            let headerHeight: CGFloat = 260
+
             ZStack(alignment: .top) {
-                // Fixed Top Backdrop Poster (stays pinned at top during scroll)
-                ZStack(alignment: .bottomLeading) {
-                    if let backdropPath = series?.backdropPath {
-                        let backdropURL = ImageURLBuilder.backdropURL(for: backdropPath, config: appState.apiConfiguration, idealWidth: 780)
-                        AsyncImage(url: backdropURL) { phase in
-                            if let image = phase.image {
-                                image
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fill)
-                                    .frame(width: geometry.size.width, height: 260)
-                                    .clipped()
-                            } else {
-                                Color.white.opacity(0.05)
-                            }
-                        }
-                    } else {
-                        Color.white.opacity(0.05)
-                    }
-
-                    // Gradient Scrim into background
-                    LinearGradient(
-                        colors: [Color.clear, Color(uiColor: .systemBackground).opacity(0.5), Color(uiColor: .systemBackground)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                }
-                .frame(width: geometry.size.width, height: 260)
-                .clipped()
-                .ignoresSafeArea(edges: .top)
-
-                // Scrollable Content Over Fixed Poster
+                // Layer 1: Scrollable Content (Slides UNDER the fixed header in Z-axis)
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        // Spacer allowing user to initially view the top poster clearly
+                        // Spacer matching top header height so content starts below poster
                         Color.clear
-                            .frame(height: 200)
+                            .frame(height: headerHeight)
 
                         // Content Details strictly constrained to screen width with horizontal margins
                         VStack(alignment: .leading, spacing: 18) {
@@ -345,22 +317,48 @@ struct iOSTVSeriesDetailView: View {
                                 }
                             }
                         }
-                    }
                         .padding(.horizontal, 18)
                         .padding(.top, 16)
-                        .background(
-                            Color(uiColor: .systemBackground)
-                                .shadow(color: .black.opacity(0.4), radius: 10, y: -5)
-                        )
                         .frame(width: geometry.size.width, alignment: .leading)
                         .padding(.bottom, 40)
                     }
                     .frame(width: geometry.size.width)
                 }
+                }
                 .frame(width: geometry.size.width, height: geometry.size.height)
 
-                // Floating Back Button pinned at top-left
-                HStack {
+                // Layer 2: Fixed Top Backdrop Poster Header (Sits on top in Z-index)
+                ZStack(alignment: .topLeading) {
+                    ZStack(alignment: .bottom) {
+                        if let backdropPath = series?.backdropPath {
+                            let backdropURL = ImageURLBuilder.backdropURL(for: backdropPath, config: appState.apiConfiguration, idealWidth: 780)
+                            AsyncImage(url: backdropURL) { phase in
+                                if let image = phase.image {
+                                    image
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                        .frame(width: geometry.size.width, height: headerHeight)
+                                        .clipped()
+                                } else {
+                                    Color.black
+                                }
+                            }
+                        } else {
+                            Color.black
+                        }
+
+                        // Gradient Scrim at bottom of fixed poster
+                        LinearGradient(
+                            colors: [Color.clear, Color(uiColor: .systemBackground).opacity(0.6), Color(uiColor: .systemBackground)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                        .frame(height: 48)
+                    }
+                    .frame(width: geometry.size.width, height: headerHeight)
+                    .clipped()
+
+                    // Floating Back Button pinned at top-left
                     Button {
                         dismiss()
                     } label: {
@@ -371,10 +369,12 @@ struct iOSTVSeriesDetailView: View {
                             .background(.ultraThinMaterial)
                             .clipShape(Circle())
                     }
-                    Spacer()
+                    .padding(.leading, 18)
+                    .padding(.top, 50)
                 }
-                .padding(.leading, 18)
-                .padding(.top, 50)
+                .frame(width: geometry.size.width, height: headerHeight)
+                .background(Color(uiColor: .systemBackground))
+                .ignoresSafeArea(edges: .top)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }

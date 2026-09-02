@@ -15,12 +15,12 @@ struct CyclingThreeDotsView: View {
     @State private var timer: Timer?
 
     var body: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 9) {
             ForEach(0..<3, id: \.self) { index in
                 Circle()
                     .fill(Color.white.opacity(activeIndex == index ? 1.0 : 0.25))
-                    .frame(width: 6, height: 6)
-                    .scaleEffect(activeIndex == index ? 1.3 : 0.8)
+                    .frame(width: 11, height: 11)
+                    .scaleEffect(activeIndex == index ? 1.35 : 0.85)
                     .animation(.easeInOut(duration: 0.25), value: activeIndex)
             }
         }
@@ -90,7 +90,7 @@ struct iOSTouchPlayerView: View {
                     VStack {
                         HStack {
                             Button {
-                                dismiss()
+                                cleanupAndDismiss()
                             } label: {
                                 Image(systemName: "xmark")
                                     .font(.system(size: 18, weight: .bold))
@@ -101,8 +101,8 @@ struct iOSTouchPlayerView: View {
                             }
                             Spacer()
                         }
-                        .padding(.horizontal, 20)
-                        .padding(.top, 20)
+                        .padding(.horizontal, 24)
+                        .padding(.top, 24)
 
                         Spacer()
                     }
@@ -124,7 +124,7 @@ struct iOSTouchPlayerView: View {
                                 .padding(.horizontal, 36)
 
                             Button {
-                                dismiss()
+                                cleanupAndDismiss()
                             } label: {
                                 Text("Close")
                                     .font(.subheadline.bold())
@@ -139,17 +139,12 @@ struct iOSTouchPlayerView: View {
                         .padding(24)
                     } else {
                         VStack(spacing: 16) {
-                            ProgressView()
-                                .scaleEffect(1.4)
-                                .tint(.white)
+                            Text("Searching for streams")
+                                .font(.system(size: 24, weight: .bold))
+                                .foregroundStyle(.white)
 
-                            HStack(spacing: 8) {
-                                Text("Searching for streams")
-                                    .font(.headline.bold())
-                                    .foregroundStyle(.white)
-
-                                CyclingThreeDotsView()
-                            }
+                            CyclingThreeDotsView()
+                                .padding(.vertical, 2)
 
                             Text(playableContent.title)
                                 .font(.subheadline)
@@ -355,8 +350,9 @@ struct iOSTouchPlayerView: View {
                 .transition(.opacity.animation(.easeInOut(duration: 0.25)))
             }
         }
-        .statusBarHidden(!showControls)
+        .statusBarHidden(!showControls && player != nil)
         .onAppear {
+            lockLandscapeOrientation()
             currentUrls = playableContent.urls
             selectedQuality = playableContent.quality
             if currentUrls.isEmpty {
@@ -366,8 +362,27 @@ struct iOSTouchPlayerView: View {
             }
         }
         .onDisappear {
+            restoreDefaultOrientation()
             teardownPlayer()
         }
+    }
+
+    private func lockLandscapeOrientation() {
+        AppDelegate.orientationLock = .landscape
+        if let windowScene = UIApplication.shared.connectedScenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene {
+            let geometryPreferences = UIWindowScene.GeometryPreferences.iOS(interfaceOrientations: .landscapeRight)
+            windowScene.requestGeometryUpdate(geometryPreferences) { _ in }
+        }
+        UIViewController.attemptRotationToDeviceOrientation()
+    }
+
+    private func restoreDefaultOrientation() {
+        AppDelegate.orientationLock = .allButUpsideDown
+        if let windowScene = UIApplication.shared.connectedScenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene {
+            let geometryPreferences = UIWindowScene.GeometryPreferences.iOS(interfaceOrientations: .portrait)
+            windowScene.requestGeometryUpdate(geometryPreferences) { _ in }
+        }
+        UIViewController.attemptRotationToDeviceOrientation()
     }
 
     private var progressFraction: Double {
@@ -479,6 +494,7 @@ struct iOSTouchPlayerView: View {
     }
 
     private func cleanupAndDismiss() {
+        restoreDefaultOrientation()
         teardownPlayer()
         dismiss()
     }

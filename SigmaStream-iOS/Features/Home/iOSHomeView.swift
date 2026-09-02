@@ -344,32 +344,36 @@ struct iOSHomeView: View {
                             endPoint: .bottom
                         )
 
-                        // Details & Quick Action
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(item.title)
-                                .font(.system(size: 18, weight: .bold))
-                                .foregroundStyle(.white)
-                                .lineLimit(1)
+                        // Details & Quick Action (Watch Now aligned to the right of title)
+                        HStack(alignment: .center, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(item.title)
+                                    .font(.system(size: 17, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
 
-                            HStack(spacing: 10) {
-                                if let year = item.releaseYear {
-                                    Text(year)
-                                        .font(.caption)
-                                        .foregroundStyle(.white.opacity(0.8))
-                                }
-                                if let rating = item.rating, rating > 0 {
-                                    HStack(spacing: 3) {
-                                        Image(systemName: "star.fill")
-                                            .font(.system(size: 10))
-                                            .foregroundStyle(.yellow)
-                                        Text(String(format: "%.1f", rating))
-                                            .font(.caption.bold())
-                                            .foregroundStyle(.white)
+                                HStack(spacing: 8) {
+                                    if let year = item.releaseYear {
+                                        Text(year)
+                                            .font(.caption)
+                                            .foregroundStyle(.white.opacity(0.8))
+                                    }
+                                    if let rating = item.rating, rating > 0 {
+                                        HStack(spacing: 3) {
+                                            Image(systemName: "star.fill")
+                                                .font(.system(size: 10))
+                                                .foregroundStyle(.yellow)
+                                            Text(String(format: "%.1f", rating))
+                                                .font(.caption.bold())
+                                                .foregroundStyle(.white)
+                                        }
                                     }
                                 }
                             }
 
-                            // Play Button
+                            Spacer(minLength: 8)
+
+                            // Play Button on the right
                             Button {
                                 if isTV {
                                     selectedTVSeriesId = item.id
@@ -389,9 +393,9 @@ struct iOSHomeView: View {
                                 .foregroundStyle(.black)
                                 .clipShape(Capsule())
                             }
-                            .padding(.top, 2)
                         }
-                        .padding(14)
+                        .padding(.horizontal, 14)
+                        .padding(.bottom, 18)
                     }
                     .frame(width: geo.size.width, height: geo.size.height)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))

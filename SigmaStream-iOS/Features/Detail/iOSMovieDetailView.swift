@@ -35,63 +35,51 @@ struct iOSMovieDetailView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    // Hero Backdrop with Z-stacked Back Button
-                    ZStack(alignment: .topLeading) {
-                        // Backdrop Image strictly bounded to screen width
-                        ZStack(alignment: .bottomLeading) {
-                            if let backdropPath = movie?.backdropPath {
-                                let backdropURL = ImageURLBuilder.backdropURL(for: backdropPath, config: appState.apiConfiguration, idealWidth: 780)
-                                AsyncImage(url: backdropURL) { phase in
-                                    if let image = phase.image {
-                                        image
-                                            .resizable()
-                                            .aspectRatio(contentMode: .fill)
-                                            .frame(width: geometry.size.width, height: 320)
-                                            .clipped()
-                                    } else {
-                                        Color.white.opacity(0.05)
-                                    }
-                                }
+            ZStack(alignment: .top) {
+                // Fixed Top Backdrop Poster (stays pinned at top during scroll)
+                ZStack(alignment: .bottomLeading) {
+                    if let backdropPath = movie?.backdropPath {
+                        let backdropURL = ImageURLBuilder.backdropURL(for: backdropPath, config: appState.apiConfiguration, idealWidth: 780)
+                        AsyncImage(url: backdropURL) { phase in
+                            if let image = phase.image {
+                                image
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                                    .frame(width: geometry.size.width, height: 260)
+                                    .clipped()
                             } else {
                                 Color.white.opacity(0.05)
                             }
-
-                            // Gradient Scrim
-                            LinearGradient(
-                                colors: [Color.clear, Color(uiColor: .systemBackground).opacity(0.8), Color(uiColor: .systemBackground)],
-                                startPoint: .center,
-                                endPoint: .bottom
-                            )
                         }
-                        .frame(width: geometry.size.width, height: 320)
-                        .clipped()
-
-                        // Floating Back Button placed on top of poster preview
-                        Button {
-                            dismiss()
-                        } label: {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 16, weight: .bold))
-                                .foregroundStyle(.white)
-                                .frame(width: 38, height: 38)
-                                .background(.ultraThinMaterial)
-                                .clipShape(Circle())
-                        }
-                        .padding(.leading, 18)
-                        .padding(.top, 50)
+                    } else {
+                        Color.white.opacity(0.05)
                     }
-                    .frame(width: geometry.size.width, height: 320)
-                    .clipped()
 
-                    // Content Details strictly constrained to screen width with horizontal margins
-                    VStack(alignment: .leading, spacing: 18) {
-                        // Title (forced to wrap within phone bounds)
-                        Text(movie?.title ?? "Movie Details")
-                            .font(.system(size: 26, weight: .bold))
-                            .foregroundStyle(.white)
-                            .fixedSize(horizontal: false, vertical: true)
+                    // Gradient Scrim into background
+                    LinearGradient(
+                        colors: [Color.clear, Color(uiColor: .systemBackground).opacity(0.5), Color(uiColor: .systemBackground)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                }
+                .frame(width: geometry.size.width, height: 260)
+                .clipped()
+                .ignoresSafeArea(edges: .top)
+
+                // Scrollable Content Over Fixed Poster
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        // Spacer allowing user to initially view the top poster clearly
+                        Color.clear
+                            .frame(height: 200)
+
+                        // Content Details strictly constrained to screen width with horizontal margins
+                        VStack(alignment: .leading, spacing: 18) {
+                            // Title (forced to wrap within phone bounds)
+                            Text(movie?.title ?? "Movie Details")
+                                .font(.system(size: 26, weight: .bold))
+                                .foregroundStyle(.white)
+                                .fixedSize(horizontal: false, vertical: true)
 
                         // Metadata Row: [Year] [Age Rating] [Length] [Rating]
                         HStack(spacing: 10) {
@@ -396,11 +384,35 @@ struct iOSMovieDetailView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 18)
-                    .frame(width: geometry.size.width, alignment: .leading)
-                    .padding(.bottom, 40)
+                        .padding(.horizontal, 18)
+                        .padding(.top, 16)
+                        .background(
+                            Color(uiColor: .systemBackground)
+                                .shadow(color: .black.opacity(0.4), radius: 10, y: -5)
+                        )
+                        .frame(width: geometry.size.width, alignment: .leading)
+                        .padding(.bottom, 40)
+                    }
+                    .frame(width: geometry.size.width)
                 }
-                .frame(width: geometry.size.width)
+                .frame(width: geometry.size.width, height: geometry.size.height)
+
+                // Floating Back Button pinned at top-left
+                HStack {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 38, height: 38)
+                            .background(.ultraThinMaterial)
+                            .clipShape(Circle())
+                    }
+                    Spacer()
+                }
+                .padding(.leading, 18)
+                .padding(.top, 50)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }

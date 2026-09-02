@@ -1110,16 +1110,14 @@ actor TMDbService {
             async let s3M = (try? await cached("cat_act_s3", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "28,878", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
             async let s4TV = (try? await cached("cat_act_s4", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "10759", "sort_by": "popularity.desc"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
             async let s5M = (try? await cached("cat_act_s5", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "28", "vote_average.gte": "7.2", "vote_count.gte": "200", "sort_by": "vote_average.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
-            async let s6An = (try? await cached("cat_act_s6", url: tmdbURL(path: "/discover/tv", queryItems: ["with_genres": "16,10759", "sort_by": "popularity.desc"]), as: TMDbPaginatedTVResponse.self))?.results ?? []
             
-            let (r1, r2, r3, r4, r5, r6) = await (s1M, s2M, s3M, s4TV, s5M, s6An)
+            let (r1, r2, r3, r4, r5) = await (s1M, s2M, s3M, s4TV, s5M)
             return [
                 CategoryShelf(title: "Get in on the Action", movies: Self.appSafeMovies(r1), tvSeries: []),
                 CategoryShelf(title: "Relentless Crime & Action Thrillers", movies: Self.appSafeMovies(r2), tvSeries: []),
-                CategoryShelf(title: "Action Anime Dubbed in English", movies: [], tvSeries: Self.appSafeTVSeries(r6)),
                 CategoryShelf(title: "Action Sci-Fi & Superheroes", movies: Self.appSafeMovies(r3), tvSeries: []),
                 CategoryShelf(title: "Action-Packed TV Shows", movies: [], tvSeries: Self.appSafeTVSeries(r4)),
-                CategoryShelf(title: "Martial Arts & Hand-to-Hand Combat", movies: Self.appSafeMovies(r5), tvSeries: [])
+                CategoryShelf(title: "Martial Arts & Combat", movies: Self.appSafeMovies(r5), tvSeries: [])
             ].filter { !$0.movies.isEmpty || !$0.tvSeries.isEmpty }
 
         case "anime":

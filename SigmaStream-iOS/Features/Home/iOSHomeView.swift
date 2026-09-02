@@ -52,19 +52,120 @@ struct iOSHomeView: View {
     @State private var selectedTVSeriesId: Int?
     @State private var selectedMovieCategory: MovieCategory?
     @State private var selectedTVCategory: TVCategory?
+    @State private var selectedCuratedCategory: String?
+
+    private let curatedCategories = [
+        "Action",
+        "Anime",
+        "Astrology",
+        "Book Adaptations",
+        "Canadian",
+        "Comedies",
+        "Critically Acclaimed",
+        "Culture Edit",
+        "Documentaries",
+        "Dramas",
+        "Emmys"
+    ]
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Top Category Toggle Bar (Movies / TV Shows) without emojis
-                Picker("Category", selection: $selectedSection) {
-                    Text("Movies").tag(HomeTabSection.movies)
-                    Text("TV Shows").tag(HomeTabSection.tvShows)
+                // Top Header: Logo + "Home"
+                HStack(spacing: 12) {
+                    Image("SigmaLogo")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 32, height: 32)
+                        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+
+                    Text("Home")
+                        .font(.system(size: 26, weight: .bold))
+                        .foregroundStyle(.white)
+
+                    Spacer()
                 }
-                .pickerStyle(.segmented)
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
-                .padding(.bottom, 8)
+                .padding(.bottom, 6)
+
+                // Horizontally Scrollable Liquid Glass Navigation Pills
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        // Shows Pill
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                selectedSection = .tvShows
+                            }
+                        } label: {
+                            Text("Shows")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(selectedSection == .tvShows ? .white : .white.opacity(0.75))
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(
+                                    Capsule()
+                                        .fill(selectedSection == .tvShows ? Color.white.opacity(0.25) : Color.white.opacity(0.12))
+                                )
+                                .overlay(
+                                    Capsule()
+                                        .stroke(Color.white.opacity(selectedSection == .tvShows ? 0.35 : 0.18), lineWidth: 1)
+                                )
+                        }
+                        .buttonStyle(.plain)
+
+                        // Movies Pill
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                selectedSection = .movies
+                            }
+                        } label: {
+                            Text("Movies")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(selectedSection == .movies ? .white : .white.opacity(0.75))
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(
+                                    Capsule()
+                                        .fill(selectedSection == .movies ? Color.white.opacity(0.25) : Color.white.opacity(0.12))
+                                )
+                                .overlay(
+                                    Capsule()
+                                        .stroke(Color.white.opacity(selectedSection == .movies ? 0.35 : 0.18), lineWidth: 1)
+                                )
+                        }
+                        .buttonStyle(.plain)
+
+                        // Categories Dropdown Pill
+                        Menu {
+                            ForEach(curatedCategories, id: \.self) { cat in
+                                Button(cat) {
+                                    selectedCuratedCategory = cat
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 5) {
+                                Text("Categories")
+                                Image(systemName: "chevron.down")
+                                    .font(.system(size: 11, weight: .bold))
+                            }
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.85))
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(
+                                Capsule()
+                                    .fill(Color.white.opacity(0.12))
+                            )
+                            .overlay(
+                                Capsule()
+                                    .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 6)
+                }
 
                 ScrollView {
                     VStack(spacing: 20) {
@@ -79,6 +180,14 @@ struct iOSHomeView: View {
             }
             .background(Color(uiColor: .systemBackground).ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
+            .navigationDestination(isPresented: Binding(
+                get: { selectedCuratedCategory != nil },
+                set: { if !$0 { selectedCuratedCategory = nil } }
+            )) {
+                if let cat = selectedCuratedCategory {
+                    iOSCategoryFeedView(categoryName: cat)
+                }
+            }
             .navigationDestination(isPresented: Binding(
                 get: { selectedMovieId != nil },
                 set: { if !$0 { selectedMovieId = nil } }

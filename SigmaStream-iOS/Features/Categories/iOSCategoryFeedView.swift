@@ -279,6 +279,20 @@ struct iOSCategoryFeedView: View {
                 selectedHeroIndex = baseOffset
             }
         }
+        .task {
+            // Auto-rotate hero carousel every 5.5 seconds
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 5_500_000_000)
+                guard !Task.isCancelled else { break }
+                if count > 1 {
+                    await MainActor.run {
+                        withAnimation(.easeInOut(duration: 0.7)) {
+                            selectedHeroIndex += 1
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private func loadCategoryContent() async {

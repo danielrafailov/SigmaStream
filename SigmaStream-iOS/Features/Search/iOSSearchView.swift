@@ -213,28 +213,37 @@ struct iOSSearchView: View {
                         ContentUnavailableView.search(text: searchText)
                     }
                 } else if searchResults.isEmpty && aiSpokenResponse == nil {
-                    VStack(spacing: 12) {
-                        Image(systemName: searchMode == .ai ? "sparkles" : "magnifyingglass")
-                            .font(.system(size: 48))
-                            .foregroundStyle(searchMode == .ai ? .cyan : .secondary)
-                        Text(searchMode == .ai ? "Ask Sigma AI Anything" : "Search Movies & TV Shows")
-                            .font(.headline)
-                            .foregroundStyle(.secondary)
-                        if searchMode == .ai {
-                            Text("Try \"recommend a 90s action thriller\" or \"best sci-fi shows\"")
-                                .font(.caption)
+                    GeometryReader { geo in
+                        let globalFrame = geo.frame(in: .global)
+                        let screenHeight = UIScreen.main.bounds.height
+                        let containerCenterY = globalFrame.midY
+                        let screenCenterY = screenHeight / 2
+                        let offsetY = screenCenterY - containerCenterY
+
+                        VStack(spacing: 12) {
+                            Image(systemName: searchMode == .ai ? "sparkles" : "magnifyingglass")
+                                .font(.system(size: 48))
+                                .foregroundStyle(searchMode == .ai ? .cyan : .secondary)
+                            Text(searchMode == .ai ? "Ask Sigma AI Anything" : "Search Movies & TV Shows")
+                                .font(.headline)
                                 .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal, 32)
-                        } else {
-                            Text("Use the search bar or tap the ☰ filter button to browse by genre, year, actor, and ratings")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal, 32)
+                            if searchMode == .ai {
+                                Text("Try \"recommend a 90s action thriller\" or \"best sci-fi shows\"")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.center)
+                                    .padding(.horizontal, 32)
+                            } else {
+                                Text("Use the search bar or tap the ☰ filter button to browse by genre, year, actor, and ratings")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.center)
+                                    .padding(.horizontal, 32)
+                            }
                         }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .offset(y: offsetY)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 16) {

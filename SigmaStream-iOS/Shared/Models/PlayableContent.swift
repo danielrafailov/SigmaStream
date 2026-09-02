@@ -8,11 +8,11 @@ import Foundation
 
 struct PlayableContent: Identifiable {
     let id = UUID()
-    /// All stream URLs to try in order (best quality first). Non-empty.
-    let urls: [URL]
+    /// All stream URLs to try in order (best quality first). Can be empty if resolving inside player.
+    var urls: [URL]
     let title: String
     /// Best available quality from API (e.g. "1080p", "4K"). Nil if unknown.
-    let quality: String?
+    var quality: String?
     /// When set, AVPlayer seeks here after the stream is ready.
     let startTime: TimeInterval?
 
@@ -24,7 +24,7 @@ struct PlayableContent: Identifiable {
     let episode: Int?
 
     init(
-        urls: [URL],
+        urls: [URL] = [],
         title: String,
         quality: String? = nil,
         startTime: TimeInterval? = nil,

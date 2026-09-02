@@ -16,18 +16,16 @@ struct iOSTVSeriesDetailView: View {
     let seriesId: Int
 
     @State private var series: TVSeries?
+    @State private var ageRating: String?
     @State private var selectedSeasonNumber: Int = 1
     @State private var loadedSeason: TVSeason?
+    @State private var recommendations: [TVSeriesListItem] = []
+    @State private var trailers: [TMDbVideo] = []
+    @State private var selectedTab: DetailSubTab = .moreLikeThis
+
     @State private var isLoading = true
     @State private var isLoadingSeason = false
-    @State private var isResolvingStream = false
-    @State private var streamError: String?
     @State private var playableContent: PlayableContent?
-    @State private var streamQuality: String?
-    @State private var streamResolutionTask: Task<Void, Never>?
-    @State private var episodePrefetchTask: Task<Void, Never>?
-    @State private var prefetchedEpisodePlayback: (urls: [URL], quality: String?)?
-    @State private var prefetchedEpisodeKey: String?
 
     var body: some View {
         GeometryReader { geometry in
@@ -89,16 +87,27 @@ struct iOSTVSeriesDetailView: View {
                             .foregroundStyle(.white)
                             .fixedSize(horizontal: false, vertical: true)
 
-                        // Metadata Row
-                        HStack(spacing: 12) {
-                            if let count = series?.numberOfSeasons {
-                                Text("\(count) Season\(count > 1 ? "s" : "")")
+                        // Metadata Row: [Year] [Age Rating] [Seasons] [Rating]
+                        HStack(spacing: 10) {
+                            if let date = series?.firstAirDate {
+                                Text(String(Calendar.current.component(.year, from: date)))
                                     .font(.subheadline)
                                     .foregroundStyle(.secondary)
                             }
 
-                            if let date = series?.firstAirDate {
-                                Text(String(Calendar.current.component(.year, from: date)))
+                            // Age Rating in between year and seasons
+                            if let ageRating, !ageRating.isEmpty {
+                                Text(ageRating)
+                                    .font(.caption2.bold())
+                                    .foregroundStyle(.white.opacity(0.9))
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.white.opacity(0.18))
+                                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                            }
+
+                            if let count = series?.numberOfSeasons {
+                                Text("\(count) Season\(count > 1 ? "s" : "")")
                                     .font(.subheadline)
                                     .foregroundStyle(.secondary)
                             }
@@ -132,54 +141,6 @@ struct iOSTVSeriesDetailView: View {
                             }
                         }
 
-                        // Quick Action Icons
-                        HStack(spacing: 24) {
-                            Button {
-                                toggleMyList()
-                            } label: {
-                                VStack(spacing: 4) {
-                                    Image(systemName: isInMyList ? "checkmark" : "plus")
-                                        .font(.title3)
-                                    Text(isInMyList ? "In List" : "My List")
-                                        .font(.caption2)
-                                }
-                                .foregroundStyle(isInMyList ? Color.blue : Color.white)
-                            }
-                            .buttonStyle(.plain)
-
-                            Button {
-                                toggleLiked()
-                            } label: {
-                                VStack(spacing: 4) {
-                                    Image(systemName: isLiked ? "heart.fill" : "heart")
-                                        .font(.title3)
-                                    Text(isLiked ? "Liked" : "Like")
-                                        .font(.caption2)
-                                }
-                                .foregroundStyle(isLiked ? Color.red : Color.white)
-                            }
-                            .buttonStyle(.plain)
-
-                            Spacer()
-                        }
-                        .padding(.vertical, 4)
-
-                        // Error Message (if any)
-                        if let streamError, !streamError.isEmpty {
-                            HStack(spacing: 8) {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundStyle(.yellow)
-                                Text(streamError)
-                                    .font(.caption)
-                                    .foregroundStyle(.white)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            .padding(12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.red.opacity(0.2))
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                        }
-
                         // Synopsis
                         if let overview = series?.overview, !overview.isEmpty {
                             VStack(alignment: .leading, spacing: 6) {
@@ -194,11 +155,45 @@ struct iOSTVSeriesDetailView: View {
                             }
                         }
 
+                        // Action Icons (My List + Thumbs Up Like below description)
+                        HStack(spacing: 36) {
+                            // My List Button
+                            Button {
+                                toggleMyList()
+                            } label: {
+                                VStack(spacing: 5) {
+                                    Image(systemName: isInMyList ? "checkmark" : "plus")
+                                        .font(.title3.bold())
+                                    Text(isInMyList ? "In List" : "My List")
+                                        .font(.caption2.bold())
+                                }
+                                .foregroundStyle(isInMyList ? Color.blue : Color.white)
+                            }
+                            .buttonStyle(.plain)
+
+                            // Like Button (Thumbs Up, fills white on click)
+                            Button {
+                                toggleLiked()
+                            } label: {
+                                VStack(spacing: 5) {
+                                    Image(systemName: isLiked ? "hand.thumbsup.fill" : "hand.thumbsup")
+                                        .font(.title3.bold())
+                                    Text("Like")
+                                        .font(.caption2.bold())
+                                }
+                                .foregroundStyle(isLiked ? Color.white : Color.white.opacity(0.7))
+                            }
+                            .buttonStyle(.plain)
+
+                            Spacer()
+                        }
+                        .padding(.vertical, 4)
+
                         Divider()
                             .background(Color.white.opacity(0.15))
-                            .padding(.vertical, 8)
+                            .padding(.vertical, 4)
 
-                        // Season Selector
+                        // Season Selector & Episodes
                         if let seasons = series?.seasons?.filter({ $0.seasonNumber > 0 }), !seasons.isEmpty {
                             VStack(alignment: .leading, spacing: 14) {
                                 HStack {
@@ -244,6 +239,124 @@ struct iOSTVSeriesDetailView: View {
                                 }
                             }
                         }
+
+                        // Sub-Tabs Header: "More Like This" & "Trailers & More"
+                        VStack(alignment: .leading, spacing: 14) {
+                            HStack(spacing: 24) {
+                                Button {
+                                    selectedTab = .moreLikeThis
+                                } label: {
+                                    VStack(spacing: 6) {
+                                        Text("More Like This")
+                                            .font(.subheadline.bold())
+                                            .foregroundStyle(selectedTab == .moreLikeThis ? .white : .secondary)
+
+                                        Rectangle()
+                                            .fill(selectedTab == .moreLikeThis ? Color.red : Color.clear)
+                                            .frame(height: 3)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+
+                                Button {
+                                    selectedTab = .trailersAndMore
+                                } label: {
+                                    VStack(spacing: 6) {
+                                        Text("Trailers & More")
+                                            .font(.subheadline.bold())
+                                            .foregroundStyle(selectedTab == .trailersAndMore ? .white : .secondary)
+
+                                        Rectangle()
+                                            .fill(selectedTab == .trailersAndMore ? Color.red : Color.clear)
+                                            .frame(height: 3)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+
+                                Spacer()
+                            }
+                            .padding(.top, 12)
+
+                            // Tab Content: More Like This
+                            if selectedTab == .moreLikeThis {
+                                if recommendations.isEmpty {
+                                    Text("No similar titles found.")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                        .padding(.vertical, 16)
+                                } else {
+                                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 105, maximum: 140), spacing: 12)], spacing: 14) {
+                                        ForEach(recommendations) { rec in
+                                            NavigationLink {
+                                                iOSTVSeriesDetailView(seriesId: rec.id)
+                                            } label: {
+                                                iOSMediaCard(
+                                                    id: rec.id,
+                                                    title: rec.name,
+                                                    posterPath: ImageURLBuilder.posterURL(for: rec.posterPath, config: appState.apiConfiguration, idealWidth: 342),
+                                                    rating: rec.voteAverage,
+                                                    releaseYear: rec.firstAirDate.map { String(Calendar.current.component(.year, from: $0)) },
+                                                    isTVSeries: true,
+                                                    progress: nil,
+                                                    showLabels: false
+                                                )
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
+                                    }
+                                    .padding(.top, 4)
+                                }
+                            } else {
+                                // Tab Content: Trailers & More
+                                if trailers.isEmpty {
+                                    Text("No trailers available.")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                        .padding(.vertical, 16)
+                                } else {
+                                    VStack(spacing: 16) {
+                                        ForEach(trailers, id: \.id) { video in
+                                            Button {
+                                                if let ytURL = video.youtubeWatchURL {
+                                                    UIApplication.shared.open(ytURL)
+                                                }
+                                            } label: {
+                                                VStack(alignment: .leading, spacing: 8) {
+                                                    ZStack(alignment: .center) {
+                                                        if let thumbURL = video.youtubeThumbnailURL {
+                                                            AsyncImage(url: thumbURL) { phase in
+                                                                if let img = phase.image {
+                                                                    img.resizable().aspectRatio(contentMode: .fill)
+                                                                } else {
+                                                                    Color.white.opacity(0.08)
+                                                                }
+                                                            }
+                                                        } else {
+                                                            Color.white.opacity(0.08)
+                                                        }
+
+                                                        Image(systemName: "play.circle.fill")
+                                                            .font(.system(size: 46))
+                                                            .foregroundStyle(.white)
+                                                            .shadow(color: .black.opacity(0.7), radius: 6)
+                                                    }
+                                                    .frame(height: 180)
+                                                    .frame(maxWidth: .infinity)
+                                                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                                                    Text(video.name)
+                                                        .font(.subheadline.bold())
+                                                        .foregroundStyle(.white)
+                                                        .lineLimit(2)
+                                                }
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
+                                    }
+                                    .padding(.top, 4)
+                                }
+                            }
+                        }
                     }
                     .padding(.horizontal, 18)
                     .frame(width: geometry.size.width, alignment: .leading)
@@ -272,7 +385,7 @@ struct iOSTVSeriesDetailView: View {
     @ViewBuilder
     private func episodeRow(_ ep: TVEpisode) -> some View {
         Button {
-            startResolveEpisode(season: ep.seasonNumber, episode: ep.episodeNumber, title: ep.name)
+            playEpisode(season: ep.seasonNumber, episode: ep.episodeNumber, title: ep.name)
         } label: {
             HStack(alignment: .top, spacing: 14) {
                 // Thumbnail
@@ -348,6 +461,12 @@ struct iOSTVSeriesDetailView: View {
         defer { isLoading = false }
         do {
             self.series = try await appState.tmdbService.tvSeriesDetails(forSeriesId: seriesId)
+            // Age Rating
+            self.ageRating = await appState.tmdbService.tvSeriesContentRating(forSeriesId: seriesId)
+            // Recommendations
+            self.recommendations = (try? await appState.tmdbService.tvSeriesRecommendations(forSeriesId: seriesId)) ?? []
+            // Trailers
+            self.trailers = await appState.tmdbService.tvSeriesVideosList(forSeriesId: seriesId)
         } catch {}
     }
 
@@ -359,46 +478,17 @@ struct iOSTVSeriesDetailView: View {
         } catch {}
     }
 
-    private func startResolveEpisode(season: Int, episode: Int, title: String) {
-        guard !isResolvingStream else { return }
-        streamResolutionTask?.cancel()
-        streamResolutionTask = Task { @MainActor in
-            isResolvingStream = true
-            streamError = nil
-            defer {
-                isResolvingStream = false
-                streamResolutionTask = nil
-            }
-            do {
-                try Task.checkCancellation()
-                let (urls, quality) = try await appState.streamingService.playableURLsAndQualityForEpisode(seriesId: seriesId, season: season, episode: episode)
-                try Task.checkCancellation()
-                guard !urls.isEmpty else {
-                    streamError = "No stream was found."
-                    return
-                }
-                if let quality { streamQuality = quality }
-                let resumeTime = appState.watchProgressManager.resumeTimeForEpisode(seriesId: seriesId, season: season, episode: episode)
-                playableContent = PlayableContent(
-                    urls: urls,
-                    title: "\(series?.name ?? "Show") - S\(season) E\(episode) \(title)",
-                    quality: quality,
-                    startTime: resumeTime,
-                    tvSeriesId: seriesId,
-                    season: season,
-                    episode: episode
-                )
-            } catch is CancellationError {
-                streamError = nil
-            } catch {
-                if Task.isCancelled {
-                    streamError = nil
-                    return
-                }
-                let msg = userFacingStreamingErrorMessage(for: error)
-                streamError = msg.isEmpty ? nil : msg
-            }
-        }
+    private func playEpisode(season: Int, episode: Int, title: String) {
+        let resumeTime = appState.watchProgressManager.resumeTimeForEpisode(seriesId: seriesId, season: season, episode: episode)
+        // Immediately opens loader screen and searches for stream inside iOSTouchPlayerView
+        playableContent = PlayableContent(
+            urls: [],
+            title: "\(series?.name ?? "Show") - S\(season) E\(episode) \(title)",
+            startTime: resumeTime,
+            tvSeriesId: seriesId,
+            season: season,
+            episode: episode
+        )
     }
 }
 #endif

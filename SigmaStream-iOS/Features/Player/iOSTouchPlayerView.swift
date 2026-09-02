@@ -10,6 +10,32 @@ import AVKit
 import MediaPlayer
 
 #if os(iOS)
+struct CyclingThreeDotsView: View {
+    @State private var activeIndex = 0
+    @State private var timer: Timer?
+
+    var body: some View {
+        HStack(spacing: 5) {
+            ForEach(0..<3, id: \.self) { index in
+                Circle()
+                    .fill(Color.white.opacity(activeIndex == index ? 1.0 : 0.25))
+                    .frame(width: 6, height: 6)
+                    .scaleEffect(activeIndex == index ? 1.3 : 0.8)
+                    .animation(.easeInOut(duration: 0.25), value: activeIndex)
+            }
+        }
+        .onAppear {
+            timer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { _ in
+                activeIndex = (activeIndex + 1) % 3
+            }
+        }
+        .onDisappear {
+            timer?.invalidate()
+            timer = nil
+        }
+    }
+}
+
 struct iOSTouchPlayerView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AppState.self) private var appState
@@ -26,6 +52,10 @@ struct iOSTouchPlayerView: View {
     @State private var dragTime: Double = 0
     @State private var selectedQuality: String?
     @State private var timeObserverToken: Any?
+
+    @State private var isResolvingStream = false
+    @State private var streamResolveError: String?
+    @State private var currentUrls: [URL] = []
 
     // Double-tap skip ripples
     @State private var leftRipple = false
@@ -54,9 +84,81 @@ struct iOSTouchPlayerView: View {
                         toggleControls()
                     }
             } else {
-                ProgressView("Loading Stream...")
-                    .tint(.white)
-                    .foregroundStyle(.white)
+                // Loader Screen / Searching for Streams Animation
+                ZStack {
+                    // Top dismiss button during loading or error
+                    VStack {
+                        HStack {
+                            Button {
+                                dismiss()
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 18, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .padding(10)
+                                    .background(.ultraThinMaterial)
+                                    .clipShape(Circle())
+                            }
+                            Spacer()
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.top, 20)
+
+                        Spacer()
+                    }
+
+                    if let error = streamResolveError {
+                        VStack(spacing: 16) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 48))
+                                .foregroundStyle(.red)
+
+                            Text("No stream found")
+                                .font(.title3.bold())
+                                .foregroundStyle(.red)
+
+                            Text(error.contains("No stream") ? "We were unable to locate an active video stream for this title." : error)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 36)
+
+                            Button {
+                                dismiss()
+                            } label: {
+                                Text("Close")
+                                    .font(.subheadline.bold())
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 28)
+                                    .padding(.vertical, 10)
+                                    .background(Color.white.opacity(0.15))
+                                    .clipShape(Capsule())
+                            }
+                            .padding(.top, 8)
+                        }
+                        .padding(24)
+                    } else {
+                        VStack(spacing: 16) {
+                            ProgressView()
+                                .scaleEffect(1.4)
+                                .tint(.white)
+
+                            HStack(spacing: 8) {
+                                Text("Searching for streams")
+                                    .font(.headline.bold())
+                                    .foregroundStyle(.white)
+
+                                CyclingThreeDotsView()
+                            }
+
+                            Text(playableContent.title)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .padding(.horizontal, 32)
+                        }
+                    }
+                }
             }
 
             // Left / Right Double-Tap Indicator Overlays
@@ -253,7 +355,13 @@ struct iOSTouchPlayerView: View {
         }
         .statusBarHidden(!showControls)
         .onAppear {
-            setupPlayer()
+            currentUrls = playableContent.urls
+            selectedQuality = playableContent.quality
+            if currentUrls.isEmpty {
+                resolveAndStartPlayback()
+            } else if let first = currentUrls.first {
+                initializePlayer(with: first)
+            }
         }
         .onDisappear {
             teardownPlayer()
@@ -266,10 +374,50 @@ struct iOSTouchPlayerView: View {
         return max(0, min(1, time / duration))
     }
 
-    private func setupPlayer() {
-        guard let url = playableContent.urls.first else { return }
-        selectedQuality = playableContent.quality
+    private func resolveAndStartPlayback() {
+        isResolvingStream = true
+        streamResolveError = nil
 
+        Task {
+            do {
+                let resolved: (urls: [URL], quality: String?)
+                if let movieId = playableContent.movieId {
+                    resolved = try await appState.streamingService.playableURLsAndQualityForMovie(tmdbId: movieId)
+                } else if let seriesId = playableContent.tvSeriesId,
+                          let season = playableContent.season,
+                          let episode = playableContent.episode {
+                    resolved = try await appState.streamingService.playableURLsAndQualityForEpisode(
+                        seriesId: seriesId,
+                        season: season,
+                        episode: episode
+                    )
+                } else {
+                    throw StreamingError.noSourcesAvailable("No stream found")
+                }
+
+                guard !resolved.urls.isEmpty else {
+                    throw StreamingError.noSourcesAvailable("No stream found")
+                }
+
+                await MainActor.run {
+                    self.currentUrls = resolved.urls
+                    self.selectedQuality = resolved.quality
+                    self.isResolvingStream = false
+                    if let first = resolved.urls.first {
+                        self.initializePlayer(with: first)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    self.isResolvingStream = false
+                    let msg = userFacingStreamingErrorMessage(for: error)
+                    self.streamResolveError = msg.isEmpty ? "No stream found" : msg
+                }
+            }
+        }
+    }
+
+    private func initializePlayer(with url: URL) {
         let item = AVPlayerItem(url: url)
         let avPlayer = AVPlayer(playerItem: item)
         avPlayer.automaticallyWaitsToMinimizeStalling = true

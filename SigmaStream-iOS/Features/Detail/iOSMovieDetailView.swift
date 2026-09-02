@@ -9,6 +9,13 @@ import SwiftUI
 import TMDb
 
 #if os(iOS)
+enum DetailSubTab: String, CaseIterable, Identifiable {
+    case moreLikeThis = "More Like This"
+    case trailersAndMore = "Trailers & More"
+
+    var id: String { rawValue }
+}
+
 struct iOSMovieDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AppState.self) private var appState
@@ -17,14 +24,13 @@ struct iOSMovieDetailView: View {
 
     @State private var movie: Movie?
     @State private var cast: [CastMember] = []
+    @State private var ageRating: String?
+    @State private var recommendations: [MovieListItem] = []
+    @State private var trailers: [TMDbVideo] = []
+    @State private var selectedTab: DetailSubTab = .moreLikeThis
+
     @State private var isLoading = true
-    @State private var isResolvingStream = false
-    @State private var streamError: String?
     @State private var playableContent: PlayableContent?
-    @State private var showPlayer = false
-    @State private var streamQuality: String?
-    @State private var streamResolutionTask: Task<Void, Never>?
-    @State private var moviePrefetchTask: Task<Void, Never>?
     @State private var prefetchedMoviePlayback: (urls: [URL], quality: String?)?
 
     var body: some View {
@@ -87,12 +93,23 @@ struct iOSMovieDetailView: View {
                             .foregroundStyle(.white)
                             .fixedSize(horizontal: false, vertical: true)
 
-                        // Metadata Row (Year, Runtime, Rating)
-                        HStack(spacing: 12) {
+                        // Metadata Row: [Year] [Age Rating] [Length] [Rating]
+                        HStack(spacing: 10) {
                             if let date = movie?.releaseDate {
                                 Text(String(Calendar.current.component(.year, from: date)))
                                     .font(.subheadline)
                                     .foregroundStyle(.secondary)
+                            }
+
+                            // Age Rating in between year and length
+                            if let ageRating, !ageRating.isEmpty {
+                                Text(ageRating)
+                                    .font(.caption2.bold())
+                                    .foregroundStyle(.white.opacity(0.9))
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.white.opacity(0.18))
+                                    .clipShape(RoundedRectangle(cornerRadius: 4))
                             }
 
                             if let runtime = movie?.runtime, runtime > 0 {
@@ -133,16 +150,11 @@ struct iOSMovieDetailView: View {
                         // Primary Play Buttons
                         VStack(spacing: 10) {
                             Button {
-                                startResolveStream(fromBeginning: false)
+                                startPlayMovie(fromBeginning: false)
                             } label: {
                                 HStack(spacing: 8) {
-                                    if isResolvingStream {
-                                        ProgressView()
-                                            .tint(.black)
-                                    } else {
-                                        Image(systemName: "play.fill")
-                                            .font(.headline)
-                                    }
+                                    Image(systemName: "play.fill")
+                                        .font(.headline)
                                     Text(hasResumePosition ? "Resume Movie" : "Play Movie")
                                         .font(.headline.bold())
                                 }
@@ -152,11 +164,10 @@ struct iOSMovieDetailView: View {
                                 .foregroundStyle(.black)
                                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                             }
-                            .disabled(isResolvingStream)
 
                             if hasResumePosition {
                                 Button {
-                                    startResolveStream(fromBeginning: true)
+                                    startPlayMovie(fromBeginning: true)
                                 } label: {
                                     HStack(spacing: 6) {
                                         Image(systemName: "arrow.counterclockwise")
@@ -173,66 +184,7 @@ struct iOSMovieDetailView: View {
                         }
                         .padding(.top, 4)
 
-                        // Action Icons (My List, Like, Quality)
-                        HStack(spacing: 24) {
-                            // My List Button
-                            Button {
-                                toggleMyList()
-                            } label: {
-                                VStack(spacing: 4) {
-                                    Image(systemName: isInMyList ? "checkmark" : "plus")
-                                        .font(.title3)
-                                    Text(isInMyList ? "In List" : "My List")
-                                        .font(.caption2)
-                                }
-                                .foregroundStyle(isInMyList ? Color.blue : Color.white)
-                            }
-                            .buttonStyle(.plain)
-
-                            // Like Button
-                            Button {
-                                toggleLiked()
-                            } label: {
-                                VStack(spacing: 4) {
-                                    Image(systemName: isLiked ? "heart.fill" : "heart")
-                                        .font(.title3)
-                                    Text(isLiked ? "Liked" : "Like")
-                                        .font(.caption2)
-                                }
-                                .foregroundStyle(isLiked ? Color.red : Color.white)
-                            }
-                            .buttonStyle(.plain)
-
-                            Spacer()
-
-                            if let quality = streamQuality {
-                                Text(quality)
-                                    .font(.caption2.bold())
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(Color.white.opacity(0.15))
-                                    .clipShape(RoundedRectangle(cornerRadius: 4))
-                            }
-                        }
-                        .padding(.vertical, 4)
-
-                        // Stream Error Banner
-                        if let error = streamError {
-                            HStack(spacing: 8) {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundStyle(.yellow)
-                                Text(error)
-                                    .font(.caption)
-                                    .foregroundStyle(.white)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            .padding(12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.red.opacity(0.2))
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                        }
-
-                        // Overview Section
+                        // Overview Description
                         if let overview = movie?.overview, !overview.isEmpty {
                             VStack(alignment: .leading, spacing: 8) {
                                 Text("Overview")
@@ -246,6 +198,40 @@ struct iOSMovieDetailView: View {
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                         }
+
+                        // Action Icons (My List + Thumbs Up Like below description)
+                        HStack(spacing: 36) {
+                            // My List Button
+                            Button {
+                                toggleMyList()
+                            } label: {
+                                VStack(spacing: 5) {
+                                    Image(systemName: isInMyList ? "checkmark" : "plus")
+                                        .font(.title3.bold())
+                                    Text(isInMyList ? "In List" : "My List")
+                                        .font(.caption2.bold())
+                                }
+                                .foregroundStyle(isInMyList ? Color.blue : Color.white)
+                            }
+                            .buttonStyle(.plain)
+
+                            // Like Button (Thumbs Up, fills white on click)
+                            Button {
+                                toggleLiked()
+                            } label: {
+                                VStack(spacing: 5) {
+                                    Image(systemName: isLiked ? "hand.thumbsup.fill" : "hand.thumbsup")
+                                        .font(.title3.bold())
+                                    Text("Like")
+                                        .font(.caption2.bold())
+                                }
+                                .foregroundStyle(isLiked ? Color.white : Color.white.opacity(0.7))
+                            }
+                            .buttonStyle(.plain)
+
+                            Spacer()
+                        }
+                        .padding(.vertical, 4)
 
                         // Cast Section
                         if !cast.isEmpty {
@@ -288,6 +274,124 @@ struct iOSMovieDetailView: View {
                                             .frame(width: 80)
                                         }
                                     }
+                                }
+                            }
+                        }
+
+                        // Sub-Tabs Header: "More Like This" & "Trailers & More"
+                        VStack(alignment: .leading, spacing: 14) {
+                            HStack(spacing: 24) {
+                                Button {
+                                    selectedTab = .moreLikeThis
+                                } label: {
+                                    VStack(spacing: 6) {
+                                        Text("More Like This")
+                                            .font(.subheadline.bold())
+                                            .foregroundStyle(selectedTab == .moreLikeThis ? .white : .secondary)
+
+                                        Rectangle()
+                                            .fill(selectedTab == .moreLikeThis ? Color.red : Color.clear)
+                                            .frame(height: 3)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+
+                                Button {
+                                    selectedTab = .trailersAndMore
+                                } label: {
+                                    VStack(spacing: 6) {
+                                        Text("Trailers & More")
+                                            .font(.subheadline.bold())
+                                            .foregroundStyle(selectedTab == .trailersAndMore ? .white : .secondary)
+
+                                        Rectangle()
+                                            .fill(selectedTab == .trailersAndMore ? Color.red : Color.clear)
+                                            .frame(height: 3)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+
+                                Spacer()
+                            }
+                            .padding(.top, 8)
+
+                            // Tab Content: More Like This
+                            if selectedTab == .moreLikeThis {
+                                if recommendations.isEmpty {
+                                    Text("No similar titles found.")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                        .padding(.vertical, 16)
+                                } else {
+                                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 105, maximum: 140), spacing: 12)], spacing: 14) {
+                                        ForEach(recommendations) { rec in
+                                            NavigationLink {
+                                                iOSMovieDetailView(movieId: rec.id)
+                                            } label: {
+                                                iOSMediaCard(
+                                                    id: rec.id,
+                                                    title: rec.title,
+                                                    posterPath: ImageURLBuilder.posterURL(for: rec.posterPath, config: appState.apiConfiguration, idealWidth: 342),
+                                                    rating: rec.voteAverage,
+                                                    releaseYear: rec.releaseDate.map { String(Calendar.current.component(.year, from: $0)) },
+                                                    isTVSeries: false,
+                                                    progress: nil,
+                                                    showLabels: false
+                                                )
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
+                                    }
+                                    .padding(.top, 4)
+                                }
+                            } else {
+                                // Tab Content: Trailers & More
+                                if trailers.isEmpty {
+                                    Text("No trailers available.")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                        .padding(.vertical, 16)
+                                } else {
+                                    VStack(spacing: 16) {
+                                        ForEach(trailers, id: \.id) { video in
+                                            Button {
+                                                if let ytURL = video.youtubeWatchURL {
+                                                    UIApplication.shared.open(ytURL)
+                                                }
+                                            } label: {
+                                                VStack(alignment: .leading, spacing: 8) {
+                                                    ZStack(alignment: .center) {
+                                                        if let thumbURL = video.youtubeThumbnailURL {
+                                                            AsyncImage(url: thumbURL) { phase in
+                                                                if let img = phase.image {
+                                                                    img.resizable().aspectRatio(contentMode: .fill)
+                                                                } else {
+                                                                    Color.white.opacity(0.08)
+                                                                }
+                                                            }
+                                                        } else {
+                                                            Color.white.opacity(0.08)
+                                                        }
+
+                                                        Image(systemName: "play.circle.fill")
+                                                            .font(.system(size: 46))
+                                                            .foregroundStyle(.white)
+                                                            .shadow(color: .black.opacity(0.7), radius: 6)
+                                                    }
+                                                    .frame(height: 180)
+                                                    .frame(maxWidth: .infinity)
+                                                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                                                    Text(video.name)
+                                                        .font(.subheadline.bold())
+                                                        .foregroundStyle(.white)
+                                                        .lineLimit(2)
+                                                }
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
+                                    }
+                                    .padding(.top, 4)
                                 }
                             }
                         }
@@ -338,82 +442,37 @@ struct iOSMovieDetailView: View {
         defer { isLoading = false }
         do {
             self.movie = try await appState.tmdbService.movieDetails(forMovieId: movieId)
-        } catch {
-            // Error handling
-        }
+            // Fetch Age Rating (Certification)
+            self.ageRating = await appState.tmdbService.movieCertification(forMovieId: movieId)
+            // Fetch Recommendations
+            self.recommendations = (try? await appState.tmdbService.movieRecommendations(forMovieId: movieId)) ?? []
+            // Fetch Trailers
+            self.trailers = await appState.tmdbService.movieVideosList(forMovieId: movieId)
+        } catch {}
     }
 
     private func scheduleMoviePrefetchIfReleased() {
         guard let movie else { return }
         if let date = movie.releaseDate, date > Calendar.current.startOfDay(for: Date()) { return }
-        moviePrefetchTask?.cancel()
-        prefetchedMoviePlayback = nil
-        moviePrefetchTask = Task {
-            do {
-                let pair = try await appState.streamingService.playableURLsAndQualityForMovie(tmdbId: movieId)
+        Task {
+            if let pair = try? await appState.streamingService.playableURLsAndQualityForMovie(tmdbId: movieId) {
                 await MainActor.run {
-                    guard !Task.isCancelled else { return }
                     self.prefetchedMoviePlayback = pair
                 }
-            } catch {}
-        }
-    }
-
-    private func startResolveStream(fromBeginning: Bool) {
-        guard !isResolvingStream else { return }
-        streamResolutionTask?.cancel()
-        streamResolutionTask = Task { @MainActor in
-            isResolvingStream = true
-            streamError = nil
-            defer {
-                isResolvingStream = false
-                streamResolutionTask = nil
-            }
-            do {
-                try Task.checkCancellation()
-                if let cached = prefetchedMoviePlayback {
-                    prefetchedMoviePlayback = nil
-                    moviePrefetchTask?.cancel()
-                    moviePrefetchTask = nil
-                    guard !cached.urls.isEmpty else {
-                        streamError = "No stream was found."
-                        return
-                    }
-                    if let q = cached.quality { streamQuality = q }
-                    playableContent = makePlayableContent(urls: cached.urls, quality: cached.quality, fromBeginning: fromBeginning)
-                    return
-                }
-
-                let (urls, quality) = try await appState.streamingService.playableURLsAndQualityForMovie(tmdbId: movieId)
-                try Task.checkCancellation()
-                guard !urls.isEmpty else {
-                    streamError = "No stream was found."
-                    return
-                }
-                if let quality { streamQuality = quality }
-                playableContent = makePlayableContent(urls: urls, quality: quality, fromBeginning: fromBeginning)
-            } catch is CancellationError {
-                streamError = nil
-            } catch {
-                if Task.isCancelled {
-                    streamError = nil
-                    return
-                }
-                let msg = userFacingStreamingErrorMessage(for: error)
-                streamError = msg.isEmpty ? nil : msg
             }
         }
     }
 
-    private func makePlayableContent(urls: [URL], quality: String?, fromBeginning: Bool) -> PlayableContent {
+    private func startPlayMovie(fromBeginning: Bool) {
         if fromBeginning {
             appState.watchProgressManager.clearMoviePlaybackPosition(movieId)
         }
         let startTime = fromBeginning ? nil : appState.watchProgressManager.resumeTimeForMovie(movieId)
-        return PlayableContent(
-            urls: urls,
+        // Immediately opens the loader screen and searches for streams inside iOSTouchPlayerView
+        playableContent = PlayableContent(
+            urls: prefetchedMoviePlayback?.urls ?? [],
             title: movie?.title ?? "Movie",
-            quality: quality,
+            quality: prefetchedMoviePlayback?.quality,
             startTime: startTime,
             movieId: movieId
         )

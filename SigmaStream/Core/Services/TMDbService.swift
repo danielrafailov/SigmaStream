@@ -31,6 +31,25 @@ private struct TMDbPaginatedTVResponse: Decodable {
     let totalPages: Int?
 }
 
+private struct MovieReleaseDatesResponse: Decodable {
+    struct CountryRelease: Decodable {
+        let iso_3166_1: String
+        let release_dates: [ReleaseDateDetail]?
+    }
+    struct ReleaseDateDetail: Decodable {
+        let certification: String?
+    }
+    let results: [CountryRelease]?
+}
+
+private struct TVContentRatingsResponse: Decodable {
+    struct RatingItem: Decodable {
+        let iso_3166_1: String
+        let rating: String?
+    }
+    let results: [RatingItem]?
+}
+
 /// Lenient API structs for direct TMDb season fetch (fallback when TMDb package decoding fails)
 private struct TMDbSeasonDetailAPI: Decodable {
     let id: Int
@@ -399,6 +418,62 @@ actor TMDbService {
             .key
         trailerYouTubeKeyCache[memKey] = key ?? Self.trailerCacheNoneSentinel
         return key
+    }
+
+    /// Fetch list of YouTube videos (trailers, teasers, clips) for a movie.
+    func movieVideosList(forMovieId movieId: Int) async -> [TMDbVideo] {
+        let url = tmdbURL(path: "/movie/\(movieId)/videos")
+        guard let response = try? await cached("movie_videos_list_\(movieId)", url: url, as: TMDbVideosResponse.self),
+              let results = response.results else {
+            return []
+        }
+        return results.filter { $0.site.lowercased() == "youtube" }
+    }
+
+    /// Fetch list of YouTube videos (trailers, teasers, clips) for a TV series.
+    func tvSeriesVideosList(forSeriesId seriesId: Int) async -> [TMDbVideo] {
+        let url = tmdbURL(path: "/tv/\(seriesId)/videos")
+        guard let response = try? await cached("tv_videos_list_\(seriesId)", url: url, as: TMDbVideosResponse.self),
+              let results = response.results else {
+            return []
+        }
+        return results.filter { $0.site.lowercased() == "youtube" }
+    }
+
+    /// Get movie age rating / certification (e.g. "PG-13", "R", "PG", "G")
+    func movieCertification(forMovieId movieId: Int) async -> String? {
+        let url = tmdbURL(path: "/movie/\(movieId)/release_dates")
+        guard let response = try? await cached("movie_release_dates_\(movieId)", url: url, as: MovieReleaseDatesResponse.self) else {
+            return nil
+        }
+        if let us = response.results?.first(where: { $0.iso_3166_1.uppercased() == "US" }),
+           let cert = us.release_dates?.first(where: { !($0.certification ?? "").isEmpty })?.certification,
+           !cert.isEmpty {
+            return cert
+        }
+        for country in response.results ?? [] {
+            if let cert = country.release_dates?.first(where: { !($0.certification ?? "").isEmpty })?.certification,
+               !cert.isEmpty {
+                return cert
+            }
+        }
+        return nil
+    }
+
+    /// Get TV series age rating / content rating (e.g. "TV-MA", "TV-14", "TV-PG")
+    func tvSeriesContentRating(forSeriesId seriesId: Int) async -> String? {
+        let url = tmdbURL(path: "/tv/\(seriesId)/content_ratings")
+        guard let response = try? await cached("tv_content_ratings_\(seriesId)", url: url, as: TVContentRatingsResponse.self) else {
+            return nil
+        }
+        if let us = response.results?.first(where: { $0.iso_3166_1.uppercased() == "US" }),
+           let rating = us.rating, !rating.isEmpty {
+            return rating
+        }
+        if let anyRating = response.results?.first(where: { !($0.rating ?? "").isEmpty })?.rating {
+            return anyRating
+        }
+        return nil
     }
 
     /// Fetch popular movies

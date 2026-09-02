@@ -18,6 +18,7 @@ struct iOSMediaCard: View {
     let releaseYear: String?
     let isTVSeries: Bool
     let progress: Double? // 0.0 to 1.0 if partially watched
+    var showLabels: Bool = false
 
     @State private var isPressing = false
 
@@ -95,33 +96,35 @@ struct iOSMediaCard: View {
             }
             .frame(width: 125, height: 185)
 
-            // Title & Metadata
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
+            // Title & Metadata (Only shown if showLabels is true)
+            if showLabels {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
 
-                HStack(spacing: 6) {
-                    if let releaseYear, !releaseYear.isEmpty {
-                        Text(releaseYear)
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                    }
-
-                    if let rating, rating > 0 {
-                        HStack(spacing: 2) {
-                            Image(systemName: "star.fill")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.yellow)
-                            Text(String(format: "%.1f", rating))
-                                .font(.system(size: 11, weight: .medium))
+                    HStack(spacing: 6) {
+                        if let releaseYear, !releaseYear.isEmpty {
+                            Text(releaseYear)
+                                .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
+                        }
+
+                        if let rating, rating > 0 {
+                            HStack(spacing: 2) {
+                                Image(systemName: "star.fill")
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(.yellow)
+                                Text(String(format: "%.1f", rating))
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }
+                .frame(width: 125, alignment: .leading)
             }
-            .frame(width: 125, alignment: .leading)
         }
         .scaleEffect(isPressing ? 0.96 : 1.0)
         .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isPressing)

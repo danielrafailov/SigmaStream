@@ -19,6 +19,8 @@ struct iOSMediaCard: View {
     let isTVSeries: Bool
     let progress: Double? // 0.0 to 1.0 if partially watched
     var showLabels: Bool = false
+    var cardWidth: CGFloat? = nil
+    var cardHeight: CGFloat? = nil
 
     @State private var isPressing = false
 
@@ -53,13 +55,14 @@ struct iOSMediaCard: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                .frame(width: 125, height: 185)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .frame(width: cardWidth, height: cardHeight)
+                .aspectRatio(cardWidth == nil ? 2/3 : nil, contentMode: .fill)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .stroke(Color.white.opacity(0.12), lineWidth: 0.8)
                 )
-                .shadow(color: .black.opacity(0.4), radius: 6, x: 0, y: 3)
+                .shadow(color: .black.opacity(0.35), radius: 5, x: 0, y: 2)
 
                 // Continue Watching Progress Bar
                 if let progress, progress > 0.02 {
@@ -75,7 +78,7 @@ struct iOSMediaCard: View {
                         }
                     }
                     .frame(height: 4)
-                    .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 12, bottomTrailingRadius: 12))
+                    .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 10, bottomTrailingRadius: 10))
                 }
 
                 // Type Badge (TV / Movie)
@@ -94,7 +97,8 @@ struct iOSMediaCard: View {
                     .frame(maxHeight: .infinity, alignment: .topTrailing)
                 }
             }
-            .frame(width: 125, height: 185)
+            .frame(width: cardWidth, height: cardHeight)
+            .aspectRatio(cardWidth == nil ? 2/3 : nil, contentMode: .fit)
 
             // Title & Metadata (Only shown if showLabels is true)
             if showLabels {
@@ -123,7 +127,7 @@ struct iOSMediaCard: View {
                         }
                     }
                 }
-                .frame(width: 125, alignment: .leading)
+                .frame(maxWidth: cardWidth ?? .infinity, alignment: .leading)
             }
         }
         .scaleEffect(isPressing ? 0.96 : 1.0)

@@ -23,6 +23,7 @@ struct iOSHomeView: View {
 
     // MARK: - Movies Shelves
     @State private var movieHeroItems: [MediaListItem] = []
+    @State private var continueWatchingMovies: [iOSMediaRowItem] = []
     @State private var trendingMovies: [iOSMediaRowItem] = []
     @State private var popularMovies: [iOSMediaRowItem] = []
     @State private var acclaimedMovies: [iOSMediaRowItem] = []
@@ -35,6 +36,7 @@ struct iOSHomeView: View {
 
     // MARK: - TV Shelves
     @State private var tvHeroItems: [MediaListItem] = []
+    @State private var continueWatchingTV: [iOSMediaRowItem] = []
     @State private var trendingTV: [iOSMediaRowItem] = []
     @State private var popularTV: [iOSMediaRowItem] = []
     @State private var acclaimedTV: [iOSMediaRowItem] = []
@@ -226,6 +228,11 @@ struct iOSHomeView: View {
             .refreshable {
                 await loadFeedData()
             }
+            .onReceive(NotificationCenter.default.publisher(for: WatchProgressManager.continueWatchingDidChange)) { _ in
+                Task {
+                    await loadContinueWatching()
+                }
+            }
         }
     }
 
@@ -235,6 +242,16 @@ struct iOSHomeView: View {
         // Compact Hero Carousel
         if !movieHeroItems.isEmpty {
             heroCarousel(items: movieHeroItems, isTV: false)
+        }
+
+        // Continue Watching Shelf
+        if !continueWatchingMovies.isEmpty {
+            iOSMediaRow(
+                title: "Continue Watching",
+                items: continueWatchingMovies
+            ) { item in
+                selectedMovieId = item.id
+            }
         }
 
         // Core Shelves with See All
@@ -338,6 +355,16 @@ struct iOSHomeView: View {
         // TV Hero Carousel
         if !tvHeroItems.isEmpty {
             heroCarousel(items: tvHeroItems, isTV: true)
+        }
+
+        // Continue Watching Shelf
+        if !continueWatchingTV.isEmpty {
+            iOSMediaRow(
+                title: "Continue Watching",
+                items: continueWatchingTV
+            ) { item in
+                selectedTVSeriesId = item.id
+            }
         }
 
         // Core TV Shelves with See All
@@ -594,6 +621,8 @@ struct iOSHomeView: View {
             await appState.loadConfiguration()
         }
 
+        await loadContinueWatching()
+
         do {
             // Core First-Paint Parallel Fetch
             async let tMFetch = appState.tmdbService.trendingMovies()
@@ -716,6 +745,71 @@ struct iOSHomeView: View {
                 isTVSeries: true,
                 progress: nil
             )
+        }
+    }
+
+    private func loadContinueWatching() async {
+        // Continue Watching Movies
+        let watchedMovies = appState.watchProgressManager.watchedMovies.filter {
+            appState.watchProgressManager.canResumeMovie($0.movieId)
+        }
+        var mItems: [iOSMediaRowItem] = []
+        for wm in watchedMovies {
+            if let movie = try? await appState.tmdbService.movieDetails(forMovieId: wm.movieId) {
+                let progressFraction: Double?
+                if let pos = wm.progressSeconds, let dur = wm.durationSeconds, dur > 0 {
+                    progressFraction = min(1.0, max(0.05, pos / dur))
+                } else {
+                    progressFraction = 0.5
+                }
+                let posterURL = ImageURLBuilder.posterURL(for: movie.posterPath, config: appState.apiConfiguration, idealWidth: 342) ?? ImageURLBuilder.backdropURL(for: movie.backdropPath, config: appState.apiConfiguration, idealWidth: 300)
+                let year = movie.releaseDate.map { String(Calendar.current.component(.year, from: $0)) }
+                mItems.append(iOSMediaRowItem(
+                    id: movie.id,
+                    title: movie.title,
+                    posterURL: posterURL,
+                    rating: movie.voteAverage,
+                    releaseYear: year,
+                    isTVSeries: false,
+                    progress: progressFraction
+                ))
+            }
+        }
+        await MainActor.run {
+            self.continueWatchingMovies = mItems
+        }
+
+        // Continue Watching TV Shows
+        let watchedEpisodes = appState.watchProgressManager.watchedEpisodes.filter {
+            appState.watchProgressManager.canResumeEpisode(seriesId: $0.seriesId, season: $0.season, episode: $0.episode)
+        }
+        var tvItems: [iOSMediaRowItem] = []
+        var seenSeries = Set<Int>()
+        for we in watchedEpisodes {
+            if seenSeries.contains(we.seriesId) { continue }
+            seenSeries.insert(we.seriesId)
+            if let show = try? await appState.tmdbService.tvSeriesDetails(forSeriesId: we.seriesId) {
+                let progressFraction: Double?
+                if let pos = we.progressSeconds, let dur = we.durationSeconds, dur > 0 {
+                    progressFraction = min(1.0, max(0.05, pos / dur))
+                } else {
+                    progressFraction = 0.5
+                }
+                let posterURL = ImageURLBuilder.posterURL(for: show.posterPath, config: appState.apiConfiguration, idealWidth: 342) ?? ImageURLBuilder.backdropURL(for: show.backdropPath, config: appState.apiConfiguration, idealWidth: 300)
+                let year = show.firstAirDate.map { String(Calendar.current.component(.year, from: $0)) }
+                tvItems.append(iOSMediaRowItem(
+                    id: show.id,
+                    title: show.name,
+                    posterURL: posterURL,
+                    rating: show.voteAverage,
+                    releaseYear: year,
+                    isTVSeries: true,
+                    progress: progressFraction
+                ))
+            }
+        }
+        await MainActor.run {
+            self.continueWatchingTV = tvItems
         }
     }
 }

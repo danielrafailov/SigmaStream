@@ -57,8 +57,8 @@ final class VoiceAssistantService: NSObject, AVAudioPlayerDelegate {
         self.voiceName = voiceName
         
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 45
-        config.timeoutIntervalForResource = 60
+        config.timeoutIntervalForRequest = 12
+        config.timeoutIntervalForResource = 25
         self.session = URLSession(configuration: config)
         
         super.init()
@@ -159,18 +159,23 @@ final class VoiceAssistantService: NSObject, AVAudioPlayerDelegate {
             return
         }
         
-        // 2. Otherwise fetch from local clone engine or Voice.ai and cache to disk
+        // 2. Otherwise fetch instant sample from backend, or generate via local clone / Voice.ai
         activeTTSJob = Task { [weak self] in
             guard let self else { return }
             do {
                 var audioData: Data? = nil
                 
-                // Try local clone engine first
-                do {
-                    audioData = try await self.fetchLocalVoiceCloneAudio(text: sampleText, voice: voiceSlug)
-                } catch {
-                    // Fallback to Voice.ai
-                    audioData = try await self.fetchVoiceAIAudioWithKeyRotation(text: sampleText, voiceId: voiceId)
+                // Try direct pre-generated sample from backend (<10ms)
+                if let directAudio = try? await self.fetchDirectVoiceSampleAudio(voiceSlug: voiceSlug) {
+                    audioData = directAudio
+                } else {
+                    // Fallback to local clone synthesis
+                    do {
+                        audioData = try await self.fetchLocalVoiceCloneAudio(text: sampleText, voice: voiceSlug)
+                    } catch {
+                        // Fallback to Voice.ai
+                        audioData = try await self.fetchVoiceAIAudioWithKeyRotation(text: sampleText, voiceId: voiceId)
+                    }
                 }
                 
                 guard let finalAudio = audioData else { return }
@@ -220,7 +225,7 @@ final class VoiceAssistantService: NSObject, AVAudioPlayerDelegate {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 45
+        request.timeoutInterval = 25
         
         let payload: [String: String] = [
             "text": text,
@@ -233,6 +238,18 @@ final class VoiceAssistantService: NSObject, AVAudioPlayerDelegate {
             throw URLError(.badServerResponse)
         }
         
+        return data
+    }
+    
+    private func fetchDirectVoiceSampleAudio(voiceSlug: String) async throws -> Data {
+        let endpoint = "\(serverBaseURL)/api/sample/\(voiceSlug)"
+        guard let url = URL(string: endpoint) else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 6
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
         return data
     }
     

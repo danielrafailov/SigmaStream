@@ -2,6 +2,7 @@ import { OMSSServer } from '@omss/framework';
 import 'dotenv/config';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import fs from 'node:fs';
 import { knownThirdPartyProxies } from './thirdPartyProxies.js';
 import { streamPatterns } from './streamPatterns.js';
 import { generateSpeechWav, getTTS } from './tts.js';
@@ -243,6 +244,25 @@ async function main() {
                 .status(500)
                 .send({ error: err.message || 'TTS failed' });
         }
+    });
+
+    // Direct Pre-generated Voice Sample Route (Instant <10ms playback for Settings previews)
+    app.get('/api/sample/:slug', async (request, reply) => {
+        const { slug } = request.params as { slug: string };
+        const cleanSlug = slug.replace(/[^a-zA-Z0-9_-]/g, '');
+        const samplePath = path.resolve(
+            process.cwd(),
+            'voices',
+            `${cleanSlug}.wav`
+        );
+        if (fs.existsSync(samplePath)) {
+            const data = fs.readFileSync(samplePath);
+            reply.header('Content-Type', 'audio/wav');
+            reply.header('Content-Length', data.length);
+            reply.header('Cache-Control', 'public, max-age=86400');
+            return reply.send(data);
+        }
+        return reply.status(404).send({ error: 'Sample not found' });
     });
 
     // Speech-to-Text Transcription Route (Local Whisper Transcription)

@@ -20,13 +20,10 @@ struct SettingsView: View {
     
     private let voices: [CelebrityVoice] = [
         CelebrityVoice(id: "2c61b0ed-c7e4-461d-a6d1-5a4f02fc8278", slug: "arnold_schwarzenegger", name: "Arnold Schwarzenegger", icon: "🏋️‍♂️"),
-        CelebrityVoice(id: "barack_obama", slug: "barack_obama", name: "Barack Obama", icon: "🎤"),
         CelebrityVoice(id: "c1745484-ba67-4cba-b8f3-19f9bc538f61", slug: "daffy_duck", name: "Daffy Duck", icon: "🦆"),
-        CelebrityVoice(id: "darth_vader", slug: "darth_vader", name: "Darth Vader", icon: "🌌"),
         CelebrityVoice(id: "40d320d7-558b-4207-b9e9-45772b0ce167", slug: "trump", name: "Donald Trump", icon: "🇺🇸"),
         CelebrityVoice(id: "c8909e12-a6d3-46d3-a4a2-c55b628acae0", slug: "eric_cartman", name: "Eric Cartman", icon: "🧢"),
         CelebrityVoice(id: "280e1b27-a62d-47a3-8840-b7ff288941aa", slug: "gordon_ramsay", name: "Gordon Ramsay", icon: "🍳"),
-        CelebrityVoice(id: "joe_biden", slug: "joe_biden", name: "Joe Biden", icon: "🍦"),
         CelebrityVoice(id: "6a6d4859-fff1-4405-9f8a-a259768679be", slug: "joe_rogan", name: "Joe Rogan", icon: "🥊"),
         CelebrityVoice(id: "43ce1296-4969-4af6-bdc1-22ef5e347d08", slug: "mandalorian", name: "Mandalorian", icon: "🪐"),
         CelebrityVoice(id: "4aab5641-8f84-404a-be30-1d620d856dee", slug: "michael_jackson", name: "Michael Jackson", icon: "🕺"),
@@ -136,10 +133,6 @@ struct SettingsView: View {
     // MARK: - Character Signature Sample Quotes
     private func sampleQuote(for slug: String, name: String) -> String {
         switch slug {
-        case "darth_vader":
-            return "I find your lack of faith disturbing. Welcome to SigmaStream."
-        case "barack_obama":
-            return "Let me be clear, this is Barack Obama on SigmaStream."
         case "trump":
             return "Hello everybody, this is Donald Trump running on SigmaStream."
         case "arnold_schwarzenegger":
@@ -162,8 +155,6 @@ struct SettingsView: View {
             return "You are despicable, you know that? Welcome to SigmaStream."
         case "tom_holland":
             return "Hey everyone, Peter Parker here, ready for movie night on SigmaStream!"
-        case "joe_biden":
-            return "Here's the deal, folks, no joke, SigmaStream is the real deal."
         default:
             return "Hello, this is \(name) speaking on SigmaStream."
         }

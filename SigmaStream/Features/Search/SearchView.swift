@@ -139,7 +139,7 @@ struct SearchView: View {
                                     Image(systemName: "sparkles")
                                         .font(.system(size: 48))
                                         .foregroundStyle(.cyan)
-                                    Text("Press Enter on your remote to ask Sigma AI")
+                                    Text("Press Enter / Return on your remote to ask Sigma AI")
                                         .font(.title3)
                                         .foregroundStyle(.secondary)
                                 }
@@ -147,7 +147,7 @@ struct SearchView: View {
                             }
                             .frame(maxWidth: .infinity, minHeight: 250)
                             .padding(.vertical, 40)
-                        } else if searchMode == .standard && searchText.count >= 2 && movies.isEmpty && tvSeries.isEmpty && !isLoading {
+                        } else if searchMode == .standard && !searchText.isEmpty && movies.isEmpty && tvSeries.isEmpty && !isLoading {
                             HStack {
                                 Spacer()
                                 ContentUnavailableView(
@@ -171,7 +171,7 @@ struct SearchView: View {
                 prompt: searchMode == .ai ? "Ask AI Anything" : "Search titles, actors, genres..."
             )
             .onSubmit(of: .search) {
-                // Trigger AI or manual search immediately on Enter / Remote submit
+                // Trigger search only when the user explicitly presses Enter / Return / Done
                 let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !query.isEmpty else { return }
                 searchTask?.cancel()
@@ -189,19 +189,6 @@ struct SearchView: View {
                     tvSeries = []
                     aiSpokenResponse = nil
                     errorMessage = nil
-                    return
-                }
-
-                // In Basic mode, perform live typing search with 400ms debounce
-                // In AI mode, DO NOT search on keystroke — only search when user presses Enter
-                if searchMode == .standard && newValue.count >= 2 {
-                    errorMessage = nil
-                    let query = newValue
-                    searchTask = Task {
-                        try? await Task.sleep(for: .milliseconds(400))
-                        guard !Task.isCancelled else { return }
-                        await performSearch(query: query, mode: .standard)
-                    }
                 }
             }
             .onChange(of: searchMode) { _, newMode in
@@ -212,12 +199,17 @@ struct SearchView: View {
                 aiSpokenResponse = nil
                 errorMessage = nil
                 
-                if newMode == .standard && searchText.count >= 2 {
-                    let query = searchText
+                // If there is existing search text and mode is switched, run on submit or re-trigger
+                let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !query.isEmpty {
                     searchTask = Task {
-                        await performSearch(query: query, mode: .standard)
+                        await performSearch(query: query, mode: newMode)
                     }
                 }
+            }
+            .onAppear {
+                // Ensure Basic mode is always the default when opening the search tab
+                searchMode = .standard
             }
             .navigationDestination(item: $selectedMovie) { selection in
                 MovieDetailView(movieId: selection.id)

@@ -18,13 +18,7 @@
                     <view key="view" contentMode="scaleToFill" id="Oo6-ab-TCE">
                         <rect key="frame" x="0.0" y="0.0" width="1920" height="1080"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
-                        <subviews>
-                            <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFit" horizontalHuggingPriority="251" verticalHuggingPriority="251" fixedFrame="YES" image="Sigma" translatesAutoresizingMaskIntoConstraints="NO" id="TXq-jt-N0L">
-                                <rect key="frame" x="-140" y="0.0" width="2200" height="1080"/>
-                                <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
-                                <color key="backgroundColor" white="0.0" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
-                            </imageView>
-                        </subviews>
+                        <color key="backgroundColor" white="0.0" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
                         <viewLayoutGuide key="safeArea" id="Rbh-h3-eDf"/>
                     </view>
                 </viewController>
@@ -33,7 +27,4 @@
             <point key="canvasLocation" x="140" y="117"/>
         </scene>
     </scenes>
-    <resources>
-        <image name="Sigma" width="800" height="480"/>
-    </resources>
 </document>

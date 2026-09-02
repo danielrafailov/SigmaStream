@@ -57,6 +57,15 @@ struct iOSTouchPlayerView: View {
     @State private var streamResolveError: String?
     @State private var currentUrls: [URL] = []
 
+    // Audio & Subtitle Selection
+    @State private var audibleGroup: AVMediaSelectionGroup?
+    @State private var availableAudioOptions: [AVMediaSelectionOption] = []
+    @State private var selectedAudioOption: AVMediaSelectionOption?
+
+    @State private var legibleGroup: AVMediaSelectionGroup?
+    @State private var availableSubtitleOptions: [AVMediaSelectionOption] = []
+    @State private var selectedSubtitleOption: AVMediaSelectionOption?
+
     // Double-tap skip ripples
     @State private var leftRipple = false
     @State private var rightRipple = false
@@ -237,6 +246,70 @@ struct iOSTouchPlayerView: View {
                             }
 
                             Spacer()
+
+                            // Audio Track Selector Menu
+                            Menu {
+                                if availableAudioOptions.isEmpty {
+                                    Text("No alternate audio tracks")
+                                } else {
+                                    ForEach(availableAudioOptions, id: \.self) { option in
+                                        Button {
+                                            selectAudioOption(option)
+                                        } label: {
+                                            HStack {
+                                                Text(option.displayName)
+                                                if isSelectedAudio(option) {
+                                                    Image(systemName: "checkmark")
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } label: {
+                                Image(systemName: "waveform.badge.magnifyingglass")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 36, height: 36)
+                                    .background(.ultraThinMaterial)
+                                    .clipShape(Circle())
+                            }
+
+                            // Subtitles & Captions Menu
+                            Menu {
+                                Button {
+                                    selectSubtitleOption(nil)
+                                } label: {
+                                    HStack {
+                                        Text("Off")
+                                        if selectedSubtitleOption == nil {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+
+                                if !availableSubtitleOptions.isEmpty {
+                                    Divider()
+                                    ForEach(availableSubtitleOptions, id: \.self) { option in
+                                        Button {
+                                            selectSubtitleOption(option)
+                                        } label: {
+                                            HStack {
+                                                Text(option.displayName)
+                                                if isSelectedSubtitle(option) {
+                                                    Image(systemName: "checkmark")
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } label: {
+                                Image(systemName: selectedSubtitleOption != nil ? "captions.bubble.fill" : "captions.bubble")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(selectedSubtitleOption != nil ? .cyan : .white)
+                                    .frame(width: 36, height: 36)
+                                    .background(.ultraThinMaterial)
+                                    .clipShape(Circle())
+                            }
 
                             // AirPlay Route Picker
                             AirPlayView()
@@ -457,16 +530,18 @@ struct iOSTouchPlayerView: View {
         avPlayer.setMediaSelectionCriteria(englishCriteria, forMediaCharacteristic: .audible)
         
         Task {
-            guard let group = try? await item.asset.loadMediaSelectionGroup(for: .audible) else { return }
-            let englishOption = group.options.first { opt in
-                if let lang = opt.locale?.language.languageCode?.identifier.lowercased(), lang == "en" { return true }
-                if let tag = opt.extendedLanguageTag?.lowercased(), tag.hasPrefix("en") || tag == "eng" { return true }
-                if opt.displayName.lowercased().contains("english") { return true }
-                return false
+            if let group = try? await item.asset.loadMediaSelectionGroup(for: .audible) {
+                let englishOption = group.options.first { opt in
+                    if let lang = opt.locale?.language.languageCode?.identifier.lowercased(), lang == "en" { return true }
+                    if let tag = opt.extendedLanguageTag?.lowercased(), tag.hasPrefix("en") || tag == "eng" { return true }
+                    if opt.displayName.lowercased().contains("english") { return true }
+                    return false
+                }
+                if let englishOption {
+                    item.select(englishOption, in: group)
+                }
             }
-            if let englishOption {
-                item.select(englishOption, in: group)
-            }
+            await loadMediaSelectionOptions(for: item)
         }
         
         self.player = avPlayer
@@ -596,6 +671,49 @@ struct iOSTouchPlayerView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
             withAnimation(.easeOut(duration: 0.25)) { rightRipple = false }
         }
+    }
+
+    private func loadMediaSelectionOptions(for item: AVPlayerItem) async {
+        do {
+            if let aGroup = try await item.asset.loadMediaSelectionGroup(for: .audible) {
+                self.audibleGroup = aGroup
+                self.availableAudioOptions = aGroup.options
+                self.selectedAudioOption = item.currentMediaSelection.selectedMediaOption(in: aGroup)
+            }
+            if let lGroup = try await item.asset.loadMediaSelectionGroup(for: .legible) {
+                self.legibleGroup = lGroup
+                self.availableSubtitleOptions = lGroup.options
+                self.selectedSubtitleOption = item.currentMediaSelection.selectedMediaOption(in: lGroup)
+            }
+        } catch {
+            print("Failed to load media selection groups: \(error)")
+        }
+    }
+
+    private func selectAudioOption(_ option: AVMediaSelectionOption) {
+        guard let player, let item = player.currentItem, let audibleGroup else { return }
+        item.select(option, in: audibleGroup)
+        selectedAudioOption = option
+    }
+
+    private func selectSubtitleOption(_ option: AVMediaSelectionOption?) {
+        guard let player, let item = player.currentItem, let legibleGroup else { return }
+        item.select(option, in: legibleGroup)
+        selectedSubtitleOption = option
+    }
+
+    private func isSelectedAudio(_ option: AVMediaSelectionOption) -> Bool {
+        if let selectedAudioOption {
+            return selectedAudioOption == option || selectedAudioOption.displayName == option.displayName
+        }
+        return false
+    }
+
+    private func isSelectedSubtitle(_ option: AVMediaSelectionOption) -> Bool {
+        if let selectedSubtitleOption {
+            return selectedSubtitleOption == option || selectedSubtitleOption.displayName == option.displayName
+        }
+        return false
     }
 
     private func formatTime(_ totalSeconds: Double) -> String {

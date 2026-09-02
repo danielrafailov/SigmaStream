@@ -22,16 +22,31 @@ struct iOSMediaRowItem: Identifiable {
 struct iOSMediaRow: View {
     let title: String
     let items: [iOSMediaRowItem]
+    var onSeeAll: (() -> Void)? = nil
     let onSelect: (iOSMediaRowItem) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             // Header
             HStack {
                 Text(title)
                     .font(.system(size: 18, weight: .bold))
                     .foregroundStyle(.white)
+
                 Spacer()
+
+                if let onSeeAll {
+                    Button(action: onSeeAll) {
+                        HStack(spacing: 3) {
+                            Text("See All")
+                                .font(.system(size: 13, weight: .medium))
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 11, weight: .semibold))
+                        }
+                        .foregroundStyle(Color.blue)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
             .padding(.horizontal, 16)
 

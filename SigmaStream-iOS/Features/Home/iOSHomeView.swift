@@ -47,17 +47,19 @@ struct iOSHomeView: View {
     @State private var isLoading = true
     @State private var selectedHeroIndex = 0
 
-    // Detail Navigation
+    // Detail & Category Navigation
     @State private var selectedMovieId: Int?
     @State private var selectedTVSeriesId: Int?
+    @State private var selectedMovieCategory: MovieCategory?
+    @State private var selectedTVCategory: TVCategory?
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Top Category Toggle Bar (Movies / TV Shows)
+                // Top Category Toggle Bar (Movies / TV Shows) without emojis
                 Picker("Category", selection: $selectedSection) {
-                    Text("🎬 Movies").tag(HomeTabSection.movies)
-                    Text("📺 TV Shows").tag(HomeTabSection.tvShows)
+                    Text("Movies").tag(HomeTabSection.movies)
+                    Text("TV Shows").tag(HomeTabSection.tvShows)
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal, 16)
@@ -65,7 +67,7 @@ struct iOSHomeView: View {
                 .padding(.bottom, 8)
 
                 ScrollView {
-                    VStack(spacing: 24) {
+                    VStack(spacing: 20) {
                         if selectedSection == .movies {
                             moviesCatalogView
                         } else {
@@ -94,7 +96,26 @@ struct iOSHomeView: View {
                     iOSTVSeriesDetailView(seriesId: tvId)
                 }
             }
+            .navigationDestination(isPresented: Binding(
+                get: { selectedMovieCategory != nil },
+                set: { if !$0 { selectedMovieCategory = nil } }
+            )) {
+                if let cat = selectedMovieCategory {
+                    iOSMovieCategoryListView(category: cat)
+                }
+            }
+            .navigationDestination(isPresented: Binding(
+                get: { selectedTVCategory != nil },
+                set: { if !$0 { selectedTVCategory = nil } }
+            )) {
+                if let cat = selectedTVCategory {
+                    iOSTVCategoryListView(category: cat)
+                }
+            }
             .task {
+                await loadFeedData()
+            }
+            .refreshable {
                 await loadFeedData()
             }
         }
@@ -103,56 +124,88 @@ struct iOSHomeView: View {
     // MARK: - Movies Catalog
     @ViewBuilder
     private var moviesCatalogView: some View {
-        // Hero Carousel
+        // Compact Hero Carousel
         if !movieHeroItems.isEmpty {
             heroCarousel(items: movieHeroItems, isTV: false)
         }
 
-        // Core Shelves
+        // Core Shelves with See All
         if !trendingMovies.isEmpty {
-            iOSMediaRow(title: "Trending Movies", items: trendingMovies) { item in
+            iOSMediaRow(
+                title: "Trending Movies",
+                items: trendingMovies,
+                onSeeAll: { selectedMovieCategory = .trendingToday }
+            ) { item in
                 selectedMovieId = item.id
             }
         }
 
         if !popularMovies.isEmpty {
-            iOSMediaRow(title: MovieCategory.popular.rawValue, items: popularMovies) { item in
+            iOSMediaRow(
+                title: MovieCategory.popular.rawValue,
+                items: popularMovies,
+                onSeeAll: { selectedMovieCategory = .popular }
+            ) { item in
                 selectedMovieId = item.id
             }
         }
 
         if !newMovies.isEmpty {
-            iOSMediaRow(title: MovieCategory.newReleases.rawValue, items: newMovies) { item in
+            iOSMediaRow(
+                title: MovieCategory.newReleases.rawValue,
+                items: newMovies,
+                onSeeAll: { selectedMovieCategory = .newReleases }
+            ) { item in
                 selectedMovieId = item.id
             }
         }
 
         if !acclaimedMovies.isEmpty {
-            iOSMediaRow(title: MovieCategory.criticallyAcclaimed.rawValue, items: acclaimedMovies) { item in
+            iOSMediaRow(
+                title: MovieCategory.criticallyAcclaimed.rawValue,
+                items: acclaimedMovies,
+                onSeeAll: { selectedMovieCategory = .criticallyAcclaimed }
+            ) { item in
                 selectedMovieId = item.id
             }
         }
 
         if !millennialMovies.isEmpty {
-            iOSMediaRow(title: MovieCategory.millennialFavorites.rawValue, items: millennialMovies) { item in
+            iOSMediaRow(
+                title: MovieCategory.millennialFavorites.rawValue,
+                items: millennialMovies,
+                onSeeAll: { selectedMovieCategory = .millennialFavorites }
+            ) { item in
                 selectedMovieId = item.id
             }
         }
 
         if !genZMovies.isEmpty {
-            iOSMediaRow(title: MovieCategory.genZPicks.rawValue, items: genZMovies) { item in
+            iOSMediaRow(
+                title: MovieCategory.genZPicks.rawValue,
+                items: genZMovies,
+                onSeeAll: { selectedMovieCategory = .genZPicks }
+            ) { item in
                 selectedMovieId = item.id
             }
         }
 
         if !genXMovies.isEmpty {
-            iOSMediaRow(title: MovieCategory.genXClassics.rawValue, items: genXMovies) { item in
+            iOSMediaRow(
+                title: MovieCategory.genXClassics.rawValue,
+                items: genXMovies,
+                onSeeAll: { selectedMovieCategory = .genXClassics }
+            ) { item in
                 selectedMovieId = item.id
             }
         }
 
         if !nowPlayingMovies.isEmpty {
-            iOSMediaRow(title: MovieCategory.nowPlaying.rawValue, items: nowPlayingMovies) { item in
+            iOSMediaRow(
+                title: MovieCategory.nowPlaying.rawValue,
+                items: nowPlayingMovies,
+                onSeeAll: { selectedMovieCategory = .nowPlaying }
+            ) { item in
                 selectedMovieId = item.id
             }
         }
@@ -160,7 +213,11 @@ struct iOSHomeView: View {
         // Extra Genre Discover Shelves
         ForEach(movieExtraSections, id: \.0) { cat, items in
             if !items.isEmpty {
-                iOSMediaRow(title: cat.rawValue, items: items) { item in
+                iOSMediaRow(
+                    title: cat.rawValue,
+                    items: items,
+                    onSeeAll: { selectedMovieCategory = cat }
+                ) { item in
                     selectedMovieId = item.id
                 }
             }
@@ -175,45 +232,73 @@ struct iOSHomeView: View {
             heroCarousel(items: tvHeroItems, isTV: true)
         }
 
-        // Core TV Shelves
+        // Core TV Shelves with See All
         if !trendingTV.isEmpty {
-            iOSMediaRow(title: "Trending TV Shows", items: trendingTV) { item in
+            iOSMediaRow(
+                title: "Trending TV Shows",
+                items: trendingTV,
+                onSeeAll: { selectedTVCategory = .trendingToday }
+            ) { item in
                 selectedTVSeriesId = item.id
             }
         }
 
         if !popularTV.isEmpty {
-            iOSMediaRow(title: TVCategory.popular.rawValue, items: popularTV) { item in
+            iOSMediaRow(
+                title: TVCategory.popular.rawValue,
+                items: popularTV,
+                onSeeAll: { selectedTVCategory = .popular }
+            ) { item in
                 selectedTVSeriesId = item.id
             }
         }
 
         if !newTV.isEmpty {
-            iOSMediaRow(title: TVCategory.newReleases.rawValue, items: newTV) { item in
+            iOSMediaRow(
+                title: TVCategory.newReleases.rawValue,
+                items: newTV,
+                onSeeAll: { selectedTVCategory = .newReleases }
+            ) { item in
                 selectedTVSeriesId = item.id
             }
         }
 
         if !acclaimedTV.isEmpty {
-            iOSMediaRow(title: TVCategory.criticallyAcclaimed.rawValue, items: acclaimedTV) { item in
+            iOSMediaRow(
+                title: TVCategory.criticallyAcclaimed.rawValue,
+                items: acclaimedTV,
+                onSeeAll: { selectedTVCategory = .criticallyAcclaimed }
+            ) { item in
                 selectedTVSeriesId = item.id
             }
         }
 
         if !millennialTV.isEmpty {
-            iOSMediaRow(title: TVCategory.millennialFavorites.rawValue, items: millennialTV) { item in
+            iOSMediaRow(
+                title: TVCategory.millennialFavorites.rawValue,
+                items: millennialTV,
+                onSeeAll: { selectedTVCategory = .millennialFavorites }
+            ) { item in
                 selectedTVSeriesId = item.id
             }
         }
 
         if !genZTV.isEmpty {
-            iOSMediaRow(title: TVCategory.genZPicks.rawValue, items: genZTV) { item in
+            iOSMediaRow(
+                title: TVCategory.genZPicks.rawValue,
+                items: genZTV,
+                onSeeAll: { selectedTVCategory = .genZPicks }
+            ) { item in
                 selectedTVSeriesId = item.id
             }
         }
 
         if !genXTV.isEmpty {
-            iOSMediaRow(title: TVCategory.genXClassics.rawValue, items: genXTV) { item in
+            iOSMediaRow(
+                title: TVCategory.genXClassics.rawValue,
+                items: genXTV,
+                onSeeAll: { selectedTVCategory = .genXClassics }
+            ) { item in
                 selectedTVSeriesId = item.id
             }
         }
@@ -221,91 +306,103 @@ struct iOSHomeView: View {
         // Extra TV Discover Shelves
         ForEach(tvExtraSections, id: \.0) { cat, items in
             if !items.isEmpty {
-                iOSMediaRow(title: cat.rawValue, items: items) { item in
+                iOSMediaRow(
+                    title: cat.rawValue,
+                    items: items,
+                    onSeeAll: { selectedTVCategory = cat }
+                ) { item in
                     selectedTVSeriesId = item.id
                 }
             }
         }
     }
 
-    // MARK: - Hero Backdrop Carousel
+    // MARK: - Compact Hero Backdrop Carousel
     private func heroCarousel(items: [MediaListItem], isTV: Bool) -> some View {
         TabView(selection: $selectedHeroIndex) {
             ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                ZStack(alignment: .bottomLeading) {
-                    // Backdrop Image
-                    if let posterURL = item.posterURL {
-                        AsyncImage(url: posterURL) { phase in
-                            if let img = phase.image {
-                                img
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fill)
-                            } else {
-                                Color.white.opacity(0.08)
-                            }
-                        }
-                    }
-
-                    // Gradient Scrim
-                    LinearGradient(
-                        colors: [Color.clear, Color.black.opacity(0.7), Color.black.opacity(0.95)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-
-                    // Details & Quick Action
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(item.title)
-                            .font(.system(size: 24, weight: .bold))
-                            .foregroundStyle(.white)
-                            .lineLimit(2)
-
-                        HStack(spacing: 12) {
-                            if let year = item.releaseYear {
-                                Text(year)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                            }
-                            if let rating = item.rating, rating > 0 {
-                                HStack(spacing: 3) {
-                                    Image(systemName: "star.fill")
-                                        .font(.caption)
-                                        .foregroundStyle(.yellow)
-                                    Text(String(format: "%.1f", rating))
-                                        .font(.subheadline.bold())
-                                        .foregroundStyle(.white)
+                GeometryReader { geo in
+                    ZStack(alignment: .bottomLeading) {
+                        // Backdrop Image
+                        if let posterURL = item.posterURL {
+                            AsyncImage(url: posterURL) { phase in
+                                if let img = phase.image {
+                                    img
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                        .frame(width: geo.size.width, height: geo.size.height)
+                                        .clipped()
+                                } else {
+                                    Color.white.opacity(0.08)
                                 }
                             }
                         }
 
-                        // Play Button
-                        Button {
-                            if isTV {
-                                selectedTVSeriesId = item.id
-                            } else {
-                                selectedMovieId = item.id
+                        // Gradient Scrim
+                        LinearGradient(
+                            colors: [Color.clear, Color.black.opacity(0.7), Color.black.opacity(0.92)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+
+                        // Details & Quick Action
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(item.title)
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+
+                            HStack(spacing: 10) {
+                                if let year = item.releaseYear {
+                                    Text(year)
+                                        .font(.caption)
+                                        .foregroundStyle(.white.opacity(0.8))
+                                }
+                                if let rating = item.rating, rating > 0 {
+                                    HStack(spacing: 3) {
+                                        Image(systemName: "star.fill")
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(.yellow)
+                                        Text(String(format: "%.1f", rating))
+                                            .font(.caption.bold())
+                                            .foregroundStyle(.white)
+                                    }
+                                }
                             }
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "play.fill")
-                                Text(isTV ? "View Show" : "Watch Now")
+
+                            // Play Button
+                            Button {
+                                if isTV {
+                                    selectedTVSeriesId = item.id
+                                } else {
+                                    selectedMovieId = item.id
+                                }
+                            } label: {
+                                HStack(spacing: 5) {
+                                    Image(systemName: "play.fill")
+                                        .font(.system(size: 11))
+                                    Text(isTV ? "View Show" : "Watch Now")
+                                        .font(.system(size: 12, weight: .bold))
+                                }
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 7)
+                                .background(Color.white)
+                                .foregroundStyle(.black)
+                                .clipShape(Capsule())
                             }
-                            .font(.subheadline.bold())
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 10)
-                            .background(Color.white)
-                            .foregroundStyle(.black)
-                            .clipShape(Capsule())
+                            .padding(.top, 2)
                         }
-                        .padding(.top, 4)
+                        .padding(14)
                     }
-                    .padding(20)
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
+                .padding(.horizontal, 16)
                 .tag(index)
             }
         }
         .tabViewStyle(.page(indexDisplayMode: .automatic))
-        .frame(height: 360)
+        .frame(height: 220)
     }
 
     // MARK: - Data Loading

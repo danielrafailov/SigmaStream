@@ -32,35 +32,52 @@ struct iOSTVSeriesDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                // Hero Backdrop
-                ZStack(alignment: .bottomLeading) {
-                    if let backdropPath = series?.backdropPath {
-                        let backdropURL = ImageURLBuilder.backdropURL(for: backdropPath, config: appState.apiConfiguration, idealWidth: 780)
-                        AsyncImage(url: backdropURL) { phase in
-                            if let image = phase.image {
-                                image
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fill)
-                            } else {
-                                Color.white.opacity(0.05)
+                // Hero Backdrop with Z-stacked Back Button
+                ZStack(alignment: .topLeading) {
+                    // Backdrop Image
+                    ZStack(alignment: .bottomLeading) {
+                        if let backdropPath = series?.backdropPath {
+                            let backdropURL = ImageURLBuilder.backdropURL(for: backdropPath, config: appState.apiConfiguration, idealWidth: 780)
+                            AsyncImage(url: backdropURL) { phase in
+                                if let image = phase.image {
+                                    image
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                } else {
+                                    Color.white.opacity(0.05)
+                                }
                             }
+                        } else {
+                            Color.white.opacity(0.05)
                         }
-                    } else {
-                        Color.white.opacity(0.05)
+
+                        // Gradient Scrim
+                        LinearGradient(
+                            colors: [Color.clear, Color(uiColor: .systemBackground).opacity(0.8), Color(uiColor: .systemBackground)],
+                            startPoint: .center,
+                            endPoint: .bottom
+                        )
                     }
+                    .frame(height: 300)
+                    .clipped()
 
-                    // Gradient Scrim
-                    LinearGradient(
-                        colors: [Color.clear, Color(uiColor: .systemBackground).opacity(0.9), Color(uiColor: .systemBackground)],
-                        startPoint: .center,
-                        endPoint: .bottom
-                    )
+                    // Back Button placed on top of poster preview
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 38, height: 38)
+                            .background(.ultraThinMaterial)
+                            .clipShape(Circle())
+                    }
+                    .padding(.leading, 16)
+                    .padding(.top, 50)
                 }
-                .frame(height: 260)
-                .clipped()
 
-                // Content Details
-                VStack(alignment: .leading, spacing: 16) {
+                // Content Details with generous side padding
+                VStack(alignment: .leading, spacing: 18) {
                     // Title
                     Text(series?.name ?? "TV Show Details")
                         .font(.system(size: 26, weight: .bold))
@@ -215,6 +232,9 @@ struct iOSTVSeriesDetailView: View {
                 .padding(.bottom, 40)
             }
         }
+        .ignoresSafeArea(edges: .top)
+        .navigationBarBackButtonHidden(true)
+        .toolbarBackground(.hidden, for: .navigationBar)
         .background(Color(uiColor: .systemBackground).ignoresSafeArea())
         .fullScreenCover(item: $playableContent) { content in
             iOSTouchPlayerView(playableContent: content)

@@ -23,20 +23,16 @@ struct SettingsView: View {
         CelebrityVoice(id: "barack_obama", slug: "barack_obama", name: "Barack Obama", icon: "🎤"),
         CelebrityVoice(id: "c1745484-ba67-4cba-b8f3-19f9bc538f61", slug: "daffy_duck", name: "Daffy Duck", icon: "🦆"),
         CelebrityVoice(id: "darth_vader", slug: "darth_vader", name: "Darth Vader", icon: "🌌"),
-        CelebrityVoice(id: "56e0b000-b8fb-4fd3-832a-03bde62f8dbc", slug: "david_attenborough", name: "David Attenborough", icon: "🌍"),
         CelebrityVoice(id: "40d320d7-558b-4207-b9e9-45772b0ce167", slug: "trump", name: "Donald Trump", icon: "🇺🇸"),
         CelebrityVoice(id: "c8909e12-a6d3-46d3-a4a2-c55b628acae0", slug: "eric_cartman", name: "Eric Cartman", icon: "🧢"),
         CelebrityVoice(id: "280e1b27-a62d-47a3-8840-b7ff288941aa", slug: "gordon_ramsay", name: "Gordon Ramsay", icon: "🍳"),
         CelebrityVoice(id: "joe_biden", slug: "joe_biden", name: "Joe Biden", icon: "🍦"),
         CelebrityVoice(id: "6a6d4859-fff1-4405-9f8a-a259768679be", slug: "joe_rogan", name: "Joe Rogan", icon: "🥊"),
-        CelebrityVoice(id: "489b1783-5724-45e8-84dc-ace995595845", slug: "lebron_james", name: "LeBron James", icon: "👑"),
         CelebrityVoice(id: "43ce1296-4969-4af6-bdc1-22ef5e347d08", slug: "mandalorian", name: "Mandalorian", icon: "🪐"),
         CelebrityVoice(id: "4aab5641-8f84-404a-be30-1d620d856dee", slug: "michael_jackson", name: "Michael Jackson", icon: "🕺"),
         CelebrityVoice(id: "a0cf2b27-25c9-45b8-a53d-21e7029c5bb1", slug: "morgan_freeman", name: "Morgan Freeman", icon: "🎬"),
-        CelebrityVoice(id: "06baf53c-9f1e-43ba-adf0-0385dd022991", slug: "saul_goodman", name: "Saul Goodman", icon: "⚖️"),
         CelebrityVoice(id: "9a7860b8-70f8-461f-b0c7-d005d0b1504c", slug: "snoop_dogg", name: "Snoop Dogg", icon: "🕶️"),
-        CelebrityVoice(id: "3caf42ba-3d92-4aed-8fda-1a70a4abd47c", slug: "tom_holland", name: "Tom Holland", icon: "🕷️"),
-        CelebrityVoice(id: "40e41528-8f28-4f6d-94ac-7670f9fec4a9", slug: "walter_white", name: "Walter White", icon: "🧪")
+        CelebrityVoice(id: "3caf42ba-3d92-4aed-8fda-1a70a4abd47c", slug: "tom_holland", name: "Tom Holland", icon: "🕷️")
     ]
     
     var body: some View {
@@ -164,56 +160,10 @@ struct SettingsView: View {
             return "This is the way. Let's find your next movie."
         case "daffy_duck":
             return "You are despicable, you know that? Welcome to SigmaStream."
-        case "walter_white":
-            return "I am the one who knocks. Welcome to SigmaStream."
-        case "saul_goodman":
-            return "Better call Saul! I've got the best movie deals in town."
-        case "batman":
-            return "I am vengeance. I am the night. I am Batman."
-        case "joker":
-            return "Why so serious? Let's put a smile on that face."
-        case "spongebob":
-            return "I'm ready! I'm ready for the best movies on SigmaStream!"
-        case "peter_griffin":
-            return "Holy crap, this is Peter Griffin on SigmaStream, hehehehe."
-        case "homer_simpson":
-            return "Mmm... movie night on SigmaStream. D'oh!"
-        case "rick_sanchez":
-            return "Wubba lubba dub dub! Check out these movies."
-        case "shrek":
-            return "What are you doing in my swamp? Let's watch a movie."
-        case "gandalf":
-            return "You shall not pass, without checking these recommendations."
-        case "gollum":
-            return "My precious! We wants to watch the best movies, yes precious!"
-        case "movie_trailer":
-            return "In a world, where streaming has no limits... Welcome to SigmaStream."
-        case "british_butler":
-            return "At your service, sir. May I suggest an exceptional film for this evening?"
-        case "smooth_dj":
-            return "You're tuned in to the smoothest stream in the city. Sit back and enjoy."
-        case "yoda":
-            return "Great movies, find you will. The Force is strong with SigmaStream."
-        case "jack_sparrow":
-            return "Why is the rum always gone? Ah, but you have movies on SigmaStream."
-        case "kratos":
-            return "Boy! Prepare yourself for the greatest stories ever told."
-        case "master_chief":
-            return "Master Chief, mind telling me what you're doing? Sir, finishing this movie."
-        case "matthew_mcconaughey":
-            return "Alright, alright, alright. Let's find a great film tonight."
-        case "samuel_l_jackson":
-            return "Hold on to your seats, we're watching the best movies on SigmaStream."
-        case "keanu_reeves":
-            return "Whoa. That is a breathtaking movie selection."
-        case "elon_musk":
-            return "To the moon and beyond, with the future of streaming."
+        case "tom_holland":
+            return "Hey everyone, Peter Parker here, ready for movie night on SigmaStream!"
         case "joe_biden":
             return "Here's the deal, folks, no joke, SigmaStream is the real deal."
-        case "mario":
-            return "It's-a me, Mario! Let's-a go watch a movie!"
-        case "kermit":
-            return "Hi-ho, Kermit the Frog here! Welcome to SigmaStream, yay!"
         default:
             return "Hello, this is \(name) speaking on SigmaStream."
         }

@@ -52,19 +52,107 @@ struct iOSHomeView: View {
     @State private var selectedTVSeriesId: Int?
     @State private var selectedMovieCategory: MovieCategory?
     @State private var selectedTVCategory: TVCategory?
+    @State private var selectedFeedCategory: String?
+
+    private let curatedCategories = [
+        "Action", "Anime", "Astrology", "Book Adaptations",
+        "Canadian", "Comedies", "Critically Acclaimed",
+        "Culture Edit", "Documentaries", "Dramas", "Emmys"
+    ]
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Top Category Toggle Bar (Movies / TV Shows) without emojis
-                Picker("Category", selection: $selectedSection) {
-                    Text("Movies").tag(HomeTabSection.movies)
-                    Text("TV Shows").tag(HomeTabSection.tvShows)
+                // Top Header: App Logo (Sigma) + "Home" Title
+                HStack(spacing: 10) {
+                    Image("SigmaLogo")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 30, height: 30)
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+
+                    Text("Home")
+                        .font(.system(size: 26, weight: .bold))
+                        .foregroundStyle(.white)
+
+                    Spacer()
                 }
-                .pickerStyle(.segmented)
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
-                .padding(.bottom, 8)
+                .padding(.bottom, 6)
+
+                // Horizontally Scrollable Liquid Glass Category Buttons (Shows, Movies, Categories ▾)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        // Shows button
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                selectedSection = .tvShows
+                            }
+                        } label: {
+                            Text("Shows")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(selectedSection == .tvShows ? Color.white.opacity(0.32) : Color.white.opacity(0.12))
+                                .clipShape(Capsule())
+                                .overlay(
+                                    Capsule()
+                                        .stroke(selectedSection == .tvShows ? Color.white.opacity(0.55) : Color.white.opacity(0.2), lineWidth: 1)
+                                )
+                        }
+                        .buttonStyle(.plain)
+
+                        // Movies button
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                selectedSection = .movies
+                            }
+                        } label: {
+                            Text("Movies")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(selectedSection == .movies ? Color.white.opacity(0.32) : Color.white.opacity(0.12))
+                                .clipShape(Capsule())
+                                .overlay(
+                                    Capsule()
+                                        .stroke(selectedSection == .movies ? Color.white.opacity(0.55) : Color.white.opacity(0.2), lineWidth: 1)
+                                )
+                        }
+                        .buttonStyle(.plain)
+
+                        // Categories Dropdown (Action, Anime, Astrology, Book Adaptations, Canadian, Comedies, Critically Acclaimed, Culture Edit, Documentaries, Dramas, Emmys)
+                        Menu {
+                            ForEach(curatedCategories, id: \.self) { category in
+                                Button(category) {
+                                    selectedFeedCategory = category
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 5) {
+                                Text("Categories")
+                                    .font(.system(size: 14, weight: .semibold))
+                                Image(systemName: "chevron.down")
+                                    .font(.system(size: 11, weight: .bold))
+                            }
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(Color.white.opacity(0.12))
+                            .clipShape(Capsule())
+                            .overlay(
+                                Capsule()
+                                    .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 6)
+                }
+                .padding(.bottom, 6)
 
                 ScrollView {
                     VStack(spacing: 20) {
@@ -109,6 +197,14 @@ struct iOSHomeView: View {
             )) {
                 if let cat = selectedTVCategory {
                     iOSTVCategoryListView(category: cat)
+                }
+            }
+            .navigationDestination(isPresented: Binding(
+                get: { selectedFeedCategory != nil },
+                set: { if !$0 { selectedFeedCategory = nil } }
+            )) {
+                if let categoryName = selectedFeedCategory {
+                    iOSCategoryFeedView(categoryName: categoryName)
                 }
             }
             .task {

@@ -340,19 +340,19 @@ struct iOSTouchPlayerView: View {
     private func saveProgress() {
         guard duration > 60, currentTime > 5 else { return }
         if let movieId = playableContent.movieId {
-            appState.watchProgressManager.saveMoviePlayback(
+            appState.watchProgressManager.updateMovieProgress(
                 movieId: movieId,
-                currentTime: currentTime,
+                position: currentTime,
                 duration: duration
             )
         } else if let tvId = playableContent.tvSeriesId,
                   let season = playableContent.season,
                   let episode = playableContent.episode {
-            appState.watchProgressManager.saveEpisodePlayback(
+            appState.watchProgressManager.updateEpisodeProgress(
                 seriesId: tvId,
                 season: season,
                 episode: episode,
-                currentTime: currentTime,
+                position: currentTime,
                 duration: duration
             )
         }

@@ -35,7 +35,7 @@ struct iOSTVSeriesDetailView: View {
                 // Hero Backdrop
                 ZStack(alignment: .bottomLeading) {
                     if let backdropPath = series?.backdropPath {
-                        let backdropURL = ImageURLBuilder.backdropURL(path: backdropPath, size: .w780)
+                        let backdropURL = ImageURLBuilder.backdropURL(for: backdropPath, config: appState.apiConfiguration, idealWidth: 780)
                         AsyncImage(url: backdropURL) { phase in
                             if let image = phase.image {
                                 image
@@ -237,7 +237,7 @@ struct iOSTVSeriesDetailView: View {
                 // Thumbnail
                 ZStack(alignment: .center) {
                     if let stillPath = ep.stillPath {
-                        let stillURL = ImageURLBuilder.stillURL(path: stillPath, size: .w300)
+                        let stillURL = ImageURLBuilder.stillURL(for: stillPath, config: appState.apiConfiguration, idealWidth: 300)
                         AsyncImage(url: stillURL) { phase in
                             if let img = phase.image {
                                 img.resizable().aspectRatio(contentMode: .fill)
@@ -266,8 +266,8 @@ struct iOSTVSeriesDetailView: View {
                         .foregroundStyle(.white)
                         .lineLimit(1)
 
-                    if let runtime = ep.runtime, runtime > 0 {
-                        Text("\(runtime)m")
+                    if let airDate = ep.airDate {
+                        Text(String(Calendar.current.component(.year, from: airDate)))
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
@@ -287,30 +287,26 @@ struct iOSTVSeriesDetailView: View {
     }
 
     private var isInMyList: Bool {
-        appState.myListManager.contains(id: seriesId, type: .tvSeries)
+        appState.myListManager.isSeriesInList(seriesId)
     }
 
     private var isLiked: Bool {
-        appState.likedManager.isLiked(id: seriesId, type: .tvSeries)
+        appState.likedManager.isSeriesLiked(seriesId)
     }
 
     private func toggleMyList() {
-        if isInMyList {
-            appState.myListManager.remove(id: seriesId, type: .tvSeries)
-        } else {
-            appState.myListManager.add(id: seriesId, type: .tvSeries)
-        }
+        appState.myListManager.toggleSeries(seriesId)
     }
 
     private func toggleLiked() {
-        appState.likedManager.toggleLiked(id: seriesId, type: .tvSeries)
+        appState.likedManager.toggleSeries(seriesId)
     }
 
     private func loadSeriesDetails() async {
         isLoading = true
         defer { isLoading = false }
         do {
-            self.series = try await appState.tmdbService.tvSeriesDetails(forTVSeriesId: seriesId)
+            self.series = try await appState.tmdbService.tvSeriesDetails(forSeriesId: seriesId)
         } catch {}
     }
 

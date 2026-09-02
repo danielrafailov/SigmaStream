@@ -33,7 +33,7 @@ struct iOSMovieDetailView: View {
                 // Hero Backdrop
                 ZStack(alignment: .bottomLeading) {
                     if let backdropPath = movie?.backdropPath {
-                        let backdropURL = ImageURLBuilder.backdropURL(path: backdropPath, size: .w780)
+                        let backdropURL = ImageURLBuilder.backdropURL(for: backdropPath, config: appState.apiConfiguration, idealWidth: 780)
                         AsyncImage(url: backdropURL) { phase in
                             if let image = phase.image {
                                 image
@@ -217,7 +217,7 @@ struct iOSMovieDetailView: View {
                                             ZStack {
                                                 Color.white.opacity(0.08)
                                                 if let path = member.profilePath {
-                                                    let url = ImageURLBuilder.profileURL(path: path, size: .w185)
+                                                    let url = ImageURLBuilder.posterURL(for: path, config: appState.apiConfiguration, idealWidth: 185)
                                                     AsyncImage(url: url) { phase in
                                                         if let img = phase.image {
                                                             img.resizable().aspectRatio(contentMode: .fill)
@@ -263,38 +263,30 @@ struct iOSMovieDetailView: View {
     }
 
     private var hasResumePosition: Bool {
-        appState.watchProgressManager.hasResumePositionForMovie(movieId)
+        appState.watchProgressManager.canResumeMovie(movieId)
     }
 
     private var isInMyList: Bool {
-        appState.myListManager.contains(id: movieId, type: .movie)
+        appState.myListManager.isMovieInList(movieId)
     }
 
     private var isLiked: Bool {
-        appState.likedManager.isLiked(id: movieId, type: .movie)
+        appState.likedManager.isMovieLiked(movieId)
     }
 
     private func toggleMyList() {
-        if isInMyList {
-            appState.myListManager.remove(id: movieId, type: .movie)
-        } else {
-            appState.myListManager.add(id: movieId, type: .movie)
-        }
+        appState.myListManager.toggleMovie(movieId)
     }
 
     private func toggleLiked() {
-        appState.likedManager.toggleLiked(id: movieId, type: .movie)
+        appState.likedManager.toggleMovie(movieId)
     }
 
     private func loadMovieDetails() async {
         isLoading = true
         defer { isLoading = false }
         do {
-            async let movieFetch = appState.tmdbService.movieDetails(forMovieId: movieId)
-            async let creditsFetch = appState.tmdbService.movieCredits(forMovieId: movieId)
-            let (m, c) = try await (movieFetch, creditsFetch)
-            self.movie = m
-            self.cast = c.cast
+            self.movie = try await appState.tmdbService.movieDetails(forMovieId: movieId)
         } catch {
             // Error handling
         }

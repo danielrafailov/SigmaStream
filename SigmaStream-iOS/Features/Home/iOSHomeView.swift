@@ -191,13 +191,18 @@ struct iOSHomeView: View {
         isLoading = true
         defer { isLoading = false }
 
+        // Ensure TMDb config is loaded
+        if appState.apiConfiguration == nil {
+            await appState.loadConfiguration()
+        }
+
         // 1. Trending Movies
-        if let trending = try? await appState.tmdbService.trendingMovies(page: 1) {
-            self.trendingMovies = trending.results.map {
+        if let trending = try? await appState.tmdbService.trendingMovies() {
+            self.trendingMovies = trending.map {
                 iOSMediaRowItem(
                     id: $0.id,
                     title: $0.title,
-                    posterURL: ImageURLBuilder.posterURL(path: $0.posterPath, size: .w342),
+                    posterURL: ImageURLBuilder.posterURL(for: $0.posterPath, config: appState.apiConfiguration, idealWidth: 342),
                     rating: $0.voteAverage,
                     releaseYear: $0.releaseDate.map { String(Calendar.current.component(.year, from: $0)) },
                     isTVSeries: false,
@@ -206,11 +211,11 @@ struct iOSHomeView: View {
             }
 
             // Set top 5 trending as Hero Banner items
-            self.heroItems = trending.results.prefix(5).map {
+            self.heroItems = trending.prefix(5).map {
                 MediaListItem(
                     id: $0.id,
                     title: $0.title,
-                    posterURL: ImageURLBuilder.backdropURL(path: $0.backdropPath, size: .w780) ?? ImageURLBuilder.posterURL(path: $0.posterPath, size: .w780),
+                    posterURL: ImageURLBuilder.backdropURL(for: $0.backdropPath, config: appState.apiConfiguration, idealWidth: 780) ?? ImageURLBuilder.posterURL(for: $0.posterPath, config: appState.apiConfiguration, idealWidth: 780),
                     rating: $0.voteAverage,
                     releaseYear: $0.releaseDate.map { String(Calendar.current.component(.year, from: $0)) },
                     isTVSeries: false
@@ -219,12 +224,12 @@ struct iOSHomeView: View {
         }
 
         // 2. Popular TV Shows
-        if let tv = try? await appState.tmdbService.popularTVSeries(page: 1) {
-            self.popularTVShows = tv.results.map {
+        if let tv = try? await appState.tmdbService.popularTVSeries() {
+            self.popularTVShows = tv.map {
                 iOSMediaRowItem(
                     id: $0.id,
                     title: $0.name,
-                    posterURL: ImageURLBuilder.posterURL(path: $0.posterPath, size: .w342),
+                    posterURL: ImageURLBuilder.posterURL(for: $0.posterPath, config: appState.apiConfiguration, idealWidth: 342),
                     rating: $0.voteAverage,
                     releaseYear: $0.firstAirDate.map { String(Calendar.current.component(.year, from: $0)) },
                     isTVSeries: true,
@@ -233,13 +238,13 @@ struct iOSHomeView: View {
             }
         }
 
-        // 3. Top Rated Movies
-        if let top = try? await appState.tmdbService.topRatedMovies(page: 1) {
-            self.topRatedMovies = top.results.map {
+        // 3. Popular Movies
+        if let popular = try? await appState.tmdbService.popularMovies() {
+            self.topRatedMovies = popular.map {
                 iOSMediaRowItem(
                     id: $0.id,
                     title: $0.title,
-                    posterURL: ImageURLBuilder.posterURL(path: $0.posterPath, size: .w342),
+                    posterURL: ImageURLBuilder.posterURL(for: $0.posterPath, config: appState.apiConfiguration, idealWidth: 342),
                     rating: $0.voteAverage,
                     releaseYear: $0.releaseDate.map { String(Calendar.current.component(.year, from: $0)) },
                     isTVSeries: false,

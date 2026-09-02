@@ -25,8 +25,8 @@ struct iOSMyListView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 Picker("Category", selection: $selectedTab) {
-                    Text("My List (\(appState.myListManager.itemCount))").tag(0)
-                    Text("Liked (\(appState.likedManager.itemCount))").tag(1)
+                    Text("My List (\(appState.myListManager.movieIds.count + appState.myListManager.seriesIds.count))").tag(0)
+                    Text("Liked (\(appState.likedManager.movieIds.count + appState.likedManager.seriesIds.count))").tag(1)
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal, 16)
@@ -75,10 +75,16 @@ struct iOSMyListView: View {
             .task {
                 await loadItems()
             }
-            .onChange(of: appState.myListManager.items) { _, _ in
+            .onChange(of: appState.myListManager.movieIds) { _, _ in
                 Task { await loadItems() }
             }
-            .onChange(of: appState.likedManager.items) { _, _ in
+            .onChange(of: appState.myListManager.seriesIds) { _, _ in
+                Task { await loadItems() }
+            }
+            .onChange(of: appState.likedManager.movieIds) { _, _ in
+                Task { await loadItems() }
+            }
+            .onChange(of: appState.likedManager.seriesIds) { _, _ in
                 Task { await loadItems() }
             }
         }
@@ -90,58 +96,56 @@ struct iOSMyListView: View {
 
         // 1. Load My List
         var myResults: [MediaListItem] = []
-        for saved in appState.myListManager.items {
-            if saved.type == .movie {
-                if let m = try? await appState.tmdbService.movieDetails(forMovieId: saved.id) {
-                    myResults.append(MediaListItem(
-                        id: m.id,
-                        title: m.title,
-                        posterURL: ImageURLBuilder.posterURL(path: m.posterPath, size: .w342),
-                        rating: m.voteAverage,
-                        releaseYear: m.releaseDate.map { String(Calendar.current.component(.year, from: $0)) },
-                        isTVSeries: false
-                    ))
-                }
-            } else {
-                if let s = try? await appState.tmdbService.tvSeriesDetails(forTVSeriesId: saved.id) {
-                    myResults.append(MediaListItem(
-                        id: s.id,
-                        title: s.name,
-                        posterURL: ImageURLBuilder.posterURL(path: s.posterPath, size: .w342),
-                        rating: s.voteAverage,
-                        releaseYear: s.firstAirDate.map { String(Calendar.current.component(.year, from: $0)) },
-                        isTVSeries: true
-                    ))
-                }
+        for id in appState.myListManager.movieIds {
+            if let m = try? await appState.tmdbService.movieDetails(forMovieId: id) {
+                myResults.append(MediaListItem(
+                    id: m.id,
+                    title: m.title,
+                    posterURL: ImageURLBuilder.posterURL(for: m.posterPath, config: appState.apiConfiguration, idealWidth: 342),
+                    rating: m.voteAverage,
+                    releaseYear: m.releaseDate.map { String(Calendar.current.component(.year, from: $0)) },
+                    isTVSeries: false
+                ))
+            }
+        }
+        for id in appState.myListManager.seriesIds {
+            if let s = try? await appState.tmdbService.tvSeriesDetails(forSeriesId: id) {
+                myResults.append(MediaListItem(
+                    id: s.id,
+                    title: s.name,
+                    posterURL: ImageURLBuilder.posterURL(for: s.posterPath, config: appState.apiConfiguration, idealWidth: 342),
+                    rating: s.voteAverage,
+                    releaseYear: s.firstAirDate.map { String(Calendar.current.component(.year, from: $0)) },
+                    isTVSeries: true
+                ))
             }
         }
         self.myListItems = myResults
 
         // 2. Load Liked List
         var likedResults: [MediaListItem] = []
-        for liked in appState.likedManager.items {
-            if liked.type == .movie {
-                if let m = try? await appState.tmdbService.movieDetails(forMovieId: liked.id) {
-                    likedResults.append(MediaListItem(
-                        id: m.id,
-                        title: m.title,
-                        posterURL: ImageURLBuilder.posterURL(path: m.posterPath, size: .w342),
-                        rating: m.voteAverage,
-                        releaseYear: m.releaseDate.map { String(Calendar.current.component(.year, from: $0)) },
-                        isTVSeries: false
-                    ))
-                }
-            } else {
-                if let s = try? await appState.tmdbService.tvSeriesDetails(forTVSeriesId: liked.id) {
-                    likedResults.append(MediaListItem(
-                        id: s.id,
-                        title: s.name,
-                        posterURL: ImageURLBuilder.posterURL(path: s.posterPath, size: .w342),
-                        rating: s.voteAverage,
-                        releaseYear: s.firstAirDate.map { String(Calendar.current.component(.year, from: $0)) },
-                        isTVSeries: true
-                    ))
-                }
+        for id in appState.likedManager.movieIds {
+            if let m = try? await appState.tmdbService.movieDetails(forMovieId: id) {
+                likedResults.append(MediaListItem(
+                    id: m.id,
+                    title: m.title,
+                    posterURL: ImageURLBuilder.posterURL(for: m.posterPath, config: appState.apiConfiguration, idealWidth: 342),
+                    rating: m.voteAverage,
+                    releaseYear: m.releaseDate.map { String(Calendar.current.component(.year, from: $0)) },
+                    isTVSeries: false
+                ))
+            }
+        }
+        for id in appState.likedManager.seriesIds {
+            if let s = try? await appState.tmdbService.tvSeriesDetails(forSeriesId: id) {
+                likedResults.append(MediaListItem(
+                    id: s.id,
+                    title: s.name,
+                    posterURL: ImageURLBuilder.posterURL(for: s.posterPath, config: appState.apiConfiguration, idealWidth: 342),
+                    rating: s.voteAverage,
+                    releaseYear: s.firstAirDate.map { String(Calendar.current.component(.year, from: $0)) },
+                    isTVSeries: true
+                ))
             }
         }
         self.likedItems = likedResults

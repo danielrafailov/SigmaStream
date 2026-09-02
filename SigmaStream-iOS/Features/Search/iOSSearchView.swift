@@ -109,12 +109,12 @@ struct iOSSearchView: View {
             do {
                 var results: [MediaListItem] = []
                 if selectedFilter == 0 || selectedFilter == 1 {
-                    let moviePage = try await appState.tmdbService.searchMovies(query: query)
-                    let movieItems = moviePage.results.map {
+                    let movies = try await appState.tmdbService.searchMovies(query: query)
+                    let movieItems = movies.map {
                         MediaListItem(
                             id: $0.id,
                             title: $0.title,
-                            posterURL: ImageURLBuilder.posterURL(path: $0.posterPath, size: .w342),
+                            posterURL: ImageURLBuilder.posterURL(for: $0.posterPath, config: appState.apiConfiguration, idealWidth: 342),
                             rating: $0.voteAverage,
                             releaseYear: $0.releaseDate.map { String(Calendar.current.component(.year, from: $0)) },
                             isTVSeries: false
@@ -124,12 +124,12 @@ struct iOSSearchView: View {
                 }
 
                 if selectedFilter == 0 || selectedFilter == 2 {
-                    let tvPage = try await appState.tmdbService.searchTVSeries(query: query)
-                    let tvItems = tvPage.results.map {
+                    let tvSeries = try await appState.tmdbService.searchTVSeries(query: query)
+                    let tvItems = tvSeries.map {
                         MediaListItem(
                             id: $0.id,
                             title: $0.name,
-                            posterURL: ImageURLBuilder.posterURL(path: $0.posterPath, size: .w342),
+                            posterURL: ImageURLBuilder.posterURL(for: $0.posterPath, config: appState.apiConfiguration, idealWidth: 342),
                             rating: $0.voteAverage,
                             releaseYear: $0.firstAirDate.map { String(Calendar.current.component(.year, from: $0)) },
                             isTVSeries: true

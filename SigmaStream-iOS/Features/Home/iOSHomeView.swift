@@ -316,13 +316,23 @@ struct iOSHomeView: View {
         }
     }
 
-    // MARK: - Compact Hero Backdrop Carousel
+    // MARK: - Netflix-Style 3D Depth Hero Carousel
     private func heroCarousel(items: [MediaListItem], isTV: Bool) -> some View {
         TabView(selection: $selectedHeroIndex) {
             ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                 GeometryReader { geo in
-                    ZStack(alignment: .bottomLeading) {
-                        // Backdrop Image
+                    let screenWidth = UIScreen.main.bounds.width
+                    let midX = geo.frame(in: .global).midX
+                    let distanceFromCenter = midX - (screenWidth / 2)
+                    let normalizedDistance = max(-1.0, min(1.0, distanceFromCenter / screenWidth))
+                    
+                    // 3D Depth & Perspective transforms
+                    let scale = max(0.88, 1.0 - abs(normalizedDistance) * 0.12)
+                    let rotation = Double(normalizedDistance * -16)
+                    let opacity = max(0.65, 1.0 - abs(normalizedDistance) * 0.35)
+
+                    ZStack(alignment: .bottom) {
+                        // Portrait Poster Art (Fills Card)
                         if let posterURL = item.posterURL {
                             AsyncImage(url: posterURL) { phase in
                                 if let img = phase.image {
@@ -337,75 +347,110 @@ struct iOSHomeView: View {
                             }
                         }
 
-                        // Gradient Scrim
+                        // Bottom Gradient Scrim
                         LinearGradient(
-                            colors: [Color.clear, Color.black.opacity(0.7), Color.black.opacity(0.92)],
-                            startPoint: .top,
+                            colors: [
+                                Color.clear,
+                                Color.black.opacity(0.15),
+                                Color.black.opacity(0.65),
+                                Color.black.opacity(0.95)
+                            ],
+                            startPoint: .center,
                             endPoint: .bottom
                         )
 
-                        // Details & Quick Action (Watch Now aligned to the right of title)
-                        HStack(alignment: .center, spacing: 12) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(item.title)
-                                    .font(.system(size: 17, weight: .bold))
-                                    .foregroundStyle(.white)
-                                    .lineLimit(1)
+                        // Bottom Overlay: Title, Subtitle, and 2 Big Pill Buttons
+                        VStack(spacing: 12) {
+                            // Title
+                            Text(item.title)
+                                .font(.system(size: 26, weight: .heavy, design: .rounded))
+                                .foregroundStyle(.white)
+                                .multilineTextAlignment(.center)
+                                .lineLimit(2)
+                                .shadow(color: .black.opacity(0.8), radius: 6, y: 2)
+                                .padding(.horizontal, 16)
 
-                                HStack(spacing: 8) {
-                                    if let year = item.releaseYear {
-                                        Text(year)
-                                            .font(.caption)
-                                            .foregroundStyle(.white.opacity(0.8))
+                            // Tagline / Subtitle
+                            Text(isTV ? "Watch All Episodes Now" : "Watch Now")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.white.opacity(0.92))
+                                .shadow(color: .black.opacity(0.7), radius: 4)
+
+                            // Action Buttons Row: [Play Show / Movie] [My List]
+                            HStack(spacing: 12) {
+                                // Play Button (White filled)
+                                Button {
+                                    if isTV {
+                                        selectedTVSeriesId = item.id
+                                    } else {
+                                        selectedMovieId = item.id
                                     }
-                                    if let rating = item.rating, rating > 0 {
-                                        HStack(spacing: 3) {
-                                            Image(systemName: "star.fill")
-                                                .font(.system(size: 10))
-                                                .foregroundStyle(.yellow)
-                                            Text(String(format: "%.1f", rating))
-                                                .font(.caption.bold())
-                                                .foregroundStyle(.white)
+                                } label: {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "play.fill")
+                                            .font(.system(size: 16, weight: .bold))
+                                        Text(isTV ? "Play Show" : "Play Movie")
+                                            .font(.system(size: 15, weight: .bold))
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                                    .background(Color.white)
+                                    .foregroundStyle(.black)
+                                    .clipShape(Capsule())
+                                    .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
+                                }
+
+                                // My List Button (+ / checkmark)
+                                let inList = isTV ? appState.myListManager.isSeriesInList(item.id) : appState.myListManager.isMovieInList(item.id)
+                                Button {
+                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                        if isTV {
+                                            appState.myListManager.toggleSeries(item.id)
+                                        } else {
+                                            appState.myListManager.toggleMovie(item.id)
                                         }
                                     }
+                                } label: {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: inList ? "checkmark" : "plus")
+                                            .font(.system(size: 16, weight: .bold))
+                                        Text("My List")
+                                            .font(.system(size: 15, weight: .bold))
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                                    .background(Color.white.opacity(0.22))
+                                    .foregroundStyle(.white)
+                                    .clipShape(Capsule())
+                                    .overlay(
+                                        Capsule()
+                                            .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                                    )
                                 }
                             }
-
-                            Spacer(minLength: 8)
-
-                            // Play Button on the right
-                            Button {
-                                if isTV {
-                                    selectedTVSeriesId = item.id
-                                } else {
-                                    selectedMovieId = item.id
-                                }
-                            } label: {
-                                HStack(spacing: 5) {
-                                    Image(systemName: "play.fill")
-                                        .font(.system(size: 11))
-                                    Text(isTV ? "View Show" : "Watch Now")
-                                        .font(.system(size: 12, weight: .bold))
-                                }
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 7)
-                                .background(Color.white)
-                                .foregroundStyle(.black)
-                                .clipShape(Capsule())
-                            }
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 16)
                         }
-                        .padding(.horizontal, 14)
-                        .padding(.bottom, 18)
                     }
                     .frame(width: geo.size.width, height: geo.size.height)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                    )
+                    .shadow(color: .black.opacity(0.4), radius: 12, y: 6)
+                    .scaleEffect(scale)
+                    .rotation3DEffect(.degrees(rotation), axis: (x: 0, y: 1, z: 0), perspective: 0.5)
+                    .opacity(opacity)
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, 20)
                 .tag(index)
             }
         }
-        .tabViewStyle(.page(indexDisplayMode: .automatic))
-        .frame(height: 220)
+        .tabViewStyle(.page(indexDisplayMode: .never))
+        .frame(height: 500)
+        .padding(.top, 4)
+        .padding(.bottom, 10)
     }
 
     // MARK: - Data Loading
@@ -446,12 +491,12 @@ struct iOSHomeView: View {
             self.genXMovies = mapMovies(gxM.items)
             self.nowPlayingMovies = mapMovies(npM.items)
 
-            // Movie Hero Banner
-            self.movieHeroItems = tM.prefix(5).map {
+            // Movie Hero Banner (Netflix-style portrait posters)
+            self.movieHeroItems = tM.prefix(6).map {
                 MediaListItem(
                     id: $0.id,
                     title: $0.title,
-                    posterURL: ImageURLBuilder.backdropURL(for: $0.backdropPath, config: appState.apiConfiguration, idealWidth: 780) ?? ImageURLBuilder.posterURL(for: $0.posterPath, config: appState.apiConfiguration, idealWidth: 780),
+                    posterURL: ImageURLBuilder.posterURL(for: $0.posterPath, config: appState.apiConfiguration, idealWidth: 780) ?? ImageURLBuilder.backdropURL(for: $0.backdropPath, config: appState.apiConfiguration, idealWidth: 780),
                     rating: $0.voteAverage,
                     releaseYear: $0.releaseDate.map { String(Calendar.current.component(.year, from: $0)) },
                     isTVSeries: false
@@ -467,12 +512,12 @@ struct iOSHomeView: View {
             self.genZTV = mapTV(gzTV.items)
             self.genXTV = mapTV(gxTV.items)
 
-            // TV Hero Banner
-            self.tvHeroItems = tTV.prefix(5).map {
+            // TV Hero Banner (Netflix-style portrait posters)
+            self.tvHeroItems = tTV.prefix(6).map {
                 MediaListItem(
                     id: $0.id,
                     title: $0.name,
-                    posterURL: ImageURLBuilder.backdropURL(for: $0.backdropPath, config: appState.apiConfiguration, idealWidth: 780) ?? ImageURLBuilder.posterURL(for: $0.posterPath, config: appState.apiConfiguration, idealWidth: 780),
+                    posterURL: ImageURLBuilder.posterURL(for: $0.posterPath, config: appState.apiConfiguration, idealWidth: 780) ?? ImageURLBuilder.backdropURL(for: $0.backdropPath, config: appState.apiConfiguration, idealWidth: 780),
                     rating: $0.voteAverage,
                     releaseYear: $0.firstAirDate.map { String(Calendar.current.component(.year, from: $0)) },
                     isTVSeries: true

@@ -435,8 +435,19 @@ struct iOSTouchPlayerView: View {
     }
 
     private func initializePlayer(with url: URL) {
+        // Configure AVAudioSession for AirPlay video & audio routing
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback, options: [.allowAirPlay])
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            print("AudioSession setup error: \(error)")
+        }
+
         let item = AVPlayerItem(url: url)
         let avPlayer = AVPlayer(playerItem: item)
+        avPlayer.allowsExternalPlayback = true
+        avPlayer.usesExternalPlaybackWhileExternalScreenIsActive = true
+        avPlayer.preventsDisplaySleepDuringVideoPlayback = true
         avPlayer.automaticallyWaitsToMinimizeStalling = true
         
         let englishCriteria = AVPlayerMediaSelectionCriteria(
@@ -620,6 +631,11 @@ struct CustomVideoPlayerRepresentable: UIViewRepresentable {
 class CustomPlayerUIView: UIView {
     override static var layerClass: AnyClass { AVPlayerLayer.self }
     var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        playerLayer.frame = bounds
+    }
 }
 
 // Native AirPlay Route Picker Button

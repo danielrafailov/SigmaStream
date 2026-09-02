@@ -75,7 +75,7 @@ struct iOSTVSeriesDetailView: View {
                             if let rating = series?.voteAverage, rating > 0 {
                                 HStack(spacing: 3) {
                                     Image(systemName: "star.fill")
-                                        .font(.caption)
+                                        .font(.system(size: 11))
                                         .foregroundStyle(.yellow)
                                     Text(String(format: "%.1f", rating))
                                         .font(.subheadline.bold())
@@ -84,70 +84,65 @@ struct iOSTVSeriesDetailView: View {
                             }
                         }
 
-                        // Genres
-                        if let genres = series?.genres, !genres.isEmpty {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 8) {
-                                    ForEach(genres, id: \.id) { genre in
-                                        Text(genre.name)
-                                            .font(.caption.weight(.medium))
-                                            .foregroundStyle(.white.opacity(0.85))
-                                            .padding(.horizontal, 10)
-                                            .padding(.vertical, 5)
-                                            .background(Color.white.opacity(0.12))
-                                            .clipShape(Capsule())
-                                    }
-                                }
+                        // Play Show Button
+                        Button {
+                            playFirstOrResumeEpisode()
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "play.fill")
+                                    .font(.system(size: 16, weight: .bold))
+                                Text(hasResumePosition ? "Resume Show" : "Play Show")
+                                    .font(.system(size: 16, weight: .bold))
                             }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(Color.white)
+                            .foregroundStyle(.black)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                         }
+                        .padding(.top, 4)
 
-                        // Synopsis
+                        // Overview description
                         if let overview = series?.overview, !overview.isEmpty {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("Overview")
-                                    .font(.headline)
-                                    .foregroundStyle(.white)
-                                Text(overview)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                                    .lineSpacing(3)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
+                            Text(overview)
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(0.85))
+                                .lineSpacing(4)
                         }
 
-                        // Action Icons (My List + Thumbs Up Like below description)
-                        HStack(spacing: 36) {
-                            // My List Button
+                        // Action Buttons: + My List & Like (Thumbs Up) placed BELOW description
+                        HStack(spacing: 40) {
                             Button {
-                                toggleMyList()
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                    toggleMyList()
+                                }
                             } label: {
-                                VStack(spacing: 5) {
+                                VStack(spacing: 6) {
                                     Image(systemName: isInMyList ? "checkmark" : "plus")
-                                        .font(.title3.bold())
-                                    Text(isInMyList ? "In List" : "My List")
-                                        .font(.caption2.bold())
+                                        .font(.system(size: 20, weight: .bold))
+                                    Text("My List")
+                                        .font(.caption2)
                                 }
-                                .foregroundStyle(isInMyList ? Color.blue : Color.white)
+                                .foregroundStyle(.white)
                             }
-                            .buttonStyle(.plain)
 
-                            // Like Button (Thumbs Up, fills white on click)
                             Button {
-                                toggleLiked()
-                            } label: {
-                                VStack(spacing: 5) {
-                                    Image(systemName: isLiked ? "hand.thumbsup.fill" : "hand.thumbsup")
-                                        .font(.title3.bold())
-                                    Text("Like")
-                                        .font(.caption2.bold())
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                    toggleLiked()
                                 }
-                                .foregroundStyle(isLiked ? Color.white : Color.white.opacity(0.7))
+                            } label: {
+                                VStack(spacing: 6) {
+                                    Image(systemName: isLiked ? "hand.thumbsup.fill" : "hand.thumbsup")
+                                        .font(.system(size: 20, weight: .bold))
+                                    Text("Like")
+                                        .font(.caption2)
+                                }
+                                .foregroundStyle(.white)
                             }
-                            .buttonStyle(.plain)
 
                             Spacer()
                         }
-                        .padding(.vertical, 4)
+                        .padding(.top, 2)
 
                         Divider()
                             .background(Color.white.opacity(0.15))
@@ -158,7 +153,7 @@ struct iOSTVSeriesDetailView: View {
                             VStack(alignment: .leading, spacing: 14) {
                                 HStack {
                                     Text("Episodes")
-                                        .font(.title3.bold())
+                                        .font(.headline.bold())
                                         .foregroundStyle(.white)
 
                                     Spacer()
@@ -200,11 +195,13 @@ struct iOSTVSeriesDetailView: View {
                             }
                         }
 
-                        // Sub-Tabs Header: "More Like This" & "Trailers & More"
+                        // Sub-Tabs: "More Like This" & "Trailers & More"
                         VStack(alignment: .leading, spacing: 14) {
                             HStack(spacing: 24) {
                                 Button {
-                                    selectedTab = .moreLikeThis
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        selectedTab = .moreLikeThis
+                                    }
                                 } label: {
                                     VStack(spacing: 6) {
                                         Text("More Like This")
@@ -219,7 +216,9 @@ struct iOSTVSeriesDetailView: View {
                                 .buttonStyle(.plain)
 
                                 Button {
-                                    selectedTab = .trailersAndMore
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        selectedTab = .trailersAndMore
+                                    }
                                 } label: {
                                     VStack(spacing: 6) {
                                         Text("Trailers & More")
@@ -235,9 +234,9 @@ struct iOSTVSeriesDetailView: View {
 
                                 Spacer()
                             }
-                            .padding(.top, 12)
+                            .padding(.top, 8)
 
-                            // Tab Content: More Like This
+                            // Sub-Tab Contents
                             if selectedTab == .moreLikeThis {
                                 if recommendations.isEmpty {
                                     Text("No similar titles found.")
@@ -245,7 +244,12 @@ struct iOSTVSeriesDetailView: View {
                                         .foregroundStyle(.secondary)
                                         .padding(.vertical, 16)
                                 } else {
-                                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 105, maximum: 140), spacing: 12)], spacing: 14) {
+                                    let columns = [
+                                        GridItem(.flexible(), spacing: 14),
+                                        GridItem(.flexible(), spacing: 14),
+                                        GridItem(.flexible(), spacing: 14)
+                                    ]
+                                    LazyVGrid(columns: columns, spacing: 16) {
                                         ForEach(recommendations) { rec in
                                             NavigationLink {
                                                 iOSTVSeriesDetailView(seriesId: rec.id)
@@ -264,10 +268,11 @@ struct iOSTVSeriesDetailView: View {
                                             .buttonStyle(.plain)
                                         }
                                     }
+                                    .padding(.horizontal, 4)
                                     .padding(.top, 4)
                                 }
                             } else {
-                                // Tab Content: Trailers & More
+                                // Trailers & More
                                 if trailers.isEmpty {
                                     Text("No trailers available.")
                                         .font(.subheadline)
@@ -277,7 +282,9 @@ struct iOSTVSeriesDetailView: View {
                                     VStack(spacing: 16) {
                                         ForEach(trailers, id: \.id) { video in
                                             Button {
-                                                if let ytURL = video.youtubeWatchURL {
+                                                if let ytAppURL = video.youtubeAppURL, UIApplication.shared.canOpenURL(ytAppURL) {
+                                                    UIApplication.shared.open(ytAppURL)
+                                                } else if let ytURL = video.youtubeWatchURL {
                                                     UIApplication.shared.open(ytURL)
                                                 }
                                             } label: {
@@ -286,7 +293,9 @@ struct iOSTVSeriesDetailView: View {
                                                         if let thumbURL = video.youtubeThumbnailURL {
                                                             AsyncImage(url: thumbURL) { phase in
                                                                 if let img = phase.image {
-                                                                    img.resizable().aspectRatio(contentMode: .fill)
+                                                                    img
+                                                                        .resizable()
+                                                                        .aspectRatio(contentMode: .fill)
                                                                 } else {
                                                                     Color.white.opacity(0.08)
                                                                 }
@@ -295,10 +304,12 @@ struct iOSTVSeriesDetailView: View {
                                                             Color.white.opacity(0.08)
                                                         }
 
-                                                        Image(systemName: "play.circle.fill")
-                                                            .font(.system(size: 46))
+                                                        Image(systemName: "play.fill")
+                                                            .font(.title2)
                                                             .foregroundStyle(.white)
-                                                            .shadow(color: .black.opacity(0.7), radius: 6)
+                                                            .padding(14)
+                                                            .background(.ultraThinMaterial)
+                                                            .clipShape(Circle())
                                                     }
                                                     .frame(height: 180)
                                                     .frame(maxWidth: .infinity)
@@ -317,15 +328,15 @@ struct iOSTVSeriesDetailView: View {
                                 }
                             }
                         }
-                        .padding(.horizontal, 18)
-                        .padding(.top, 16)
-                        .frame(width: geometry.size.width, alignment: .leading)
-                        .padding(.bottom, 40)
                     }
-                    .frame(width: geometry.size.width)
+                    .padding(.horizontal, 18)
+                    .padding(.top, 16)
+                    .frame(width: geometry.size.width, alignment: .leading)
+                    .padding(.bottom, 40)
                 }
-                }
-                .frame(width: geometry.size.width, height: geometry.size.height)
+                .frame(width: geometry.size.width)
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
 
                 // Layer 2: Fixed Top Backdrop Poster Header (Sits on top in Z-index)
                 ZStack(alignment: .topLeading) {
@@ -488,6 +499,27 @@ struct iOSTVSeriesDetailView: View {
         do {
             self.loadedSeason = try await appState.tmdbService.tvSeasonDetails(seriesId: seriesId, seasonNumber: seasonNumber)
         } catch {}
+    }
+
+    private var hasResumePosition: Bool {
+        if let episodes = loadedSeason?.episodes {
+            for ep in episodes {
+                if (appState.watchProgressManager.resumeTimeForEpisode(seriesId: seriesId, season: ep.seasonNumber, episode: ep.episodeNumber) ?? 0) > 5 {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    private func playFirstOrResumeEpisode() {
+        if let episodes = loadedSeason?.episodes, !episodes.isEmpty {
+            // Find first episode with resume progress, or the first episode
+            let targetEp = episodes.first {
+                (appState.watchProgressManager.resumeTimeForEpisode(seriesId: seriesId, season: $0.seasonNumber, episode: $0.episodeNumber) ?? 0) > 5
+            } ?? episodes[0]
+            playEpisode(season: targetEp.seasonNumber, episode: targetEp.episodeNumber, title: targetEp.name)
+        }
     }
 
     private func playEpisode(season: Int, episode: Int, title: String) {

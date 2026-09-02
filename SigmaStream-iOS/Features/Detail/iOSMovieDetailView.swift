@@ -244,11 +244,11 @@ struct iOSMovieDetailView: View {
                                             .padding(.vertical, 16)
                                     } else {
                                         let columns = [
-                                            GridItem(.flexible(), spacing: 10),
-                                            GridItem(.flexible(), spacing: 10),
-                                            GridItem(.flexible(), spacing: 10)
+                                            GridItem(.flexible(), spacing: 14),
+                                            GridItem(.flexible(), spacing: 14),
+                                            GridItem(.flexible(), spacing: 14)
                                         ]
-                                        LazyVGrid(columns: columns, spacing: 14) {
+                                        LazyVGrid(columns: columns, spacing: 16) {
                                             ForEach(recommendations) { item in
                                                 NavigationLink {
                                                     iOSMovieDetailView(movieId: item.id)
@@ -267,6 +267,7 @@ struct iOSMovieDetailView: View {
                                                 .buttonStyle(.plain)
                                             }
                                         }
+                                        .padding(.horizontal, 4)
                                         .padding(.top, 4)
                                     }
                                 } else {

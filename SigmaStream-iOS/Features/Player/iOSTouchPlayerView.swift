@@ -273,6 +273,26 @@ struct iOSTouchPlayerView: View {
         let item = AVPlayerItem(url: url)
         let avPlayer = AVPlayer(playerItem: item)
         avPlayer.automaticallyWaitsToMinimizeStalling = true
+        
+        let englishCriteria = AVPlayerMediaSelectionCriteria(
+            preferredLanguages: ["en", "eng", "en-US", "en-GB"],
+            preferredMediaCharacteristics: nil
+        )
+        avPlayer.setMediaSelectionCriteria(englishCriteria, forMediaCharacteristic: .audible)
+        
+        Task {
+            guard let group = try? await item.asset.loadMediaSelectionGroup(for: .audible) else { return }
+            let englishOption = group.options.first { opt in
+                if let lang = opt.locale?.language.languageCode?.identifier.lowercased(), lang == "en" { return true }
+                if let tag = opt.extendedLanguageTag?.lowercased(), tag.hasPrefix("en") || tag == "eng" { return true }
+                if opt.displayName.lowercased().contains("english") { return true }
+                return false
+            }
+            if let englishOption {
+                item.select(englishOption, in: group)
+            }
+        }
+        
         self.player = avPlayer
 
         // Observe periodic playback time

@@ -254,14 +254,6 @@ final class WatchProgressManager {
         }
     }
 
-    func clearAllHistory() {
-        watchedMovies = []
-        watchedEpisodes = []
-        UserDefaults.standard.removeObject(forKey: moviesKey)
-        UserDefaults.standard.removeObject(forKey: episodesKey)
-        postChange()
-    }
-
     private func postChange() {
         NotificationCenter.default.post(name: Self.continueWatchingDidChange, object: nil)
     }

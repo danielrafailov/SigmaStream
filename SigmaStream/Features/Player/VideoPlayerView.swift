@@ -102,13 +102,17 @@ struct VideoPlayerView: View {
     }
 
     private func selectEnglishAudioIfAvailable(for item: AVPlayerItem) {
-        guard let group = item.asset.mediaSelectionGroup(forMediaCharacteristic: .audible) else { return }
-        let englishOption = group.options.first { opt in
-            let tag = (opt.extendedLanguageTag ?? "").lowercased()
-            return tag.hasPrefix("en") || tag == "eng"
-        }
-        if let option = englishOption {
-            item.select(option, in: group)
+        Task {
+            guard let group = try? await item.asset.loadMediaSelectionGroup(for: .audible) else { return }
+            let englishOption = group.options.first { opt in
+                if let lang = opt.locale?.language.languageCode?.identifier.lowercased(), lang == "en" { return true }
+                if let tag = opt.extendedLanguageTag?.lowercased(), tag.hasPrefix("en") || tag == "eng" { return true }
+                if opt.displayName.lowercased().contains("english") { return true }
+                return false
+            }
+            if let option = englishOption {
+                item.select(option, in: group)
+            }
         }
     }
 
@@ -124,6 +128,12 @@ struct VideoPlayerView: View {
         configurePlaybackItem(item)
         let newPlayer = AVPlayer(playerItem: item)
         newPlayer.automaticallyWaitsToMinimizeStalling = true
+        
+        let englishCriteria = AVPlayerMediaSelectionCriteria(
+            preferredLanguages: ["en", "eng", "en-US", "en-GB"],
+            preferredMediaCharacteristics: nil
+        )
+        newPlayer.setMediaSelectionCriteria(englishCriteria, forMediaCharacteristic: .audible)
         return newPlayer
     }
 

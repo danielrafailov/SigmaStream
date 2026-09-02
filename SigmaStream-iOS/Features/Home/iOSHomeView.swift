@@ -78,8 +78,7 @@ struct iOSHomeView: View {
                 }
             }
             .background(Color(uiColor: .systemBackground).ignoresSafeArea())
-            .navigationTitle("SigmaStream")
-            .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(isPresented: Binding(
                 get: { selectedMovieId != nil },
                 set: { if !$0 { selectedMovieId = nil } }

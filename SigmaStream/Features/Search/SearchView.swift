@@ -19,9 +19,10 @@ struct SearchView: View {
     @Environment(AppState.self) private var appState
     
     @State private var searchText = ""
-    @State private var searchMode: SearchMode = .ai
+    @State private var searchMode: SearchMode = .standard
     @State private var movies: [MovieListItem] = []
     @State private var tvSeries: [TVSeriesListItem] = []
+    @State private var aiSpokenResponse: String?
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var searchTask: Task<Void, Never>?
@@ -56,13 +57,13 @@ struct SearchView: View {
                             .padding(.horizontal, 48)
                     }
 
-                    if isLoading && searchText.count >= 2 {
+                    if isLoading {
                         HStack {
                             Spacer()
                             VStack(spacing: 16) {
                                 ProgressView()
                                     .scaleEffect(1.4)
-                                Text(searchMode == .ai ? "Sigma AI is analyzing and curating recommendations..." : "Searching titles...")
+                                Text(searchMode == .ai ? "Sigma AI is analyzing..." : "Searching titles...")
                                     .font(.title3)
                                     .foregroundStyle(.secondary)
                             }
@@ -70,20 +71,48 @@ struct SearchView: View {
                         }
                         .frame(maxWidth: .infinity, minHeight: 350)
                         .padding(.vertical, 40)
-                    } else if searchText.count >= 2 {
-                        if movies.isEmpty && tvSeries.isEmpty && !isLoading {
-                            HStack {
-                                Spacer()
-                                ContentUnavailableView(
-                                    "No results found",
-                                    systemImage: searchMode == .ai ? "sparkles" : "magnifyingglass",
-                                    description: Text(searchMode == .ai ? "Try asking with different themes, actors, or genres." : "Try a different search term")
-                                )
-                                Spacer()
+                    } else {
+                        // AI Spoken Response Card (Conversational Answer)
+                        if searchMode == .ai, let response = aiSpokenResponse, !response.isEmpty {
+                            HStack(alignment: .top, spacing: 18) {
+                                Image(systemName: "waveform.circle.fill")
+                                    .font(.system(size: 40))
+                                    .foregroundStyle(.cyan)
+                                
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack {
+                                        Text("Sigma AI")
+                                            .font(.headline)
+                                            .foregroundStyle(.cyan)
+                                        
+                                        Spacer()
+                                        
+                                        Button {
+                                            appState.voiceService.speak(response)
+                                        } label: {
+                                            HStack(spacing: 6) {
+                                                Image(systemName: "speaker.wave.2.fill")
+                                                Text("Replay")
+                                            }
+                                            .font(.caption.bold())
+                                        }
+                                        .buttonStyle(.bordered)
+                                    }
+                                    
+                                    Text(response)
+                                        .font(.title3)
+                                        .foregroundStyle(.white)
+                                        .lineSpacing(4)
+                                }
                             }
-                            .frame(maxWidth: .infinity, minHeight: 350)
-                            .padding(.vertical, 40)
-                        } else {
+                            .padding(24)
+                            .background(Color.white.opacity(0.08))
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .padding(.horizontal, 48)
+                        }
+
+                        // Media Results Rows
+                        if !movies.isEmpty || !tvSeries.isEmpty {
                             VStack(alignment: .leading, spacing: 32) {
                                 if !movies.isEmpty {
                                     MovieMediaRow(
@@ -103,17 +132,34 @@ struct SearchView: View {
                                     )
                                 }
                             }
+                        } else if searchMode == .ai && aiSpokenResponse == nil && !searchText.isEmpty && !isLoading {
+                            HStack {
+                                Spacer()
+                                VStack(spacing: 12) {
+                                    Image(systemName: "sparkles")
+                                        .font(.system(size: 48))
+                                        .foregroundStyle(.cyan)
+                                    Text("Press Enter on your remote to ask Sigma AI")
+                                        .font(.title3)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 250)
+                            .padding(.vertical, 40)
+                        } else if searchMode == .standard && searchText.count >= 2 && movies.isEmpty && tvSeries.isEmpty && !isLoading {
+                            HStack {
+                                Spacer()
+                                ContentUnavailableView(
+                                    "No results found",
+                                    systemImage: "magnifyingglass",
+                                    description: Text("Try a different search term")
+                                )
+                                Spacer()
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 350)
+                            .padding(.vertical, 40)
                         }
-                    } else if !searchText.isEmpty {
-                        HStack {
-                            Spacer()
-                            Text("Enter at least 2 characters to search")
-                                .font(.title3)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 40)
                     }
                 }
                 .scrollTargetLayout()
@@ -122,32 +168,54 @@ struct SearchView: View {
             .navigationTitle("")
             .searchable(
                 text: $searchText,
-                prompt: searchMode == .ai ? "Ask AI with Siri Remote (e.g. '90s sci-fi movies')..." : "Search titles, actors, genres..."
+                prompt: searchMode == .ai ? "Ask AI Anything" : "Search titles, actors, genres..."
             )
-            .onChange(of: searchText) { _, newValue in
+            .onSubmit(of: .search) {
+                // Trigger AI or manual search immediately on Enter / Remote submit
+                let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !query.isEmpty else { return }
                 searchTask?.cancel()
-                movies = []
-                tvSeries = []
-                errorMessage = nil
-                appState.voiceService.stopSpeaking()
-
-                guard newValue.count >= 2 else { return }
-
-                let query = newValue
                 let currentMode = searchMode
                 searchTask = Task {
-                    // Slight debounce for keyboard input; dictation submits immediately
-                    try? await Task.sleep(for: .milliseconds(500))
-                    guard !Task.isCancelled else { return }
                     await performSearch(query: query, mode: currentMode)
                 }
             }
-            .onChange(of: searchMode) { _, newMode in
-                if searchText.count >= 2 {
-                    let query = searchText
-                    searchTask?.cancel()
+            .onChange(of: searchText) { _, newValue in
+                searchTask?.cancel()
+                appState.voiceService.stopSpeaking()
+                
+                if newValue.isEmpty {
+                    movies = []
+                    tvSeries = []
+                    aiSpokenResponse = nil
+                    errorMessage = nil
+                    return
+                }
+
+                // In Basic mode, perform live typing search with 400ms debounce
+                // In AI mode, DO NOT search on keystroke — only search when user presses Enter
+                if searchMode == .standard && newValue.count >= 2 {
+                    errorMessage = nil
+                    let query = newValue
                     searchTask = Task {
-                        await performSearch(query: query, mode: newMode)
+                        try? await Task.sleep(for: .milliseconds(400))
+                        guard !Task.isCancelled else { return }
+                        await performSearch(query: query, mode: .standard)
+                    }
+                }
+            }
+            .onChange(of: searchMode) { _, newMode in
+                searchTask?.cancel()
+                appState.voiceService.stopSpeaking()
+                movies = []
+                tvSeries = []
+                aiSpokenResponse = nil
+                errorMessage = nil
+                
+                if newMode == .standard && searchText.count >= 2 {
+                    let query = searchText
+                    searchTask = Task {
+                        await performSearch(query: query, mode: .standard)
                     }
                 }
             }
@@ -170,6 +238,7 @@ struct SearchView: View {
         guard !query.isEmpty else { return }
         isLoading = true
         errorMessage = nil
+        aiSpokenResponse = nil
 
         do {
             if mode == .ai {
@@ -177,8 +246,9 @@ struct SearchView: View {
                 guard !Task.isCancelled else { return }
                 movies = result.movies
                 tvSeries = result.tvSeries
+                aiSpokenResponse = result.spokenResponse
                 
-                // Speak the AI response out loud via local Mac Neural TTS
+                // Speak the AI response out loud via celebrity voice engine
                 appState.voiceService.speak(result.spokenResponse)
             } else {
                 let result = try await appState.tmdbService.searchMoviesTVIncludingPersonCast(query: query)

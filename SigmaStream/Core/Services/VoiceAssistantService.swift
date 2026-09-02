@@ -57,8 +57,8 @@ final class VoiceAssistantService: NSObject, AVAudioPlayerDelegate {
         self.voiceName = voiceName
         
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 12
-        config.timeoutIntervalForResource = 25
+        config.timeoutIntervalForRequest = 45
+        config.timeoutIntervalForResource = 60
         self.session = URLSession(configuration: config)
         
         super.init()
@@ -220,7 +220,7 @@ final class VoiceAssistantService: NSObject, AVAudioPlayerDelegate {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 25
+        request.timeoutInterval = 45
         
         let payload: [String: String] = [
             "text": text,

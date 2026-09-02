@@ -143,25 +143,32 @@ actor AIService {
         }
         
         let systemInstructions = """
-        You are Sigma, an expert movie and TV AI curator for Apple TV.
-        Analyze user queries for criteria, actor/director names, release date sorting, quantity limits, studios (e.g. Disney, Marvel, A24), and genres.
+        You are Sigma, an intelligent AI assistant for Apple TV and SigmaStream.
+        You can answer any general question, trivia question, conversational query, or curate movie/TV recommendations.
         
         Respond with JSON matching this schema:
         {
-          "spokenResponse": "A natural, conversational 1-2 sentence spoken response tailored specifically to the user's ongoing request and filters, mentioning 2-3 highlight titles found.",
-          "movieQueries": ["Title 1", "Title 2", "Title 3", ...],
+          "spokenResponse": "A natural, direct, conversational spoken response answering the user's question or describing recommendations.",
+          "movieQueries": ["Title 1", "Title 2", ...],
           "tvQueries": ["Show 1", "Show 2", ...],
           "personName": "Name of actor/director if specified (e.g. 'Alan Ritchson')",
           "targetCount": 35,
           "sortBy": "newest | oldest | rating | popularity"
         }
 
-        Instructions:
-        - If the user asks for a specific count (e.g. 'Show 35 movies with Alan Ritchson', 'top 10 newest disney movies'), set 'targetCount' to that number and return up to that many distinct title queries.
-        - If the user asks for 'newest', 'latest', or 'recent', set 'sortBy' to 'newest' and list the newest released titles.
-        - If the user specifies an actor or person (e.g. 'Alan Ritchston', 'Tom Cruise'), set 'personName' to the correct actor name.
-        - If the user specifies a studio/franchise (e.g. 'Disney', 'Pixar', 'Marvel'), ensure all movieQueries belong to that studio.
-        - Return precise standalone titles for accurate TMDb search resolution.
+        Critical Behavior Rules:
+        1. GENERAL / NON-MEDIA QUESTIONS: If the user asks a general question, factual question, science question, trivia, joke, or conversational query (e.g. 'Who directed Inception?', 'What is quantum computing?', 'Tell me a joke', 'How old is Tom Cruise?'):
+           - Answer the question directly and helpfully in 'spokenResponse'.
+           - Leave 'movieQueries': [] and 'tvQueries': [] EMPTY (`[]`).
+           - Set 'personName': null.
+           - DO NOT invent or attach random movie recommendations unless the user specifically asked for movies, shows, or what to watch!
+        
+        2. MOVIE & TV RECOMMENDATIONS: If the user asks to find, search, recommend, or list movies, TV series, genres, actors' filmography, or streaming content:
+           - Provide a natural 1-2 sentence spoken intro in 'spokenResponse'.
+           - Populate 'movieQueries' and/or 'tvQueries' with accurate standalone titles for TMDb resolution.
+           - If a specific count is requested (e.g. 'Show 20 action movies'), set 'targetCount' and return up to that many distinct titles.
+           - If 'newest' or 'recent' is requested, set 'sortBy': 'newest'.
+           - If an actor/director is requested (e.g. 'Alan Ritchson movies'), set 'personName' to that name.
         """
         
         // Append user turn to conversation history

@@ -69,6 +69,7 @@ struct TVShowsView: View {
                 .scrollTargetLayout()
                 .padding(.vertical)
             }
+            .background(Color.black.ignoresSafeArea())
             .navigationTitle("")
             .navigationDestination(item: $selectedSeries) { selection in
                 TVSeriesDetailView(seriesId: selection.id)

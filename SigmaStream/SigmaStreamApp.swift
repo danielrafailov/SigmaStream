@@ -22,6 +22,8 @@ struct SigmaStreamApp: App {
     var body: some Scene {
         WindowGroup {
             ZStack {
+                Color.black.ignoresSafeArea()
+
                 ContentView()
                     .environment(appState)
                     .task {
@@ -36,6 +38,8 @@ struct SigmaStreamApp: App {
                     .zIndex(1)
                 }
             }
+            .background(Color.black.ignoresSafeArea())
+            .preferredColorScheme(.dark)
         }
     }
 }

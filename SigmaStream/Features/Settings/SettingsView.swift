@@ -59,6 +59,7 @@ struct SettingsView: View {
             .scrollTargetLayout()
             .padding(.vertical, 24)
         }
+        .background(Color.black.ignoresSafeArea())
         .onAppear {
             selectedVoiceSlug = appState.voiceService.selectedVoiceSlug
         }

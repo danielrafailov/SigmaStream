@@ -109,6 +109,7 @@ struct ForYouView: View {
                     }
                 }
             }
+            .background(Color.black.ignoresSafeArea())
             .navigationTitle("")
             .navigationDestination(item: $selectedMovie) { selection in
                 MovieDetailView(movieId: selection.id)

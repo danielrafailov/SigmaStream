@@ -136,6 +136,7 @@ struct MovieDetailView: View {
                 }
             }
         }
+        .background(Color.black.ignoresSafeArea())
         .navigationTitle("")
         .task {
             await loadMovie()

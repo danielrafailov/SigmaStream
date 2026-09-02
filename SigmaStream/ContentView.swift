@@ -71,6 +71,8 @@ struct ContentView: View {
                 }
                 .tag(6)
         }
+        .background(Color.black.ignoresSafeArea())
+        .preferredColorScheme(.dark)
     }
 }
 

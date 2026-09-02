@@ -165,6 +165,7 @@ struct SearchView: View {
                 .scrollTargetLayout()
                 .padding(.vertical)
             }
+            .background(Color.black.ignoresSafeArea())
             .navigationTitle("")
             .searchable(
                 text: $searchText,

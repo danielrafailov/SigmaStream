@@ -30,6 +30,7 @@
 		4B64EBC42F68FA000084849 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
 		4B86B7F93047934B00CA8E37 /* SigmaStream-iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "SigmaStream-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		4BA098A32F6F0A6B000EAF76 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
+		4B64EBD02F68FB0000884849 /* backend */ = {isa = PBXFileReference; lastKnownFileType = folder; path = backend; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -84,6 +85,7 @@
 				4BA098A32F6F0A6B000EAF76 /* LaunchScreen.storyboard */,
 				4B64EB5C2F68EAE600884849 /* SigmaStream */,
 				4B86B7FA3047934B00CA8E37 /* SigmaStream-iOS */,
+				4B64EBD02F68FB0000884849 /* backend */,
 				4B64EB5B2F68EAE600884849 /* Products */,
 				4BA096EE2F6A4FB0000EAF76 /* Recovered References */,
 				4BA097412F6A5050000EAF76 /* Frameworks */,

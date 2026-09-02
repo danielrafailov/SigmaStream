@@ -162,42 +162,44 @@ struct iOSTouchPlayerView: View {
             }
 
             // Left / Right Double-Tap Indicator Overlays
-            HStack {
-                if leftRipple {
-                    VStack {
-                        Image(systemName: "gobackward.10")
-                            .font(.system(size: 40, weight: .bold))
-                            .foregroundStyle(.white)
-                        Text("10s")
-                            .font(.caption.bold())
-                            .foregroundStyle(.white)
+            if player != nil {
+                HStack {
+                    if leftRipple {
+                        VStack {
+                            Image(systemName: "gobackward.10")
+                                .font(.system(size: 40, weight: .bold))
+                                .foregroundStyle(.white)
+                            Text("10s")
+                                .font(.caption.bold())
+                                .foregroundStyle(.white)
+                        }
+                        .padding(30)
+                        .background(.ultraThinMaterial)
+                        .clipShape(Circle())
+                        .transition(.opacity.combined(with: .scale))
                     }
-                    .padding(30)
-                    .background(.ultraThinMaterial)
-                    .clipShape(Circle())
-                    .transition(.opacity.combined(with: .scale))
-                }
-                Spacer()
-                if rightRipple {
-                    VStack {
-                        Image(systemName: "goforward.10")
-                            .font(.system(size: 40, weight: .bold))
-                            .foregroundStyle(.white)
-                        Text("10s")
-                            .font(.caption.bold())
-                            .foregroundStyle(.white)
+                    Spacer()
+                    if rightRipple {
+                        VStack {
+                            Image(systemName: "goforward.10")
+                                .font(.system(size: 40, weight: .bold))
+                                .foregroundStyle(.white)
+                            Text("10s")
+                                .font(.caption.bold())
+                                .foregroundStyle(.white)
+                        }
+                        .padding(30)
+                        .background(.ultraThinMaterial)
+                        .clipShape(Circle())
+                        .transition(.opacity.combined(with: .scale))
                     }
-                    .padding(30)
-                    .background(.ultraThinMaterial)
-                    .clipShape(Circle())
-                    .transition(.opacity.combined(with: .scale))
                 }
+                .padding(.horizontal, 60)
+                .allowsHitTesting(false)
             }
-            .padding(.horizontal, 60)
-            .allowsHitTesting(false)
 
-            // Touch HUD Controls Overlay
-            if showControls {
+            // Touch HUD Controls Overlay (Only active when video player is loaded)
+            if showControls && player != nil {
                 ZStack {
                     // Dark gradient scrim
                     LinearGradient(

@@ -10,6 +10,7 @@ import SwiftUI
 @main
 struct SigmaStreamApp: App {
     @State private var appState = AppState()
+    @State private var showSplash = true
 
     init() {
         // Increase URLCache for image caching (AsyncImage uses URLSession)
@@ -20,11 +21,21 @@ struct SigmaStreamApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environment(appState)
-                .task {
-                    await appState.loadConfiguration()
+            ZStack {
+                ContentView()
+                    .environment(appState)
+                    .task {
+                        await appState.loadConfiguration()
+                    }
+
+                if showSplash {
+                    SigmaSplashView {
+                        showSplash = false
+                    }
+                    .transition(.opacity)
+                    .zIndex(1)
                 }
+            }
         }
     }
 }

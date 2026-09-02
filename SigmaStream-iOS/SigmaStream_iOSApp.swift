@@ -12,12 +12,23 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 struct SigmaStream_iOSApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @State private var appState = AppState(apiKey: Secrets.tmdbApiKey)
+    @State private var showSplash = true
 
     var body: some Scene {
         WindowGroup {
-            MainTabView()
-                .environment(appState)
-                .preferredColorScheme(.dark)
+            ZStack {
+                MainTabView()
+                    .environment(appState)
+
+                if showSplash {
+                    SigmaSplashView {
+                        showSplash = false
+                    }
+                    .transition(.opacity)
+                    .zIndex(1)
+                }
+            }
+            .preferredColorScheme(.dark)
         }
     }
 }

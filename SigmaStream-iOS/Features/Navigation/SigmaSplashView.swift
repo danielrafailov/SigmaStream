@@ -63,9 +63,13 @@ struct SigmaSplashView: View {
 
         avPlayer.play()
 
-        // Safety fallback timer so user is never stuck
+        // Safety fallback timer dynamically based on video duration
         Task {
-            try? await Task.sleep(nanoseconds: 6_000_000_000)
+            var durationSec = 12.0
+            if let d = try? await item.asset.load(.duration), d.seconds.isFinite, d.seconds > 0 {
+                durationSec = d.seconds
+            }
+            try? await Task.sleep(nanoseconds: UInt64((durationSec + 2.5) * 1_000_000_000))
             if !hasFinished {
                 await MainActor.run {
                     finishSplash()
@@ -78,7 +82,7 @@ struct SigmaSplashView: View {
         guard !hasFinished else { return }
         hasFinished = true
         teardown()
-        withAnimation(.easeInOut(duration: 0.35)) {
+        withAnimation(.easeInOut(duration: 0.4)) {
             onFinished()
         }
     }
@@ -99,7 +103,7 @@ private struct SplashVideoPlayerRepresentable: UIViewRepresentable {
     func makeUIView(context: Context) -> SplashPlayerUIView {
         let view = SplashPlayerUIView()
         view.playerLayer.player = player
-        view.playerLayer.videoGravity = .resizeAspectFill
+        view.playerLayer.videoGravity = .resizeAspect
         return view
     }
 

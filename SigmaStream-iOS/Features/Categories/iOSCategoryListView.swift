@@ -23,7 +23,9 @@ struct iOSMovieCategoryListView: View {
     @State private var selectedMovieId: Int?
 
     private let columns = [
-        GridItem(.adaptive(minimum: 110, maximum: 160), spacing: 14)
+        GridItem(.flexible(), spacing: 14),
+        GridItem(.flexible(), spacing: 14),
+        GridItem(.flexible(), spacing: 14)
     ]
 
     var body: some View {
@@ -143,7 +145,9 @@ struct iOSTVCategoryListView: View {
     @State private var selectedSeriesId: Int?
 
     private let columns = [
-        GridItem(.adaptive(minimum: 110, maximum: 160), spacing: 14)
+        GridItem(.flexible(), spacing: 14),
+        GridItem(.flexible(), spacing: 14),
+        GridItem(.flexible(), spacing: 14)
     ]
 
     var body: some View {

@@ -97,9 +97,11 @@ struct iOSSearchView: View {
     @State private var selectedMovieId: Int?
     @State private var selectedTVSeriesId: Int?
 
-    // Adaptive grid: 3 columns on iPhone, 5-6 columns on iPad
+    // 3 columns on iPhone with clean spacing
     private let columns = [
-        GridItem(.adaptive(minimum: 110, maximum: 160), spacing: 14)
+        GridItem(.flexible(), spacing: 14),
+        GridItem(.flexible(), spacing: 14),
+        GridItem(.flexible(), spacing: 14)
     ]
 
     var body: some View {

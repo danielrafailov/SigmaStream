@@ -18,7 +18,9 @@ struct iOSMyListView: View {
     @State private var isLoading = false
 
     private let columns = [
-        GridItem(.adaptive(minimum: 110, maximum: 160), spacing: 14)
+        GridItem(.flexible(), spacing: 14),
+        GridItem(.flexible(), spacing: 14),
+        GridItem(.flexible(), spacing: 14)
     ]
 
     var body: some View {

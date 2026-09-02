@@ -336,41 +336,72 @@ async function main() {
             // Local clone server offline or loading, fallback gracefully
         }
 
-        // 2. Fallback to local Kokoro Neural Voice
-        try {
-            const wavBuffer = await generateSpeechWav(
-                text,
-                voice && voice.startsWith('a') ? voice : 'am_adam'
-            );
-            reply.header('Content-Type', 'audio/wav');
-            reply.header('Content-Length', wavBuffer.length);
-            reply.header('Cache-Control', 'public, max-age=86400');
-            return reply.send(wavBuffer);
-        } catch (err: any) {
-            console.error('[TTS] Error generating speech:', err);
-            return reply
-                .status(500)
-                .send({ error: err.message || 'TTS failed' });
+        // 2. If voice is a native Kokoro neural voice (e.g. af_heart, am_adam, af_bella, am_michael, etc.) synthesize directly
+        if (
+            voice &&
+            (voice.startsWith('af_') ||
+                voice.startsWith('am_') ||
+                voice.startsWith('bf_') ||
+                voice.startsWith('bm_'))
+        ) {
+            try {
+                const wavBuffer = await generateSpeechWav(text, voice);
+                reply.header('Content-Type', 'audio/wav');
+                reply.header('Content-Length', wavBuffer.length);
+                reply.header('Cache-Control', 'public, max-age=86400');
+                return reply.send(wavBuffer);
+            } catch (err: any) {
+                console.error('[TTS] Error generating speech:', err);
+                return reply
+                    .status(500)
+                    .send({ error: err.message || 'TTS failed' });
+            }
         }
+
+        // 3. For celebrity voices when local clone engine is offline, return 503 so client's VoiceAssistantService falls back to Voice.ai (the real celebrity clone API)
+        return reply.status(503).send({
+            error: 'Local voice cloning engine not available; client will use Voice.ai fallback'
+        });
     });
 
     // Direct Pre-generated Voice Sample Route (Instant <10ms playback for Settings previews)
     app.get('/api/sample/:slug', async (request, reply) => {
         const { slug } = request.params as { slug: string };
         const cleanSlug = slug.replace(/[^a-zA-Z0-9_-]/g, '');
-        const samplePath = path.resolve(
-            process.cwd(),
-            'voices',
-            `${cleanSlug}.wav`
-        );
-        if (fs.existsSync(samplePath)) {
-            const data = fs.readFileSync(samplePath);
-            reply.header('Content-Type', 'audio/wav');
-            reply.header('Content-Length', data.length);
-            reply.header('Cache-Control', 'public, max-age=86400');
-            return reply.send(data);
+
+        const candidatePaths = [
+            path.resolve(__dirname, '../voices', `${cleanSlug}.wav`),
+            path.resolve(__dirname, '../../voices', `${cleanSlug}.wav`),
+            path.resolve(
+                process.cwd(),
+                'backend',
+                'voices',
+                `${cleanSlug}.wav`
+            ),
+            path.resolve(process.cwd(), 'voices', `${cleanSlug}.wav`),
+            path.resolve(__dirname, 'voices', `${cleanSlug}.wav`)
+        ];
+
+        for (const candidate of candidatePaths) {
+            if (fs.existsSync(candidate)) {
+                const data = fs.readFileSync(candidate);
+                reply.header('Content-Type', 'audio/wav');
+                reply.header('Content-Length', data.length);
+                reply.header('Cache-Control', 'public, max-age=86400');
+                return reply.send(data);
+            }
         }
-        return reply.status(404).send({ error: 'Sample not found' });
+
+        // If not found on disk, generate a preview sample dynamically
+        try {
+            const sampleText = `Hello! This is a preview of the ${cleanSlug.replace(/_/g, ' ')} voice.`;
+            const wavBuffer = await generateSpeechWav(sampleText, 'af_heart');
+            reply.header('Content-Type', 'audio/wav');
+            reply.header('Content-Length', wavBuffer.length);
+            return reply.send(wavBuffer);
+        } catch {
+            return reply.status(404).send({ error: 'Sample not found' });
+        }
     });
 
     // Speech-to-Text Transcription Route (Local Whisper Transcription)

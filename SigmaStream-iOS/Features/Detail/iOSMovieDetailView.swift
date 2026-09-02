@@ -28,246 +28,277 @@ struct iOSMovieDetailView: View {
     @State private var prefetchedMoviePlayback: (urls: [URL], quality: String?)?
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                // Hero Backdrop with Z-stacked Back Button
-                ZStack(alignment: .topLeading) {
-                    // Backdrop Image
-                    ZStack(alignment: .bottomLeading) {
-                        if let backdropPath = movie?.backdropPath {
-                            let backdropURL = ImageURLBuilder.backdropURL(for: backdropPath, config: appState.apiConfiguration, idealWidth: 780)
-                            AsyncImage(url: backdropURL) { phase in
-                                if let image = phase.image {
-                                    image
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fill)
-                                } else {
-                                    Color.white.opacity(0.05)
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    // Hero Backdrop with Z-stacked Back Button
+                    ZStack(alignment: .topLeading) {
+                        // Backdrop Image strictly bounded to screen width
+                        ZStack(alignment: .bottomLeading) {
+                            if let backdropPath = movie?.backdropPath {
+                                let backdropURL = ImageURLBuilder.backdropURL(for: backdropPath, config: appState.apiConfiguration, idealWidth: 780)
+                                AsyncImage(url: backdropURL) { phase in
+                                    if let image = phase.image {
+                                        image
+                                            .resizable()
+                                            .aspectRatio(contentMode: .fill)
+                                            .frame(width: geometry.size.width, height: 320)
+                                            .clipped()
+                                    } else {
+                                        Color.white.opacity(0.05)
+                                    }
                                 }
+                            } else {
+                                Color.white.opacity(0.05)
                             }
-                        } else {
-                            Color.white.opacity(0.05)
-                        }
 
-                        // Gradient Scrim
-                        LinearGradient(
-                            colors: [Color.clear, Color(uiColor: .systemBackground).opacity(0.8), Color(uiColor: .systemBackground)],
-                            startPoint: .center,
-                            endPoint: .bottom
-                        )
+                            // Gradient Scrim
+                            LinearGradient(
+                                colors: [Color.clear, Color(uiColor: .systemBackground).opacity(0.8), Color(uiColor: .systemBackground)],
+                                startPoint: .center,
+                                endPoint: .bottom
+                            )
+                        }
+                        .frame(width: geometry.size.width, height: 320)
+                        .clipped()
+
+                        // Floating Back Button placed on top of poster preview
+                        Button {
+                            dismiss()
+                        } label: {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 38, height: 38)
+                                .background(.ultraThinMaterial)
+                                .clipShape(Circle())
+                        }
+                        .padding(.leading, 18)
+                        .padding(.top, 50)
                     }
-                    .frame(height: 300)
+                    .frame(width: geometry.size.width, height: 320)
                     .clipped()
 
-                    // Back Button placed on top of poster preview
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 16, weight: .bold))
+                    // Content Details strictly constrained to screen width with horizontal margins
+                    VStack(alignment: .leading, spacing: 18) {
+                        // Title (forced to wrap within phone bounds)
+                        Text(movie?.title ?? "Movie Details")
+                            .font(.system(size: 26, weight: .bold))
                             .foregroundStyle(.white)
-                            .frame(width: 38, height: 38)
-                            .background(.ultraThinMaterial)
-                            .clipShape(Circle())
-                    }
-                    .padding(.leading, 16)
-                    .padding(.top, 50)
-                }
+                            .fixedSize(horizontal: false, vertical: true)
 
-                // Content Details with generous side padding
-                VStack(alignment: .leading, spacing: 18) {
-                    // Title
-                    Text(movie?.title ?? "Movie Details")
-                        .font(.system(size: 26, weight: .bold))
-                        .foregroundStyle(.white)
-
-                    // Metadata Row (Year, Runtime, Rating)
-                    HStack(spacing: 12) {
-                        if let date = movie?.releaseDate {
-                            Text(String(Calendar.current.component(.year, from: date)))
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        if let runtime = movie?.runtime, runtime > 0 {
-                            Text("\(runtime / 60)h \(runtime % 60)m")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        if let rating = movie?.voteAverage, rating > 0 {
-                            HStack(spacing: 3) {
-                                Image(systemName: "star.fill")
-                                    .font(.caption)
-                                    .foregroundStyle(.yellow)
-                                Text(String(format: "%.1f", rating))
-                                    .font(.subheadline.bold())
-                                    .foregroundStyle(.white)
+                        // Metadata Row (Year, Runtime, Rating)
+                        HStack(spacing: 12) {
+                            if let date = movie?.releaseDate {
+                                Text(String(Calendar.current.component(.year, from: date)))
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
                             }
-                        }
-                    }
 
-                    // Genres
-                    if let genres = movie?.genres, !genres.isEmpty {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 8) {
-                                ForEach(genres, id: \.id) { genre in
-                                    Text(genre.name)
-                                        .font(.caption.weight(.medium))
-                                        .foregroundStyle(.white.opacity(0.85))
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 5)
-                                        .background(Color.white.opacity(0.12))
-                                        .clipShape(Capsule())
+                            if let runtime = movie?.runtime, runtime > 0 {
+                                Text("\(runtime / 60)h \(runtime % 60)m")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            if let rating = movie?.voteAverage, rating > 0 {
+                                HStack(spacing: 3) {
+                                    Image(systemName: "star.fill")
+                                        .font(.caption)
+                                        .foregroundStyle(.yellow)
+                                    Text(String(format: "%.1f", rating))
+                                        .font(.subheadline.bold())
+                                        .foregroundStyle(.white)
                                 }
                             }
                         }
-                    }
 
-                    // Primary Play Buttons
-                    VStack(spacing: 10) {
-                        Button {
-                            startResolveStream(fromBeginning: false)
-                        } label: {
-                            HStack(spacing: 8) {
-                                if isResolvingStream {
-                                    ProgressView()
-                                        .tint(.black)
-                                } else {
-                                    Image(systemName: "play.fill")
-                                        .font(.headline)
+                        // Genres
+                        if let genres = movie?.genres, !genres.isEmpty {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    ForEach(genres, id: \.id) { genre in
+                                        Text(genre.name)
+                                            .font(.caption.weight(.medium))
+                                            .foregroundStyle(.white.opacity(0.85))
+                                            .padding(.horizontal, 10)
+                                            .padding(.vertical, 5)
+                                            .background(Color.white.opacity(0.12))
+                                            .clipShape(Capsule())
+                                    }
                                 }
-                                Text(hasResumePosition ? "Resume Movie" : "Play Movie")
-                                    .font(.headline.bold())
                             }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(Color.white)
-                            .foregroundStyle(.black)
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         }
-                        .disabled(isResolvingStream)
 
-                        if hasResumePosition {
+                        // Primary Play Buttons
+                        VStack(spacing: 10) {
                             Button {
-                                startResolveStream(fromBeginning: true)
+                                startResolveStream(fromBeginning: false)
                             } label: {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "arrow.counterclockwise")
-                                    Text("Play from Beginning")
+                                HStack(spacing: 8) {
+                                    if isResolvingStream {
+                                        ProgressView()
+                                            .tint(.black)
+                                    } else {
+                                        Image(systemName: "play.fill")
+                                            .font(.headline)
+                                    }
+                                    Text(hasResumePosition ? "Resume Movie" : "Play Movie")
+                                        .font(.headline.bold())
                                 }
-                                .font(.subheadline.weight(.semibold))
                                 .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                                .background(Color.white.opacity(0.12))
-                                .foregroundStyle(.white)
+                                .padding(.vertical, 14)
+                                .background(Color.white)
+                                .foregroundStyle(.black)
                                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                             }
-                        }
-                    }
-                    .padding(.top, 4)
+                            .disabled(isResolvingStream)
 
-                    // Action Icons (My List, Like, Quality)
-                    HStack(spacing: 24) {
-                        // My List Button
-                        Button {
-                            toggleMyList()
-                        } label: {
-                            VStack(spacing: 4) {
-                                Image(systemName: isInMyList ? "checkmark" : "plus")
-                                    .font(.title3)
-                                Text(isInMyList ? "In List" : "My List")
-                                    .font(.caption2)
-                            }
-                            .foregroundStyle(.white)
-                        }
-
-                        // Like Button
-                        Button {
-                            toggleLiked()
-                        } label: {
-                            VStack(spacing: 4) {
-                                Image(systemName: isLiked ? "heart.fill" : "heart")
-                                    .font(.title3)
-                                    .foregroundStyle(isLiked ? .red : .white)
-                                Text(isLiked ? "Liked" : "Like")
-                                    .font(.caption2)
+                            if hasResumePosition {
+                                Button {
+                                    startResolveStream(fromBeginning: true)
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "arrow.counterclockwise")
+                                        Text("Play from Beginning")
+                                    }
+                                    .font(.subheadline.weight(.semibold))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                                    .background(Color.white.opacity(0.12))
                                     .foregroundStyle(.white)
+                                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                }
+                            }
+                        }
+                        .padding(.top, 4)
+
+                        // Action Icons (My List, Like, Quality)
+                        HStack(spacing: 24) {
+                            // My List Button
+                            Button {
+                                toggleMyList()
+                            } label: {
+                                VStack(spacing: 4) {
+                                    Image(systemName: isInMyList ? "checkmark" : "plus")
+                                        .font(.title3)
+                                    Text(isInMyList ? "In List" : "My List")
+                                        .font(.caption2)
+                                }
+                                .foregroundStyle(isInMyList ? Color.blue : Color.white)
+                            }
+                            .buttonStyle(.plain)
+
+                            // Like Button
+                            Button {
+                                toggleLiked()
+                            } label: {
+                                VStack(spacing: 4) {
+                                    Image(systemName: isLiked ? "heart.fill" : "heart")
+                                        .font(.title3)
+                                    Text(isLiked ? "Liked" : "Like")
+                                        .font(.caption2)
+                                }
+                                .foregroundStyle(isLiked ? Color.red : Color.white)
+                            }
+                            .buttonStyle(.plain)
+
+                            Spacer()
+
+                            if let quality = streamQuality {
+                                Text(quality)
+                                    .font(.caption2.bold())
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(Color.white.opacity(0.15))
+                                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                            }
+                        }
+                        .padding(.vertical, 4)
+
+                        // Stream Error Banner
+                        if let error = streamError {
+                            HStack(spacing: 8) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.yellow)
+                                Text(error)
+                                    .font(.caption)
+                                    .foregroundStyle(.white)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .padding(12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.red.opacity(0.2))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+
+                        // Overview Section
+                        if let overview = movie?.overview, !overview.isEmpty {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Overview")
+                                    .font(.headline)
+                                    .foregroundStyle(.white)
+
+                                Text(overview)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                    .lineSpacing(4)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
                         }
 
-                        Spacer()
-                    }
-                    .padding(.vertical, 4)
+                        // Cast Section
+                        if !cast.isEmpty {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Cast & Crew")
+                                    .font(.headline)
+                                    .foregroundStyle(.white)
 
-                    // Stream Error Message (if any)
-                    if let streamError, !streamError.isEmpty {
-                        Text(streamError)
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                    }
-
-                    // Synopsis
-                    if let overview = movie?.overview, !overview.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Overview")
-                                .font(.headline)
-                                .foregroundStyle(.white)
-                            Text(overview)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .lineSpacing(3)
-                        }
-                    }
-
-                    // Cast Section
-                    if !cast.isEmpty {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Top Cast")
-                                .font(.headline)
-                                .foregroundStyle(.white)
-
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                LazyHStack(spacing: 12) {
-                                    ForEach(cast.prefix(12), id: \.id) { member in
-                                        VStack(alignment: .center, spacing: 6) {
-                                            ZStack {
-                                                Color.white.opacity(0.08)
-                                                if let path = member.profilePath {
-                                                    let url = ImageURLBuilder.posterURL(for: path, config: appState.apiConfiguration, idealWidth: 185)
-                                                    AsyncImage(url: url) { phase in
-                                                        if let img = phase.image {
-                                                            img.resizable().aspectRatio(contentMode: .fill)
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    LazyHStack(spacing: 14) {
+                                        ForEach(cast) { member in
+                                            VStack(spacing: 6) {
+                                                ZStack {
+                                                    Color.white.opacity(0.08)
+                                                    if let path = member.profilePath {
+                                                        let url = ImageURLBuilder.posterURL(for: path, config: appState.apiConfiguration, idealWidth: 185)
+                                                        AsyncImage(url: url) { phase in
+                                                            if let img = phase.image {
+                                                                img.resizable().aspectRatio(contentMode: .fill)
+                                                            }
                                                         }
+                                                    } else {
+                                                        Image(systemName: "person.fill")
+                                                            .foregroundStyle(.secondary)
                                                     }
-                                                } else {
-                                                    Image(systemName: "person.fill")
-                                                        .foregroundStyle(.secondary)
                                                 }
+                                                .frame(width: 70, height: 70)
+                                                .clipShape(Circle())
+
+                                                Text(member.name)
+                                                    .font(.caption2.bold())
+                                                    .foregroundStyle(.white)
+                                                    .lineLimit(1)
+
+                                                Text(member.character)
+                                                    .font(.system(size: 10))
+                                                    .foregroundStyle(.secondary)
+                                                    .lineLimit(1)
                                             }
-                                            .frame(width: 70, height: 70)
-                                            .clipShape(Circle())
-
-                                            Text(member.name)
-                                                .font(.caption2.bold())
-                                                .foregroundStyle(.white)
-                                                .lineLimit(1)
-
-                                            Text(member.character)
-                                                .font(.system(size: 10))
-                                                .foregroundStyle(.secondary)
-                                                .lineLimit(1)
+                                            .frame(width: 80)
                                         }
-                                        .frame(width: 80)
                                     }
                                 }
                             }
                         }
                     }
+                    .padding(.horizontal, 18)
+                    .frame(width: geometry.size.width, alignment: .leading)
+                    .padding(.bottom, 40)
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 40)
+                .frame(width: geometry.size.width)
             }
+            .frame(width: geometry.size.width, height: geometry.size.height)
         }
         .ignoresSafeArea(edges: .top)
         .navigationBarBackButtonHidden(true)

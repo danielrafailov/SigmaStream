@@ -16,6 +16,19 @@ enum SearchMode: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+enum SearchSortOption: String, CaseIterable, Identifiable {
+    case popularityDesc = "Popularity (Highest First)"
+    case popularityAsc = "Popularity (Lowest First)"
+    case ratingDesc = "Rating (Highest First)"
+    case ratingAsc = "Rating (Lowest First)"
+    case releaseDateDesc = "Release Date (Newest)"
+    case releaseDateAsc = "Release Date (Oldest)"
+    case titleAsc = "Title (A → Z)"
+    case titleDesc = "Title (Z → A)"
+
+    var id: String { rawValue }
+}
+
 struct SearchGenreItem: Identifiable {
     let id: Int
     let name: String
@@ -52,9 +65,10 @@ struct SearchFilterOptions: Equatable {
     var selectedYear: String = "All"
     var actorName: String = ""
     var minRating: Double = 0.0
+    var sortBy: SearchSortOption = .popularityDesc
 
     var isActive: Bool {
-        mediaType != 0 || !selectedGenreIds.isEmpty || selectedYear != "All" || !actorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || minRating > 0
+        mediaType != 0 || !selectedGenreIds.isEmpty || selectedYear != "All" || !actorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || minRating > 0 || sortBy != .popularityDesc
     }
 
     mutating func reset() {
@@ -63,6 +77,7 @@ struct SearchFilterOptions: Equatable {
         selectedYear = "All"
         actorName = ""
         minRating = 0.0
+        sortBy = .popularityDesc
     }
 }
 
@@ -166,7 +181,7 @@ struct iOSSearchView: View {
                     let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !query.isEmpty || filters.isActive {
                         searchTask = Task {
-                            await executeSearch(query: query, mode: newMode)
+                            await executeSearch(query: query, mode: newMode, isExplicitFilterSearch: false)
                         }
                     }
                 }
@@ -205,6 +220,12 @@ struct iOSSearchView: View {
                             .foregroundStyle(.secondary)
                         if searchMode == .ai {
                             Text("Try \"recommend a 90s action thriller\" or \"best sci-fi shows\"")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 32)
+                        } else {
+                            Text("Use the search bar or tap the ☰ filter button to browse by genre, year, actor, and ratings")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .multilineTextAlignment(.center)
@@ -258,6 +279,21 @@ struct iOSSearchView: View {
                                 .padding(.top, 8)
                             }
 
+                            // Active Filter Header (if applied)
+                            if filters.isActive {
+                                HStack {
+                                    Text("\(searchResults.count) matching title\(searchResults.count == 1 ? "" : "s")")
+                                        .font(.subheadline.bold())
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                    Text("Sorted by: \(filters.sortBy.rawValue)")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.top, 4)
+                            }
+
                             // Media Grid
                             if !searchResults.isEmpty {
                                 LazyVGrid(columns: columns, spacing: 16) {
@@ -307,13 +343,25 @@ struct iOSSearchView: View {
                 }
             }
             .sheet(isPresented: $showFilterSheet) {
-                SearchFilterSheetView(filters: $filters) {
-                    let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    searchTask?.cancel()
-                    searchTask = Task {
-                        await executeSearch(query: query, mode: searchMode)
+                SearchFilterSheetView(
+                    filters: $filters,
+                    onApplyFiltersOnly: {
+                        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !query.isEmpty {
+                            searchTask?.cancel()
+                            searchTask = Task {
+                                await executeSearch(query: query, mode: searchMode, isExplicitFilterSearch: false)
+                            }
+                        }
+                    },
+                    onApplySearch: {
+                        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        searchTask?.cancel()
+                        searchTask = Task {
+                            await executeSearch(query: query, mode: searchMode, isExplicitFilterSearch: true)
+                        }
                     }
-                }
+                )
             }
             .searchable(
                 text: $searchText,
@@ -324,7 +372,7 @@ struct iOSSearchView: View {
                 guard !query.isEmpty || filters.isActive else { return }
                 searchTask?.cancel()
                 searchTask = Task {
-                    await executeSearch(query: query, mode: searchMode)
+                    await executeSearch(query: query, mode: searchMode, isExplicitFilterSearch: false)
                 }
             }
             .onChange(of: searchText) { _, newValue in
@@ -334,12 +382,12 @@ struct iOSSearchView: View {
                     searchResults = []
                     aiSpokenResponse = nil
                     isSearching = false
-                } else if searchMode == .standard {
+                } else if searchMode == .standard && !newValue.isEmpty {
                     // Fast debounce search in Basic mode
                     searchTask = Task {
                         try? await Task.sleep(nanoseconds: 300_000_000)
                         guard !Task.isCancelled else { return }
-                        await executeSearch(query: newValue, mode: .standard)
+                        await executeSearch(query: newValue, mode: .standard, isExplicitFilterSearch: false)
                     }
                 }
             }
@@ -352,9 +400,9 @@ struct iOSSearchView: View {
         }
     }
 
-    private func executeSearch(query: String, mode: SearchMode) async {
+    private func executeSearch(query: String, mode: SearchMode, isExplicitFilterSearch: Bool) async {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty && !filters.isActive { return }
+        if trimmed.isEmpty && !filters.isActive && !isExplicitFilterSearch { return }
 
         await MainActor.run {
             isSearching = true
@@ -364,7 +412,7 @@ struct iOSSearchView: View {
         do {
             if mode == .ai {
                 var prompt = trimmed
-                if filters.isActive {
+                if filters.isActive || isExplicitFilterSearch {
                     var filterDetails: [String] = []
                     if filters.mediaType == 1 { filterDetails.append("Movies only") }
                     if filters.mediaType == 2 { filterDetails.append("TV shows only") }
@@ -381,8 +429,10 @@ struct iOSSearchView: View {
                     if filters.minRating > 0 {
                         filterDetails.append("Minimum Rating: \(filters.minRating)+")
                     }
+                    filterDetails.append("Sort Order: \(filters.sortBy.rawValue)")
+
                     if prompt.isEmpty {
-                        prompt = "Recommend top titles matching: \(filterDetails.joined(separator: ", "))"
+                        prompt = "Recommend top entertainment titles matching these filters: \(filterDetails.joined(separator: ", "))"
                     } else {
                         prompt += " (Filters: \(filterDetails.joined(separator: ", ")))"
                     }
@@ -400,7 +450,8 @@ struct iOSSearchView: View {
                             posterURL: ImageURLBuilder.posterURL(for: $0.posterPath, config: appState.apiConfiguration, idealWidth: 342),
                             rating: $0.voteAverage,
                             releaseYear: $0.releaseDate.map { String(Calendar.current.component(.year, from: $0)) },
-                            isTVSeries: false
+                            isTVSeries: false,
+                            releaseDate: $0.releaseDate
                         )
                     }
                     combined.append(contentsOf: movieItems)
@@ -414,11 +465,15 @@ struct iOSSearchView: View {
                             posterURL: ImageURLBuilder.posterURL(for: $0.posterPath, config: appState.apiConfiguration, idealWidth: 342),
                             rating: $0.voteAverage,
                             releaseYear: $0.firstAirDate.map { String(Calendar.current.component(.year, from: $0)) },
-                            isTVSeries: true
+                            isTVSeries: true,
+                            releaseDate: $0.firstAirDate
                         )
                     }
                     combined.append(contentsOf: tvItems)
                 }
+
+                // Apply Sort Order to AI results as well
+                combined = sortMediaItems(combined, by: filters.sortBy)
 
                 await MainActor.run {
                     self.searchResults = combined
@@ -430,7 +485,19 @@ struct iOSSearchView: View {
                 appState.voiceService.speak(result.spokenResponse)
             } else {
                 var results: [MediaListItem] = []
-                let searchTarget = trimmed.isEmpty ? (filters.actorName.isEmpty ? "Action" : filters.actorName) : trimmed
+                
+                // Determine search target: query text -> actor name -> first selected genre -> fallback default
+                let searchTarget: String
+                if !trimmed.isEmpty {
+                    searchTarget = trimmed
+                } else if !filters.actorName.isEmpty {
+                    searchTarget = filters.actorName
+                } else if let firstGenreId = filters.selectedGenreIds.first,
+                          let genreObj = searchAvailableGenres.first(where: { $0.id == firstGenreId }) {
+                    searchTarget = genreObj.name
+                } else {
+                    searchTarget = "Action"
+                }
 
                 if filters.mediaType == 0 || filters.mediaType == 1 {
                     let movies = try await appState.tmdbService.searchMovies(query: searchTarget)
@@ -452,7 +519,8 @@ struct iOSSearchView: View {
                             posterURL: ImageURLBuilder.posterURL(for: m.posterPath, config: appState.apiConfiguration, idealWidth: 342),
                             rating: m.voteAverage,
                             releaseYear: m.releaseDate.map { String(Calendar.current.component(.year, from: $0)) },
-                            isTVSeries: false
+                            isTVSeries: false,
+                            releaseDate: m.releaseDate
                         )
                     }
                     results.append(contentsOf: movieItems)
@@ -478,11 +546,15 @@ struct iOSSearchView: View {
                             posterURL: ImageURLBuilder.posterURL(for: tv.posterPath, config: appState.apiConfiguration, idealWidth: 342),
                             rating: tv.voteAverage,
                             releaseYear: tv.firstAirDate.map { String(Calendar.current.component(.year, from: $0)) },
-                            isTVSeries: true
+                            isTVSeries: true,
+                            releaseDate: tv.firstAirDate
                         )
                     }
                     results.append(contentsOf: tvItems)
                 }
+
+                // Apply Sorting
+                results = sortMediaItems(results, by: filters.sortBy)
 
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
@@ -494,6 +566,27 @@ struct iOSSearchView: View {
             await MainActor.run {
                 self.isSearching = false
             }
+        }
+    }
+
+    private func sortMediaItems(_ items: [MediaListItem], by sort: SearchSortOption) -> [MediaListItem] {
+        switch sort {
+        case .popularityDesc:
+            return items
+        case .popularityAsc:
+            return items.reversed()
+        case .ratingDesc:
+            return items.sorted { ($0.rating ?? 0) > ($1.rating ?? 0) }
+        case .ratingAsc:
+            return items.sorted { ($0.rating ?? 0) < ($1.rating ?? 0) }
+        case .releaseDateDesc:
+            return items.sorted { ($0.releaseDate ?? .distantPast) > ($1.releaseDate ?? .distantPast) }
+        case .releaseDateAsc:
+            return items.sorted { ($0.releaseDate ?? .distantPast) < ($1.releaseDate ?? .distantPast) }
+        case .titleAsc:
+            return items.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        case .titleDesc:
+            return items.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedDescending }
         }
     }
 
@@ -514,13 +607,19 @@ struct iOSSearchView: View {
 struct SearchFilterSheetView: View {
     @Environment(\.dismiss) private var dismiss
     @Binding var filters: SearchFilterOptions
-    let onApply: () -> Void
+    let onApplyFiltersOnly: () -> Void
+    let onApplySearch: () -> Void
 
     @State private var draftFilters: SearchFilterOptions
 
-    init(filters: Binding<SearchFilterOptions>, onApply: @escaping () -> Void) {
+    init(
+        filters: Binding<SearchFilterOptions>,
+        onApplyFiltersOnly: @escaping () -> Void,
+        onApplySearch: @escaping () -> Void
+    ) {
         self._filters = filters
-        self.onApply = onApply
+        self.onApplyFiltersOnly = onApplyFiltersOnly
+        self.onApplySearch = onApplySearch
         self._draftFilters = State(initialValue: filters.wrappedValue)
     }
 
@@ -537,7 +636,17 @@ struct SearchFilterSheetView: View {
                     .pickerStyle(.segmented)
                 }
 
-                // Section 2: Release Period / Year
+                // Section 2: Sort Order
+                Section("Sort By") {
+                    Picker("Order", selection: $draftFilters.sortBy) {
+                        ForEach(SearchSortOption.allCases) { opt in
+                            Text(opt.rawValue).tag(opt)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                }
+
+                // Section 3: Release Period / Year
                 Section("Release Period") {
                     Picker("Year", selection: $draftFilters.selectedYear) {
                         ForEach(searchAvailableYears, id: \.self) { year in
@@ -547,12 +656,12 @@ struct SearchFilterSheetView: View {
                     .pickerStyle(.menu)
                 }
 
-                // Section 3: Actor / Cast
+                // Section 4: Actor / Cast
                 Section("Starring Actor / Cast") {
                     TextField("e.g. Tom Cruise, Cillian Murphy", text: $draftFilters.actorName)
                 }
 
-                // Section 4: Minimum Rating
+                // Section 5: Minimum Rating
                 Section {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
@@ -566,7 +675,7 @@ struct SearchFilterSheetView: View {
                     }
                 }
 
-                // Section 5: Genres
+                // Section 6: Genres
                 Section("Genres") {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 90), spacing: 8)], spacing: 8) {
                         ForEach(searchAvailableGenres) { genre in
@@ -592,6 +701,53 @@ struct SearchFilterSheetView: View {
                     }
                     .padding(.vertical, 4)
                 }
+
+                // Section 7: Action Buttons (Apply Filter Search & Apply Filters)
+                Section {
+                    VStack(spacing: 12) {
+                        // 1. Primary Button: Apply Filter Search (Immediately queries all entertainment matching filters)
+                        Button {
+                            filters = draftFilters
+                            dismiss()
+                            onApplySearch()
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "sparkle.magnifyingglass")
+                                    .font(.headline)
+                                Text("Apply Filter Search")
+                                    .font(.headline.bold())
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(Color.blue)
+                            .foregroundStyle(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+
+                        // 2. Secondary Button: Apply Filters (Saves active filter preferences)
+                        Button {
+                            filters = draftFilters
+                            dismiss()
+                            onApplyFiltersOnly()
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "line.3.horizontal.decrease")
+                                    .font(.subheadline)
+                                Text("Apply Filters")
+                                    .font(.subheadline.weight(.semibold))
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(Color(uiColor: .secondarySystemBackground))
+                            .foregroundStyle(.primary)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+                    .listRowBackground(Color.clear)
+                }
             }
             .navigationTitle("Search Filters")
             .navigationBarTitleDisplayMode(.inline)
@@ -604,12 +760,9 @@ struct SearchFilterSheetView: View {
                 }
 
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Apply") {
-                        filters = draftFilters
+                    Button("Close") {
                         dismiss()
-                        onApply()
                     }
-                    .fontWeight(.bold)
                 }
             }
         }
@@ -623,5 +776,6 @@ struct MediaListItem: Identifiable {
     let rating: Double?
     let releaseYear: String?
     let isTVSeries: Bool
+    var releaseDate: Date? = nil
 }
 #endif

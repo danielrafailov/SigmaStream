@@ -30,207 +30,228 @@ struct iOSTVSeriesDetailView: View {
     @State private var prefetchedEpisodeKey: String?
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                // Hero Backdrop with Z-stacked Back Button
-                ZStack(alignment: .topLeading) {
-                    // Backdrop Image
-                    ZStack(alignment: .bottomLeading) {
-                        if let backdropPath = series?.backdropPath {
-                            let backdropURL = ImageURLBuilder.backdropURL(for: backdropPath, config: appState.apiConfiguration, idealWidth: 780)
-                            AsyncImage(url: backdropURL) { phase in
-                                if let image = phase.image {
-                                    image
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fill)
-                                } else {
-                                    Color.white.opacity(0.05)
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    // Hero Backdrop with Z-stacked Back Button
+                    ZStack(alignment: .topLeading) {
+                        // Backdrop Image strictly bounded to screen width
+                        ZStack(alignment: .bottomLeading) {
+                            if let backdropPath = series?.backdropPath {
+                                let backdropURL = ImageURLBuilder.backdropURL(for: backdropPath, config: appState.apiConfiguration, idealWidth: 780)
+                                AsyncImage(url: backdropURL) { phase in
+                                    if let image = phase.image {
+                                        image
+                                            .resizable()
+                                            .aspectRatio(contentMode: .fill)
+                                            .frame(width: geometry.size.width, height: 320)
+                                            .clipped()
+                                    } else {
+                                        Color.white.opacity(0.05)
+                                    }
                                 }
+                            } else {
+                                Color.white.opacity(0.05)
                             }
-                        } else {
-                            Color.white.opacity(0.05)
-                        }
 
-                        // Gradient Scrim
-                        LinearGradient(
-                            colors: [Color.clear, Color(uiColor: .systemBackground).opacity(0.8), Color(uiColor: .systemBackground)],
-                            startPoint: .center,
-                            endPoint: .bottom
-                        )
+                            // Gradient Scrim
+                            LinearGradient(
+                                colors: [Color.clear, Color(uiColor: .systemBackground).opacity(0.8), Color(uiColor: .systemBackground)],
+                                startPoint: .center,
+                                endPoint: .bottom
+                            )
+                        }
+                        .frame(width: geometry.size.width, height: 320)
+                        .clipped()
+
+                        // Floating Back Button placed on top of poster preview
+                        Button {
+                            dismiss()
+                        } label: {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 38, height: 38)
+                                .background(.ultraThinMaterial)
+                                .clipShape(Circle())
+                        }
+                        .padding(.leading, 18)
+                        .padding(.top, 50)
                     }
-                    .frame(height: 300)
+                    .frame(width: geometry.size.width, height: 320)
                     .clipped()
 
-                    // Back Button placed on top of poster preview
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 16, weight: .bold))
+                    // Content Details strictly constrained to screen width with horizontal margins
+                    VStack(alignment: .leading, spacing: 18) {
+                        // Title (forced to wrap within phone bounds)
+                        Text(series?.name ?? "TV Show Details")
+                            .font(.system(size: 26, weight: .bold))
                             .foregroundStyle(.white)
-                            .frame(width: 38, height: 38)
-                            .background(.ultraThinMaterial)
-                            .clipShape(Circle())
-                    }
-                    .padding(.leading, 16)
-                    .padding(.top, 50)
-                }
+                            .fixedSize(horizontal: false, vertical: true)
 
-                // Content Details with generous side padding
-                VStack(alignment: .leading, spacing: 18) {
-                    // Title
-                    Text(series?.name ?? "TV Show Details")
-                        .font(.system(size: 26, weight: .bold))
-                        .foregroundStyle(.white)
-
-                    // Metadata Row
-                    HStack(spacing: 12) {
-                        if let count = series?.numberOfSeasons {
-                            Text("\(count) Season\(count > 1 ? "s" : "")")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        if let date = series?.firstAirDate {
-                            Text(String(Calendar.current.component(.year, from: date)))
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        if let rating = series?.voteAverage, rating > 0 {
-                            HStack(spacing: 3) {
-                                Image(systemName: "star.fill")
-                                    .font(.caption)
-                                    .foregroundStyle(.yellow)
-                                Text(String(format: "%.1f", rating))
-                                    .font(.subheadline.bold())
-                                    .foregroundStyle(.white)
+                        // Metadata Row
+                        HStack(spacing: 12) {
+                            if let count = series?.numberOfSeasons {
+                                Text("\(count) Season\(count > 1 ? "s" : "")")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
                             }
-                        }
-                    }
 
-                    // Genres
-                    if let genres = series?.genres, !genres.isEmpty {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 8) {
-                                ForEach(genres, id: \.id) { genre in
-                                    Text(genre.name)
-                                        .font(.caption.weight(.medium))
-                                        .foregroundStyle(.white.opacity(0.85))
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 5)
-                                        .background(Color.white.opacity(0.12))
-                                        .clipShape(Capsule())
+                            if let date = series?.firstAirDate {
+                                Text(String(Calendar.current.component(.year, from: date)))
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            if let rating = series?.voteAverage, rating > 0 {
+                                HStack(spacing: 3) {
+                                    Image(systemName: "star.fill")
+                                        .font(.caption)
+                                        .foregroundStyle(.yellow)
+                                    Text(String(format: "%.1f", rating))
+                                        .font(.subheadline.bold())
+                                        .foregroundStyle(.white)
                                 }
                             }
                         }
-                    }
 
-                    // Quick Action Icons
-                    HStack(spacing: 24) {
-                        Button {
-                            toggleMyList()
-                        } label: {
-                            VStack(spacing: 4) {
-                                Image(systemName: isInMyList ? "checkmark" : "plus")
-                                    .font(.title3)
-                                Text(isInMyList ? "In List" : "My List")
-                                    .font(.caption2)
-                            }
-                            .foregroundStyle(.white)
-                        }
-
-                        Button {
-                            toggleLiked()
-                        } label: {
-                            VStack(spacing: 4) {
-                                Image(systemName: isLiked ? "heart.fill" : "heart")
-                                    .font(.title3)
-                                    .foregroundStyle(isLiked ? .red : .white)
-                                Text(isLiked ? "Liked" : "Like")
-                                    .font(.caption2)
-                                    .foregroundStyle(.white)
+                        // Genres
+                        if let genres = series?.genres, !genres.isEmpty {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    ForEach(genres, id: \.id) { genre in
+                                        Text(genre.name)
+                                            .font(.caption.weight(.medium))
+                                            .foregroundStyle(.white.opacity(0.85))
+                                            .padding(.horizontal, 10)
+                                            .padding(.vertical, 5)
+                                            .background(Color.white.opacity(0.12))
+                                            .clipShape(Capsule())
+                                    }
+                                }
                             }
                         }
 
-                        Spacer()
-                    }
-                    .padding(.vertical, 4)
+                        // Quick Action Icons
+                        HStack(spacing: 24) {
+                            Button {
+                                toggleMyList()
+                            } label: {
+                                VStack(spacing: 4) {
+                                    Image(systemName: isInMyList ? "checkmark" : "plus")
+                                        .font(.title3)
+                                    Text(isInMyList ? "In List" : "My List")
+                                        .font(.caption2)
+                                }
+                                .foregroundStyle(isInMyList ? Color.blue : Color.white)
+                            }
+                            .buttonStyle(.plain)
 
-                    // Error Message (if any)
-                    if let streamError, !streamError.isEmpty {
-                        Text(streamError)
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                    }
+                            Button {
+                                toggleLiked()
+                            } label: {
+                                VStack(spacing: 4) {
+                                    Image(systemName: isLiked ? "heart.fill" : "heart")
+                                        .font(.title3)
+                                    Text(isLiked ? "Liked" : "Like")
+                                        .font(.caption2)
+                                }
+                                .foregroundStyle(isLiked ? Color.red : Color.white)
+                            }
+                            .buttonStyle(.plain)
 
-                    // Synopsis
-                    if let overview = series?.overview, !overview.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Overview")
-                                .font(.headline)
-                                .foregroundStyle(.white)
-                            Text(overview)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .lineSpacing(3)
+                            Spacer()
                         }
-                    }
+                        .padding(.vertical, 4)
 
-                    Divider()
-                        .background(Color.white.opacity(0.15))
-                        .padding(.vertical, 8)
-
-                    // Season Selector
-                    if let seasons = series?.seasons?.filter({ $0.seasonNumber > 0 }), !seasons.isEmpty {
-                        VStack(alignment: .leading, spacing: 14) {
-                            HStack {
-                                Text("Episodes")
-                                    .font(.title3.bold())
+                        // Error Message (if any)
+                        if let streamError, !streamError.isEmpty {
+                            HStack(spacing: 8) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.yellow)
+                                Text(streamError)
+                                    .font(.caption)
                                     .foregroundStyle(.white)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .padding(12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.red.opacity(0.2))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
 
-                                Spacer()
+                        // Synopsis
+                        if let overview = series?.overview, !overview.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Overview")
+                                    .font(.headline)
+                                    .foregroundStyle(.white)
+                                Text(overview)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                    .lineSpacing(3)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
 
-                                Menu {
-                                    ForEach(seasons, id: \.id) { s in
-                                        Button("Season \(s.seasonNumber)") {
-                                            selectedSeasonNumber = s.seasonNumber
-                                            Task { await loadSeason(s.seasonNumber) }
+                        Divider()
+                            .background(Color.white.opacity(0.15))
+                            .padding(.vertical, 8)
+
+                        // Season Selector
+                        if let seasons = series?.seasons?.filter({ $0.seasonNumber > 0 }), !seasons.isEmpty {
+                            VStack(alignment: .leading, spacing: 14) {
+                                HStack {
+                                    Text("Episodes")
+                                        .font(.title3.bold())
+                                        .foregroundStyle(.white)
+
+                                    Spacer()
+
+                                    Menu {
+                                        ForEach(seasons, id: \.id) { s in
+                                            Button("Season \(s.seasonNumber)") {
+                                                selectedSeasonNumber = s.seasonNumber
+                                                Task { await loadSeason(s.seasonNumber) }
+                                            }
+                                        }
+                                    } label: {
+                                        HStack(spacing: 6) {
+                                            Text("Season \(selectedSeasonNumber)")
+                                                .font(.subheadline.bold())
+                                            Image(systemName: "chevron.down")
+                                                .font(.caption.bold())
+                                        }
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 6)
+                                        .background(Color.white.opacity(0.12))
+                                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                    }
+                                }
+
+                                // Episode Cards
+                                if isLoadingSeason {
+                                    ProgressView()
+                                        .frame(maxWidth: .infinity, alignment: .center)
+                                        .padding(40)
+                                } else if let episodes = loadedSeason?.episodes, !episodes.isEmpty {
+                                    VStack(spacing: 16) {
+                                        ForEach(episodes, id: \.id) { ep in
+                                            episodeRow(ep)
                                         }
                                     }
-                                } label: {
-                                    HStack(spacing: 6) {
-                                        Text("Season \(selectedSeasonNumber)")
-                                            .font(.subheadline.bold())
-                                        Image(systemName: "chevron.down")
-                                            .font(.caption.bold())
-                                    }
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 6)
-                                    .background(Color.white.opacity(0.12))
-                                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                                }
-                            }
-
-                            // Episode Cards
-                            if isLoadingSeason {
-                                ProgressView()
-                                    .frame(maxWidth: .infinity, alignment: .center)
-                                    .padding(40)
-                            } else if let episodes = loadedSeason?.episodes, !episodes.isEmpty {
-                                VStack(spacing: 16) {
-                                    ForEach(episodes, id: \.id) { ep in
-                                        episodeRow(ep)
-                                    }
                                 }
                             }
                         }
                     }
+                    .padding(.horizontal, 18)
+                    .frame(width: geometry.size.width, alignment: .leading)
+                    .padding(.bottom, 40)
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 40)
+                .frame(width: geometry.size.width)
             }
+            .frame(width: geometry.size.width, height: geometry.size.height)
         }
         .ignoresSafeArea(edges: .top)
         .navigationBarBackButtonHidden(true)

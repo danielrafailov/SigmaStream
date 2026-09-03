@@ -180,16 +180,35 @@ async function main() {
                 return [];
             }
 
+            // Prioritize fast, direct-API providers first to ensure <800ms resolution
+            const FAST_PROVIDERS = [
+                'vidapi',
+                'vidsrc',
+                'cinesu',
+                'streammafia',
+                'fmovies4u',
+                'popr',
+                'vidnest'
+            ];
             const supportedProviders = providers
                 .filter((p: any) =>
                     p.capabilities.supportedContentTypes.includes(
                         type === 'movie' ? 'movies' : 'tv'
                     )
                 )
-                .filter((p: any) => p.enabled);
+                .filter((p: any) => p.enabled)
+                .sort((a: any, b: any) => {
+                    const aFast = FAST_PROVIDERS.includes(a.name.toLowerCase())
+                        ? 0
+                        : 1;
+                    const bFast = FAST_PROVIDERS.includes(b.name.toLowerCase())
+                        ? 0
+                        : 1;
+                    return aFast - bFast;
+                });
 
             console.log(
-                `[SourceService] 🚀 Concurrent fetch across ${supportedProviders.length} provider(s) (first-working-stream wins)`
+                `[SourceService] 🚀 Concurrent fast fetch across ${supportedProviders.length} provider(s) (first-working-stream wins)`
             );
 
             return new Promise((resolve) => {
@@ -216,14 +235,18 @@ async function main() {
                             result.sources &&
                             result.sources.length > 0
                         ) {
-                            // Parallel validation of returned sources
-                            const validatedSources = await Promise.allSettled(
+                            // Instant validation with race: resolve as soon as first source is validated
+                            const validSources: any[] = [];
+                            await Promise.all(
                                 result.sources.map(async (source: any) => {
                                     try {
                                         const urlObj = new URL(source.url);
                                         const data =
                                             urlObj.searchParams.get('data');
-                                        if (!data) return source;
+                                        if (!data) {
+                                            validSources.push(source);
+                                            return;
+                                        }
                                         const proxyData = (
                                             server as any
                                         ).proxyService.constructor.decodeProxyData(
@@ -233,30 +256,38 @@ async function main() {
                                             await sourceService.validateSourceUrl(
                                                 proxyData
                                             );
-                                        return isValid ? source : null;
+                                        if (isValid) {
+                                            validSources.push(source);
+                                            if (!isResolved) {
+                                                const duration =
+                                                    Date.now() - startTime;
+                                                console.log(
+                                                    `[SourceService] ⚡ Instant stream found by '${provider.name}' in ${duration}ms! Returning immediately.`
+                                                );
+                                                isResolved = true;
+                                                result.sources = [
+                                                    source,
+                                                    ...result.sources.filter(
+                                                        (s: any) => s !== source
+                                                    )
+                                                ];
+                                                resolve([result]);
+                                            }
+                                        }
                                     } catch {
-                                        return source;
+                                        // Validation failed for this single mirror
                                     }
                                 })
                             );
 
-                            const validSources = validatedSources
-                                .filter(
-                                    (r: any) =>
-                                        r.status === 'fulfilled' && r.value
-                                )
-                                .map((r: any) => r.value);
-
-                            if (validSources.length > 0) {
+                            if (validSources.length > 0 && !isResolved) {
                                 result.sources = validSources;
                                 const duration = Date.now() - startTime;
                                 console.log(
-                                    `[SourceService] ⚡ First working stream found by '${provider.name}' (${validSources.length} sources) in ${duration}ms! Returning immediately.`
+                                    `[SourceService] ⚡ Working stream validated by '${provider.name}' (${validSources.length} sources) in ${duration}ms! Returning.`
                                 );
-                                if (!isResolved) {
-                                    isResolved = true;
-                                    return resolve([result]);
-                                }
+                                isResolved = true;
+                                return resolve([result]);
                             }
                         }
 

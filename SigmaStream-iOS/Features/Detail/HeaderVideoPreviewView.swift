@@ -47,8 +47,8 @@ struct HeaderVideoPreviewView: View {
             )
             .frame(maxWidth: .infinity, maxHeight: height)
             .opacity(isVideoReady ? 1.0 : 0.0)
-            .animation(.easeInOut(duration: 0.6), value: isVideoReady)
-            .allowsHitTesting(false) // Let user scroll naturally over the video
+            .animation(.easeInOut(duration: 0.5), value: isVideoReady)
+            .allowsHitTesting(false) // Allow touch pass-through for vertical scrolling
 
             // Layer 3: Netflix Glass Audio Mute/Unmute Control Pill
             if isVideoReady {
@@ -76,11 +76,21 @@ struct HeaderVideoPreviewView: View {
             }
         }
         .frame(height: height)
+        .onAppear {
+            // Smoothly reveal trailer preview after brief backdrop view
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                withAnimation {
+                    self.isVideoReady = true
+                }
+            }
+        }
     }
 
     private func toggleMuteState() {
         guard let webView else { return }
-        let js = isMuted ? "if(window.player){player.mute();}" : "if(window.player){player.unMute();player.setVolume(100);}"
+        let js = isMuted ?
+            "document.getElementById('ytplayer').contentWindow.postMessage('{\"event\":\"command\",\"func\":\"mute\",\"args\":\"\"}', '*');" :
+            "document.getElementById('ytplayer').contentWindow.postMessage('{\"event\":\"command\",\"func\":\"unMute\",\"args\":\"\"}', '*'); document.getElementById('ytplayer').contentWindow.postMessage('{\"event\":\"command\",\"func\":\"setVolume\",\"args\":[100]}', '*');"
         webView.evaluateJavaScript(js, completionHandler: nil)
     }
 }
@@ -91,21 +101,17 @@ private struct TrailerWebViewRepresentable: UIViewRepresentable {
     @Binding var isVideoReady: Bool
     @Binding var webViewRef: WKWebView?
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.allowsInlineMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = []
+        config.allowsPictureInPictureMediaPlayback = false
         
         let prefs = WKWebpagePreferences()
         prefs.allowsContentJavaScript = true
         config.defaultWebpagePreferences = prefs
 
         let webView = WKWebView(frame: .zero, configuration: config)
-        webView.navigationDelegate = context.coordinator
         webView.scrollView.isScrollEnabled = false
         webView.isOpaque = false
         webView.backgroundColor = .clear
@@ -119,54 +125,16 @@ private struct TrailerWebViewRepresentable: UIViewRepresentable {
             <style>
                 * { margin: 0; padding: 0; box-sizing: border-box; }
                 body, html { width: 100%; height: 100%; background: #000; overflow: hidden; pointer-events: none; }
-                #player { width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
+                iframe { width: 100%; height: 100%; border: none; position: absolute; top: 0; left: 0; }
             </style>
         </head>
         <body>
-            <div id="player"></div>
-            <script>
-                var tag = document.createElement('script');
-                tag.src = "https://www.youtube.com/iframe_api";
-                var firstScriptTag = document.getElementsByTagName('script')[0];
-                firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-
-                var player;
-                function onYouTubeIframeAPIReady() {
-                    player = new YT.Player('player', {
-                        videoId: '\(videoKey)',
-                        playerVars: {
-                            'autoplay': 1,
-                            'mute': 1,
-                            'playsinline': 1,
-                            'controls': 0,
-                            'disablekb': 1,
-                            'fs': 0,
-                            'rel': 0,
-                            'modestbranding': 1,
-                            'showinfo': 0,
-                            'iv_load_policy': 3,
-                            'loop': 1,
-                            'playlist': '\(videoKey)'
-                        },
-                        events: {
-                            'onReady': onPlayerReady,
-                            'onStateChange': onPlayerStateChange
-                        }
-                    });
-                }
-
-                function onPlayerReady(event) {
-                    event.target.mute();
-                    event.target.playVideo();
-                    window.location.href = "sigmastream://ready";
-                }
-
-                function onPlayerStateChange(event) {
-                    if (event.data == YT.PlayerState.PLAYING) {
-                        window.location.href = "sigmastream://playing";
-                    }
-                }
-            </script>
+            <iframe id="ytplayer" type="text/html" width="100%" height="100%"
+                src="https://www.youtube-nocookie.com/embed/\(videoKey)?autoplay=1&mute=1&playsinline=1&controls=0&disablekb=1&fs=0&rel=0&modestbranding=1&showinfo=0&iv_load_policy=3&loop=1&playlist=\(videoKey)&enablejsapi=1&origin=https://www.youtube.com"
+                frameborder="0"
+                allow="autoplay; encrypted-media; picture-in-picture"
+                allowfullscreen>
+            </iframe>
         </body>
         </html>
         """
@@ -181,28 +149,7 @@ private struct TrailerWebViewRepresentable: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {}
-
-    class Coordinator: NSObject, WKNavigationDelegate {
-        var parent: TrailerWebViewRepresentable
-
-        init(_ parent: TrailerWebViewRepresentable) {
-            self.parent = parent
-        }
-
-        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-            if let url = navigationAction.request.url, url.scheme == "sigmastream" {
-                if url.host == "playing" || url.host == "ready" {
-                    DispatchQueue.main.async {
-                        withAnimation {
-                            self.parent.isVideoReady = true
-                        }
-                    }
-                }
-                decisionHandler(.cancel)
-                return
-            }
-            decisionHandler(.allow)
-        }
-    }
 }
 #endif
+
+

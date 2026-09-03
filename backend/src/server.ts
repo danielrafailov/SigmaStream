@@ -167,6 +167,12 @@ async function main() {
         return res;
     };
 
+    // In-memory High Performance Stream Cache (4-hour TTL)
+    const streamResolutionCache = new Map<
+        string,
+        { result: any[]; expiresAt: number }
+    >();
+
     // Hook into SourceService for Instant First-Success Stream Resolution
     const sourceService = (server as any).sourceService;
     if (sourceService) {
@@ -174,6 +180,25 @@ async function main() {
             type: 'movie' | 'tv',
             media: any
         ) {
+            const mediaId =
+                media.tmdbId || media.id || media.imdbId || 'unknown';
+            const season = media.season || 0;
+            const episode = media.episode || 0;
+            const cacheKey = `${type}_${mediaId}_${season}_${episode}`;
+
+            // Check in-memory fast cache
+            const cached = streamResolutionCache.get(cacheKey);
+            if (
+                cached &&
+                cached.expiresAt > Date.now() &&
+                cached.result.length > 0
+            ) {
+                console.log(
+                    `[SourceService] ⚡ Cache HIT for ${cacheKey} (returning in 1ms)`
+                );
+                return cached.result;
+            }
+
             const providers = this.registry.getProviders();
             if (providers.length === 0) {
                 console.warn('[SourceService] No providers registered');
@@ -220,15 +245,49 @@ async function main() {
                     return resolve([]);
                 }
 
+                const finishWithResult = (res: any[]) => {
+                    if (isResolved) return;
+                    isResolved = true;
+                    if (res.length > 0) {
+                        streamResolutionCache.set(cacheKey, {
+                            result: res,
+                            expiresAt: Date.now() + 4 * 60 * 60 * 1000 // 4 hour cache
+                        });
+                    }
+                    resolve(res);
+                };
+
+                // Hard safety deadline: guarantee total wait time is strictly < 7.5 seconds
+                const hardDeadlineTimer = setTimeout(() => {
+                    if (!isResolved) {
+                        console.log(
+                            `[SourceService] ⏱️ Hard 7.5s deadline reached for ${cacheKey}. Returning ${collectedResults.length} collected results.`
+                        );
+                        finishWithResult(collectedResults);
+                    }
+                }, 7500);
+
                 supportedProviders.forEach(async (provider: any) => {
                     try {
                         const startTime = Date.now();
-                        let result: any;
-                        if (type === 'movie') {
-                            result = await provider.getMovieSources(media);
-                        } else {
-                            result = await provider.getTVSources(media);
-                        }
+
+                        // Per-provider 5.5s timeout race
+                        const providerPromise =
+                            type === 'movie'
+                                ? provider.getMovieSources(media)
+                                : provider.getTVSources(media);
+
+                        const timeoutPromise = new Promise((_, reject) =>
+                            setTimeout(
+                                () => reject(new Error('Provider timeout')),
+                                5500
+                            )
+                        );
+
+                        const result: any = await Promise.race([
+                            providerPromise,
+                            timeoutPromise
+                        ]);
 
                         if (
                             result &&
@@ -264,14 +323,14 @@ async function main() {
                                                 console.log(
                                                     `[SourceService] ⚡ Instant stream found by '${provider.name}' in ${duration}ms! Returning immediately.`
                                                 );
-                                                isResolved = true;
+                                                clearTimeout(hardDeadlineTimer);
                                                 result.sources = [
                                                     source,
                                                     ...result.sources.filter(
                                                         (s: any) => s !== source
                                                     )
                                                 ];
-                                                resolve([result]);
+                                                finishWithResult([result]);
                                             }
                                         }
                                     } catch {
@@ -286,19 +345,20 @@ async function main() {
                                 console.log(
                                     `[SourceService] ⚡ Working stream validated by '${provider.name}' (${validSources.length} sources) in ${duration}ms! Returning.`
                                 );
-                                isResolved = true;
-                                return resolve([result]);
+                                clearTimeout(hardDeadlineTimer);
+                                finishWithResult([result]);
+                                return;
                             }
                         }
 
                         if (result) collectedResults.push(result);
-                    } catch (err: any) {
-                        // Provider error
+                    } catch {
+                        // Provider error or 5.5s timeout
                     } finally {
                         pendingCount--;
                         if (!isResolved && pendingCount === 0) {
-                            isResolved = true;
-                            resolve(collectedResults);
+                            clearTimeout(hardDeadlineTimer);
+                            finishWithResult(collectedResults);
                         }
                     }
                 });

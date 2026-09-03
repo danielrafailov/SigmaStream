@@ -715,12 +715,7 @@ struct ForYouView: View {
                         .id(series.id)
                     }
                 }
-                .scrollTargetLayout()
-                .padding(.horizontal)
             }
-            .scrollPosition($likedSeriesScrollPosition, anchor: .leading)
-            .onChange(of: likedSeriesFocusedId) { _, id in if let id { likedSeriesScrollPosition.scrollTo(id: id, anchor: .leading) } }
-            .focusSection()
         }
         .padding(.bottom, 16)
     }

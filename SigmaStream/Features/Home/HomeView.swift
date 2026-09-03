@@ -14,10 +14,12 @@ struct HomeView: View {
 
     @Environment(AppState.self) private var appState
 
-    // MARK: - Personal (Home tab: My List only)
+    // MARK: - Personal (Home tab: My List + Liked only)
 
     @State private var myListMovies: [MovieListItem] = []
     @State private var myListSeries: [TVSeriesListItem] = []
+    @State private var likedMovies: [MovieListItem] = []
+    @State private var likedSeries: [TVSeriesListItem] = []
 
     // MARK: - Movies tab catalog
 
@@ -125,6 +127,12 @@ struct HomeView: View {
             .onChange(of: appState.myListManager.seriesIds.count) { _, _ in
                 Task { await refreshPersonalContent() }
             }
+            .onChange(of: appState.likedManager.movieIds.count) { _, _ in
+                Task { await refreshPersonalContent() }
+            }
+            .onChange(of: appState.likedManager.seriesIds.count) { _, _ in
+                Task { await refreshPersonalContent() }
+            }
         }
     }
 
@@ -145,6 +153,22 @@ struct HomeView: View {
                 TVSeriesMediaRow(
                     title: "My List (TV)",
                     tvSeries: myListSeries,
+                    config: appState.apiConfiguration,
+                    onSelect: { selectedSeries = TVSeriesSelection(id: $0.id) }
+                )
+            }
+            if !likedMovies.isEmpty {
+                MovieMediaRow(
+                    title: "Liked Movies",
+                    movies: likedMovies,
+                    config: appState.apiConfiguration,
+                    onSelect: { selectedMovie = MovieSelection(id: $0.id) }
+                )
+            }
+            if !likedSeries.isEmpty {
+                TVSeriesMediaRow(
+                    title: "Liked TV",
+                    tvSeries: likedSeries,
                     config: appState.apiConfiguration,
                     onSelect: { selectedSeries = TVSeriesSelection(id: $0.id) }
                 )
@@ -263,6 +287,7 @@ struct HomeView: View {
 
     private func refreshPersonalContent() async {
         await loadMyListMapped()
+        await loadLikedMapped()
     }
 
     private func loadMyListMapped() async {
@@ -281,6 +306,24 @@ struct HomeView: View {
             }
         }
         myListSeries = series
+    }
+
+    private func loadLikedMapped() async {
+        var movies: [MovieListItem] = []
+        for id in appState.likedManager.movieIds {
+            if let m = try? await appState.tmdbService.movieDetails(forMovieId: id) {
+                movies.append(Self.movieListItem(from: m))
+            }
+        }
+        likedMovies = movies
+
+        var series: [TVSeriesListItem] = []
+        for id in appState.likedManager.seriesIds {
+            if let s = try? await appState.tmdbService.tvSeriesDetails(forSeriesId: id) {
+                series.append(Self.tvSeriesListItem(from: s))
+            }
+        }
+        likedSeries = series
     }
 
     private static func movieListItem(from movie: Movie) -> MovieListItem {

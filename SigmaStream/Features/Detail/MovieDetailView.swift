@@ -44,14 +44,7 @@ struct MovieDetailView: View {
                 GeometryReader { geo in
                     let contentWidth = geo.size.width * 0.45
                     ZStack(alignment: .leading) {
-                        let backdropURL = ImageURLBuilder.backdropURL(for: movie.backdropPath, config: appState.apiConfiguration)
-                        
-                        TVBackdropVideoPlayerView(
-                            streamURLs: prefetchedMoviePlayback?.urls ?? [],
-                            fallbackImageURL: backdropURL
-                        )
-
-                        if let backdropURL {
+                        if let backdropURL = ImageURLBuilder.backdropURL(for: movie.backdropPath, config: appState.apiConfiguration) {
                             AsyncImage(url: backdropURL) { phase in
                                 if case .success(let image) = phase {
                                     image
@@ -60,11 +53,21 @@ struct MovieDetailView: View {
                                 }
                             }
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .blur(radius: 28)
-                            .overlay(Color.black.opacity(0.6))
+                            .ignoresSafeArea()
+
+                            AsyncImage(url: backdropURL) { phase in
+                                if case .success(let image) = phase {
+                                    image
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .blur(radius: 24)
+                            .overlay(Color.black.opacity(0.5))
                             .mask(
                                 LinearGradient(
-                                    colors: [.black, .black.opacity(0.8), .clear],
+                                    colors: [.black, .clear],
                                     startPoint: .leading,
                                     endPoint: .trailing
                                 )

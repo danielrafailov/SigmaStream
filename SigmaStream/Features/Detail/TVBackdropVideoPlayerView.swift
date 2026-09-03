@@ -10,16 +10,18 @@ import AVKit
 
 #if os(tvOS)
 struct TVBackdropVideoPlayerView: View {
-    let streamURL: URL?
+    let streamURLs: [URL]
     let fallbackImageURL: URL?
 
     @State private var player: AVPlayer?
     @State private var isVideoReady = false
-    @State private var isMuted = true
+    @State private var currentURLIndex = 0
+    @State private var statusObserver: NSKeyValueObservation?
+    @State private var timeObserver: Any?
 
     var body: some View {
         ZStack {
-            // Layer 1: Fallback Backdrop Image
+            // Layer 1: Fallback Backdrop Image (Full Screen Edge-to-Edge)
             if let fallbackImageURL {
                 AsyncImage(url: fallbackImageURL) { phase in
                     if case .success(let image) = phase {
@@ -38,7 +40,7 @@ struct TVBackdropVideoPlayerView: View {
                     .ignoresSafeArea()
             }
 
-            // Layer 2: AVPlayer Video Layer (Crossfades smoothly over the poster)
+            // Layer 2: Native AVPlayer Full Screen Video Layer (Zero UI clutter / channel names)
             if let player {
                 TVPlayerLayerRepresentable(player: player)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -48,27 +50,42 @@ struct TVBackdropVideoPlayerView: View {
             }
         }
         .onAppear {
+            currentURLIndex = 0
             setupPlayer()
         }
         .onDisappear {
             teardownPlayer()
         }
-        .onChange(of: streamURL) { _, _ in
-            setupPlayer()
+        .onChange(of: streamURLs) { _, newURLs in
+            if !newURLs.isEmpty && player == nil {
+                currentURLIndex = 0
+                setupPlayer()
+            }
         }
     }
 
     private func setupPlayer() {
-        guard let streamURL else { return }
+        guard currentURLIndex < streamURLs.count else { return }
         teardownPlayer()
 
-        let item = AVPlayerItem(url: streamURL)
+        let targetURL = streamURLs[currentURLIndex]
+        let asset = AVURLAsset(url: targetURL, options: [
+            "AVURLAssetHTTPHeaderFieldsKey": [
+                "User-Agent": "Mozilla/5.0 (AppleTV; RemoteSubstrate/1.0)",
+                "Accept": "*/*"
+            ]
+        ])
+
+        let item = AVPlayerItem(asset: asset)
         item.preferredForwardBufferDuration = 1.0
+        item.canUseNetworkResourcesForLiveStreamingWhilePaused = false
+
         let p = AVPlayer(playerItem: item)
-        p.isMuted = isMuted
+        p.isMuted = true
         p.automaticallyWaitsToMinimizeStalling = false
         p.actionAtItemEnd = .none
 
+        // Seamless loop
         NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: item,
@@ -78,27 +95,28 @@ struct TVBackdropVideoPlayerView: View {
             p.play()
         }
 
-        NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemNewAccessLogEntry,
-            object: item,
-            queue: .main
-        ) { _ in
-            withAnimation(.easeInOut(duration: 0.8)) {
-                self.isVideoReady = true
+        // KVO on player status to detect successful render or failure
+        statusObserver = item.observe(\.status, options: [.new]) { [self] observedItem, _ in
+            DispatchQueue.main.async {
+                if observedItem.status == .readyToPlay {
+                    withAnimation(.easeInOut(duration: 0.8)) {
+                        self.isVideoReady = true
+                    }
+                } else if observedItem.status == .failed {
+                    // Try next mirror
+                    self.currentURLIndex += 1
+                    self.setupPlayer()
+                }
             }
         }
 
         p.play()
         self.player = p
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            withAnimation(.easeInOut(duration: 0.8)) {
-                self.isVideoReady = true
-            }
-        }
     }
 
     private func teardownPlayer() {
+        statusObserver?.invalidate()
+        statusObserver = nil
         player?.pause()
         player = nil
         isVideoReady = false

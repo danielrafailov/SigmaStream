@@ -47,7 +47,7 @@ struct MovieDetailView: View {
                         let backdropURL = ImageURLBuilder.backdropURL(for: movie.backdropPath, config: appState.apiConfiguration)
                         
                         TVBackdropVideoPlayerView(
-                            streamURL: prefetchedMoviePlayback?.urls.first,
+                            streamURLs: prefetchedMoviePlayback?.urls ?? [],
                             fallbackImageURL: backdropURL
                         )
 

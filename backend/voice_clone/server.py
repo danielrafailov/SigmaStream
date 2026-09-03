@@ -38,34 +38,92 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Natural pitch adjustments per character
-PITCH_OFFSETS = {
-    "eric_cartman": 0,
-    "daffy_duck": 0,
-    "morgan_freeman": -2,
-    "arnold_schwarzenegger": -1,
-    "trump": 0,
-    "michael_jackson": 0,
-    "gordon_ramsay": 0,
-    "mandalorian": -2,
-    "snoop_dogg": 0,
-    "joe_rogan": 0,
-    "tom_holland": 0
-}
-
-# Base TTS voice selection for RVC conversion
-BASE_VOICES = {
-    "eric_cartman": "en-US-GuyNeural",
-    "daffy_duck": "en-US-GuyNeural",
-    "morgan_freeman": "en-US-BrianNeural",
-    "michael_jackson": "en-US-GuyNeural",
-    "arnold_schwarzenegger": "en-US-GuyNeural",
-    "trump": "en-US-GuyNeural",
-    "gordon_ramsay": "en-GB-RyanNeural",
-    "mandalorian": "en-US-ChristopherNeural",
-    "snoop_dogg": "en-US-ChristopherNeural",
-    "joe_rogan": "en-US-GuyNeural",
-    "tom_holland": "en-GB-ThomasNeural"
+# Comprehensive character acoustic profiles for authentic RVC timbre & prosody
+VOICE_PROFILES = {
+    "michael_jackson": {
+        "base_voice": "en-US-JennyNeural",
+        "pitch_shift": 0,
+        "rate": "-3%",
+        "pitch_hz": "+0Hz"
+    },
+    "morgan_freeman": {
+        "base_voice": "en-US-RogerNeural",
+        "pitch_shift": -5,
+        "rate": "-12%",
+        "pitch_hz": "-5Hz"
+    },
+    "snoop_dogg": {
+        "base_voice": "en-US-GuyNeural",
+        "pitch_shift": -2,
+        "rate": "-10%",
+        "pitch_hz": "-3Hz"
+    },
+    "tom_holland": {
+        "base_voice": "en-GB-RyanNeural",
+        "pitch_shift": 2,
+        "rate": "+4%",
+        "pitch_hz": "+5Hz"
+    },
+    "trump": {
+        "base_voice": "en-US-GuyNeural",
+        "pitch_shift": 0,
+        "rate": "+0%",
+        "pitch_hz": "+0Hz"
+    },
+    "arnold_schwarzenegger": {
+        "base_voice": "en-US-GuyNeural",
+        "pitch_shift": -1,
+        "rate": "-4%",
+        "pitch_hz": "-5Hz"
+    },
+    "gordon_ramsay": {
+        "base_voice": "en-GB-RyanNeural",
+        "pitch_shift": 0,
+        "rate": "+6%",
+        "pitch_hz": "+0Hz"
+    },
+    "mandalorian": {
+        "base_voice": "en-US-ChristopherNeural",
+        "pitch_shift": -3,
+        "rate": "-8%",
+        "pitch_hz": "-8Hz"
+    },
+    "joe_rogan": {
+        "base_voice": "en-US-GuyNeural",
+        "pitch_shift": 0,
+        "rate": "+2%",
+        "pitch_hz": "+0Hz"
+    },
+    "eric_cartman": {
+        "base_voice": "en-US-GuyNeural",
+        "pitch_shift": 0,
+        "rate": "+2%",
+        "pitch_hz": "+0Hz"
+    },
+    "daffy_duck": {
+        "base_voice": "en-US-GuyNeural",
+        "pitch_shift": 0,
+        "rate": "+0%",
+        "pitch_hz": "+0Hz"
+    },
+    "barack_obama": {
+        "base_voice": "en-US-GuyNeural",
+        "pitch_shift": 0,
+        "rate": "-6%",
+        "pitch_hz": "-2Hz"
+    },
+    "darth_vader": {
+        "base_voice": "en-US-ChristopherNeural",
+        "pitch_shift": -6,
+        "rate": "-14%",
+        "pitch_hz": "-15Hz"
+    },
+    "joe_biden": {
+        "base_voice": "en-US-GuyNeural",
+        "pitch_shift": 0,
+        "rate": "-8%",
+        "pitch_hz": "-2Hz"
+    }
 }
 
 def get_xtts():
@@ -102,8 +160,18 @@ def health_check():
     }
 
 async def generate_base_tts(text: str, voice_slug: str) -> tuple[np.ndarray, int]:
-    edge_voice = BASE_VOICES.get(voice_slug, "en-US-GuyNeural")
-    communicate = edge_tts.Communicate(text, edge_voice)
+    profile = VOICE_PROFILES.get(voice_slug, {
+        "base_voice": "en-US-GuyNeural",
+        "pitch_shift": 0,
+        "rate": "+0%",
+        "pitch_hz": "+0Hz"
+    })
+    communicate = edge_tts.Communicate(
+        text,
+        profile["base_voice"],
+        rate=profile["rate"],
+        pitch=profile["pitch_hz"]
+    )
     buffer = io.BytesIO()
     async for chunk in communicate.stream():
         if chunk["type"] == "audio":
@@ -129,7 +197,8 @@ async def generate_cloned_tts(req: TTSRequest):
         # PATH 1: Dedicated RVC .pth Model
         if pth_file.exists() and rvc_engine is not None:
             base_audio, base_sr = await generate_base_tts(clean_text, voice_slug)
-            pitch_shift = PITCH_OFFSETS.get(voice_slug, 0)
+            profile = VOICE_PROFILES.get(voice_slug, {})
+            pitch_shift = profile.get("pitch_shift", 0)
             converted_audio, out_sr = rvc_engine.convert_audio(
                 base_audio, base_sr, voice_slug, pitch_shift=pitch_shift
             )

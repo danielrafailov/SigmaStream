@@ -16,6 +16,7 @@ struct HeaderVideoPreviewView: View {
 
     @State private var isMuted = true
     @State private var isVideoReady = false
+    @State private var hasError = false
     @State private var webView: WKWebView?
 
     var body: some View {
@@ -38,20 +39,23 @@ struct HeaderVideoPreviewView: View {
                     .frame(maxWidth: .infinity, maxHeight: height)
             }
 
-            // Layer 2: Auto-playing Video Preview (Fades in over backdrop)
-            TrailerWebViewRepresentable(
-                videoKey: videoKey,
-                isMuted: $isMuted,
-                isVideoReady: $isVideoReady,
-                webViewRef: $webView
-            )
-            .frame(maxWidth: .infinity, maxHeight: height)
-            .opacity(isVideoReady ? 1.0 : 0.0)
-            .animation(.easeInOut(duration: 0.5), value: isVideoReady)
-            .allowsHitTesting(false) // Allow touch pass-through for vertical scrolling
+            // Layer 2: Auto-playing Video Preview (Fades in over backdrop only when playing with no errors)
+            if !hasError {
+                TrailerWebViewRepresentable(
+                    videoKey: videoKey,
+                    isMuted: $isMuted,
+                    isVideoReady: $isVideoReady,
+                    hasError: $hasError,
+                    webViewRef: $webView
+                )
+                .frame(maxWidth: .infinity, maxHeight: height)
+                .opacity(isVideoReady ? 1.0 : 0.0)
+                .animation(.easeInOut(duration: 0.5), value: isVideoReady)
+                .allowsHitTesting(false) // Allow touch pass-through for vertical scrolling
+            }
 
             // Layer 3: Netflix Glass Audio Mute/Unmute Control Pill
-            if isVideoReady {
+            if isVideoReady && !hasError {
                 Button {
                     isMuted.toggle()
                     toggleMuteState()
@@ -76,21 +80,13 @@ struct HeaderVideoPreviewView: View {
             }
         }
         .frame(height: height)
-        .onAppear {
-            // Smoothly reveal trailer preview after brief backdrop view
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                withAnimation {
-                    self.isVideoReady = true
-                }
-            }
-        }
     }
 
     private func toggleMuteState() {
         guard let webView else { return }
         let js = isMuted ?
-            "document.getElementById('ytplayer').contentWindow.postMessage('{\"event\":\"command\",\"func\":\"mute\",\"args\":\"\"}', '*');" :
-            "document.getElementById('ytplayer').contentWindow.postMessage('{\"event\":\"command\",\"func\":\"unMute\",\"args\":\"\"}', '*'); document.getElementById('ytplayer').contentWindow.postMessage('{\"event\":\"command\",\"func\":\"setVolume\",\"args\":[100]}', '*');"
+            "if(window.player && player.mute){player.mute();}else{document.getElementById('ytplayer')?.contentWindow?.postMessage('{\"event\":\"command\",\"func\":\"mute\",\"args\":\"\"}', '*');}" :
+            "if(window.player && player.unMute){player.unMute();player.setVolume(100);}else{document.getElementById('ytplayer')?.contentWindow?.postMessage('{\"event\":\"command\",\"func\":\"unMute\",\"args\":\"\"}', '*');document.getElementById('ytplayer')?.contentWindow?.postMessage('{\"event\":\"command\",\"func\":\"setVolume\",\"args\":[100]}', '*');}"
         webView.evaluateJavaScript(js, completionHandler: nil)
     }
 }
@@ -99,10 +95,19 @@ private struct TrailerWebViewRepresentable: UIViewRepresentable {
     let videoKey: String
     @Binding var isMuted: Bool
     @Binding var isVideoReady: Bool
+    @Binding var hasError: Bool
     @Binding var webViewRef: WKWebView?
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
+        let userContentController = WKUserContentController()
+        userContentController.add(context.coordinator, name: "sigmastream")
+        config.userContentController = userContentController
+        
         config.allowsInlineMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = []
         config.allowsPictureInPictureMediaPlayback = false
@@ -112,6 +117,7 @@ private struct TrailerWebViewRepresentable: UIViewRepresentable {
         config.defaultWebpagePreferences = prefs
 
         let webView = WKWebView(frame: .zero, configuration: config)
+        webView.customUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
         webView.scrollView.isScrollEnabled = false
         webView.isOpaque = false
         webView.backgroundColor = .clear
@@ -124,22 +130,74 @@ private struct TrailerWebViewRepresentable: UIViewRepresentable {
             <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
             <style>
                 * { margin: 0; padding: 0; box-sizing: border-box; }
-                body, html { width: 100%; height: 100%; background: #000; overflow: hidden; pointer-events: none; }
-                iframe { width: 100%; height: 100%; border: none; position: absolute; top: 0; left: 0; }
+                body, html { width: 100%; height: 100%; background: #000; overflow: hidden; }
+                #player { width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
             </style>
         </head>
         <body>
-            <iframe id="ytplayer" type="text/html" width="100%" height="100%"
-                src="https://www.youtube-nocookie.com/embed/\(videoKey)?autoplay=1&mute=1&playsinline=1&controls=0&disablekb=1&fs=0&rel=0&modestbranding=1&showinfo=0&iv_load_policy=3&loop=1&playlist=\(videoKey)&enablejsapi=1&origin=https://www.youtube.com"
-                frameborder="0"
-                allow="autoplay; encrypted-media; picture-in-picture"
-                allowfullscreen>
-            </iframe>
+            <div id="player"></div>
+            <script>
+                var tag = document.createElement('script');
+                tag.src = "https://www.youtube.com/iframe_api";
+                var firstScriptTag = document.getElementsByTagName('script')[0];
+                firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+
+                var player;
+                function onYouTubeIframeAPIReady() {
+                    player = new YT.Player('player', {
+                        videoId: '\(videoKey)',
+                        playerVars: {
+                            'autoplay': 1,
+                            'mute': 1,
+                            'playsinline': 1,
+                            'controls': 0,
+                            'disablekb': 1,
+                            'fs': 0,
+                            'rel': 0,
+                            'modestbranding': 1,
+                            'showinfo': 0,
+                            'iv_load_policy': 3,
+                            'loop': 1,
+                            'playlist': '\(videoKey)',
+                            'origin': 'https://www.themoviedb.org'
+                        },
+                        events: {
+                            'onReady': onPlayerReady,
+                            'onStateChange': onPlayerStateChange,
+                            'onError': onPlayerError
+                        }
+                    });
+                }
+
+                function onPlayerReady(event) {
+                    try {
+                        event.target.mute();
+                        event.target.playVideo();
+                    } catch(e) {}
+                    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.sigmastream) {
+                        window.webkit.messageHandlers.sigmastream.postMessage("ready");
+                    }
+                }
+
+                function onPlayerStateChange(event) {
+                    if (event.data == 1) { // YT.PlayerState.PLAYING
+                        if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.sigmastream) {
+                            window.webkit.messageHandlers.sigmastream.postMessage("playing");
+                        }
+                    }
+                }
+
+                function onPlayerError(event) {
+                    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.sigmastream) {
+                        window.webkit.messageHandlers.sigmastream.postMessage("error");
+                    }
+                }
+            </script>
         </body>
         </html>
         """
 
-        webView.loadHTMLString(htmlContent, baseURL: URL(string: "https://www.youtube.com"))
+        webView.loadHTMLString(htmlContent, baseURL: URL(string: "https://www.themoviedb.org"))
         
         DispatchQueue.main.async {
             self.webViewRef = webView
@@ -149,6 +207,30 @@ private struct TrailerWebViewRepresentable: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {}
+
+    class Coordinator: NSObject, WKScriptMessageHandler {
+        var parent: TrailerWebViewRepresentable
+
+        init(_ parent: TrailerWebViewRepresentable) {
+            self.parent = parent
+        }
+
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            guard let body = message.body as? String else { return }
+            DispatchQueue.main.async {
+                if body == "ready" || body == "playing" {
+                    withAnimation(.easeInOut(duration: 0.5)) {
+                        self.parent.isVideoReady = true
+                    }
+                } else if body == "error" {
+                    withAnimation {
+                        self.parent.hasError = true
+                        self.parent.isVideoReady = false
+                    }
+                }
+            }
+        }
+    }
 }
 #endif
 

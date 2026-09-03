@@ -344,9 +344,9 @@ struct iOSMovieDetailView: View {
                             ImageURLBuilder.backdropURL(for: $0, config: appState.apiConfiguration, idealWidth: 780)
                         }
 
-                        if let firstTrailer = trailers.first(where: { $0.site.lowercased() == "youtube" && !$0.key.isEmpty }) {
+                        if let bestTrailerKey {
                             HeaderVideoPreviewView(
-                                videoKey: firstTrailer.key,
+                                videoKey: bestTrailerKey,
                                 fallbackImageURL: backdropURL,
                                 height: headerHeight
                             )
@@ -417,6 +417,17 @@ struct iOSMovieDetailView: View {
             // 2. Load Details, Trailers, and Recommendations
             await loadMovieDetails()
         }
+    }
+
+    private var bestTrailerKey: String? {
+        let yt = trailers.filter { $0.site.lowercased() == "youtube" && !$0.key.isEmpty }
+        if let trailer = yt.first(where: { $0.type.lowercased() == "trailer" }) {
+            return trailer.key
+        }
+        if let teaser = yt.first(where: { $0.type.lowercased() == "teaser" }) {
+            return teaser.key
+        }
+        return yt.first?.key
     }
 
     private var hasResumePosition: Bool {

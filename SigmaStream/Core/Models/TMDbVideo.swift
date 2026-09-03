@@ -20,6 +20,7 @@ struct TMDbVideo: Decodable {
     let name: String
     let site: String
     let type: String
+    let official: Bool?
 
     /// YouTube embed URL for playback
     var youtubeEmbedURL: URL? {

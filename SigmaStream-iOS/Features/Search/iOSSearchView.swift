@@ -418,16 +418,7 @@ struct iOSSearchView: View {
             .sheet(isPresented: $showFilterSheet) {
                 SearchFilterSheetView(
                     filters: $filters,
-                    onApplyFiltersOnly: {
-                        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !query.isEmpty {
-                            searchTask?.cancel()
-                            searchTask = Task {
-                                await executeSearch(query: query, mode: searchMode, isExplicitFilterSearch: false)
-                            }
-                        }
-                    },
-                    onApplySearch: {
+                    onApply: {
                         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
                         searchTask?.cancel()
                         searchTask = Task {
@@ -765,19 +756,16 @@ struct iOSSearchView: View {
 struct SearchFilterSheetView: View {
     @Environment(\.dismiss) private var dismiss
     @Binding var filters: SearchFilterOptions
-    let onApplyFiltersOnly: () -> Void
-    let onApplySearch: () -> Void
+    let onApply: () -> Void
 
     @State private var draftFilters: SearchFilterOptions
 
     init(
         filters: Binding<SearchFilterOptions>,
-        onApplyFiltersOnly: @escaping () -> Void,
-        onApplySearch: @escaping () -> Void
+        onApply: @escaping () -> Void
     ) {
         self._filters = filters
-        self.onApplyFiltersOnly = onApplyFiltersOnly
-        self.onApplySearch = onApplySearch
+        self.onApply = onApply
         self._draftFilters = State(initialValue: filters.wrappedValue)
     }
 
@@ -870,49 +858,26 @@ struct SearchFilterSheetView: View {
                     .padding(.vertical, 4)
                 }
 
-                // Section 8: Action Buttons (Apply Filter Search & Apply Filters)
+                // Section 8: Action Button (Apply Filters)
                 Section {
-                    VStack(spacing: 12) {
-                        // 1. Primary Button: Apply Filter Search (Immediately queries all entertainment matching filters)
-                        Button {
-                            filters = draftFilters
-                            dismiss()
-                            onApplySearch()
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "sparkle.magnifyingglass")
-                                    .font(.headline)
-                                Text("Apply Filter Search")
-                                    .font(.headline.bold())
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(Color.blue)
-                            .foregroundStyle(.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    Button {
+                        filters = draftFilters
+                        dismiss()
+                        onApply()
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.headline)
+                            Text("Apply Filters")
+                                .font(.headline.bold())
                         }
-                        .buttonStyle(.plain)
-
-                        // 2. Secondary Button: Apply Filters (Saves active filter preferences)
-                        Button {
-                            filters = draftFilters
-                            dismiss()
-                            onApplyFiltersOnly()
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "line.3.horizontal.decrease")
-                                    .font(.subheadline)
-                                Text("Apply Filters")
-                                    .font(.subheadline.weight(.semibold))
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                            .background(Color(uiColor: .secondarySystemBackground))
-                            .foregroundStyle(.primary)
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        }
-                        .buttonStyle(.plain)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color.blue)
+                        .foregroundStyle(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
+                    .buttonStyle(.plain)
                     .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
                     .listRowBackground(Color.clear)
                 }

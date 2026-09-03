@@ -17,7 +17,7 @@ struct TVBackdropVideoPlayerView: View {
     @State private var isVideoReady = false
     @State private var currentURLIndex = 0
     @State private var statusObserver: NSKeyValueObservation?
-    @State private var timeObserver: Any?
+    @State private var itemObserver: NSObjectProtocol?
 
     var body: some View {
         ZStack {
@@ -69,13 +69,7 @@ struct TVBackdropVideoPlayerView: View {
         teardownPlayer()
 
         let targetURL = streamURLs[currentURLIndex]
-        let asset = AVURLAsset(url: targetURL, options: [
-            "AVURLAssetHTTPHeaderFieldsKey": [
-                "User-Agent": "Mozilla/5.0 (AppleTV; RemoteSubstrate/1.0)",
-                "Accept": "*/*"
-            ]
-        ])
-
+        let asset = AVURLAsset(url: targetURL)
         let item = AVPlayerItem(asset: asset)
         item.preferredForwardBufferDuration = 1.0
         item.canUseNetworkResourcesForLiveStreamingWhilePaused = false
@@ -86,7 +80,7 @@ struct TVBackdropVideoPlayerView: View {
         p.actionAtItemEnd = .none
 
         // Seamless loop
-        NotificationCenter.default.addObserver(
+        itemObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: item,
             queue: .main
@@ -103,7 +97,6 @@ struct TVBackdropVideoPlayerView: View {
                         self.isVideoReady = true
                     }
                 } else if observedItem.status == .failed {
-                    // Try next mirror
                     self.currentURLIndex += 1
                     self.setupPlayer()
                 }
@@ -115,6 +108,10 @@ struct TVBackdropVideoPlayerView: View {
     }
 
     private func teardownPlayer() {
+        if let itemObserver {
+            NotificationCenter.default.removeObserver(itemObserver)
+            self.itemObserver = nil
+        }
         statusObserver?.invalidate()
         statusObserver = nil
         player?.pause()
@@ -130,11 +127,15 @@ private struct TVPlayerLayerRepresentable: UIViewRepresentable {
         let view = TVPlayerUIView()
         view.playerLayer.player = player
         view.playerLayer.videoGravity = .resizeAspectFill
+        view.playerLayer.needsDisplayOnBoundsChange = true
         return view
     }
 
     func updateUIView(_ uiView: TVPlayerUIView, context: Context) {
-        uiView.playerLayer.player = player
+        if uiView.playerLayer.player !== player {
+            uiView.playerLayer.player = player
+        }
+        uiView.playerLayer.frame = uiView.bounds
     }
 }
 
@@ -145,6 +146,11 @@ private class TVPlayerUIView: UIView {
 
     var playerLayer: AVPlayerLayer {
         layer as! AVPlayerLayer
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        playerLayer.frame = bounds
     }
 }
 #endif

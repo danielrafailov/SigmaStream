@@ -107,56 +107,13 @@ private struct TrailerWebViewRepresentable: UIViewRepresentable {
         webView.backgroundColor = .black
         webView.scrollView.backgroundColor = .black
 
-        let htmlContent = """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-            <style>
-                * { margin: 0; padding: 0; box-sizing: border-box; }
-                body, html {
-                    width: 100%;
-                    height: 100%;
-                    background: #000;
-                    overflow: hidden;
-                    pointer-events: none;
-                }
-                .crop-container {
-                    position: absolute;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
-                    overflow: hidden;
-                    pointer-events: none;
-                }
-                iframe {
-                    position: absolute;
-                    top: 50%;
-                    left: 50%;
-                    width: 140%;
-                    height: 140%;
-                    transform: translate(-50%, -50%);
-                    border: none;
-                    pointer-events: none;
-                }
-            </style>
-        </head>
-        <body>
-            <div class="crop-container">
-                <iframe id="ytplayer"
-                    type="text/html"
-                    src="https://www.youtube-nocookie.com/embed/\(videoKey)?autoplay=1&mute=1&playsinline=1&controls=0&disablekb=1&fs=0&rel=0&modestbranding=1&showinfo=0&iv_load_policy=3&loop=1&playlist=\(videoKey)&enablejsapi=1"
-                    frameborder="0"
-                    allow="autoplay; encrypted-media; picture-in-picture"
-                    allowfullscreen>
-                </iframe>
-            </div>
-        </body>
-        </html>
-        """
-
-        webView.loadHTMLString(htmlContent, baseURL: URL(string: "https://www.themoviedb.org"))
+        if let embedURL = URL(string: "https://www.youtube-nocookie.com/embed/\(videoKey)?autoplay=1&mute=1&playsinline=1&controls=0&rel=0&modestbranding=1&loop=1&playlist=\(videoKey)&enablejsapi=1") {
+            var request = URLRequest(url: embedURL)
+            request.setValue("https://www.themoviedb.org", forHTTPHeaderField: "Referer")
+            webView.load(request)
+        } else {
+            hasError = true
+        }
 
         return webView
     }

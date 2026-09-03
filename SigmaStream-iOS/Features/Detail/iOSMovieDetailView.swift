@@ -35,7 +35,7 @@ struct iOSMovieDetailView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let headerHeight: CGFloat = max(340, geometry.size.height * 0.42)
+            let headerHeight: CGFloat = 260
 
             ZStack(alignment: .top) {
                 // Layer 1: Scrollable Content (Slides UNDER the fixed header in Z-axis)

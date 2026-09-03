@@ -100,8 +100,11 @@ struct ForYouView: View {
                             if !continueWatchingTV.isEmpty {
                                 continueWatchingTVSection
                             }
-                            if !likedMovies.isEmpty || !likedSeries.isEmpty {
-                                likedSection
+                            if !likedMovies.isEmpty {
+                                likedMoviesSection
+                            }
+                            if !likedSeries.isEmpty {
+                                likedSeriesSection
                             }
                         }
                         .scrollTargetLayout()
@@ -605,113 +608,119 @@ struct ForYouView: View {
     }
 
     @ViewBuilder
-    private var likedSection: some View {
+    private var likedMoviesSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Movies and TV Shows You Liked")
+            Text("Liked Movies")
                 .font(.title2)
                 .fontWeight(.semibold)
 
-            if !likedMovies.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(alignment: .top, spacing: 20) {
-                        ForEach(likedMovies) { movie in
-                            let isFocused = likedMovieFocusedId == movie.id
-                            HStack(spacing: 0) {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Button {
-                                        selectedMovie = MovieSelection(id: movie.id)
-                                    } label: {
-                                        MediaCard(
-                                            posterPath: movie.posterPath,
-                                            backdropPath: movie.backdropPath,
-                                            config: appState.apiConfiguration,
-                                            isFocused: isFocused
-                                        )
-                                    }
-                                    .buttonStyle(.plain)
-                                    .hoverEffectDisabled(true)
-                                    .focused($likedMovieFocusedId, equals: movie.id)
-                                    .accessibilityLabel(movie.title)
-                                    .contextMenu {
-                                        Button("Remove from Liked", role: .destructive) {
-                                            appState.likedManager.toggleMovie(movie.id)
-                                            Task { await loadAll() }
-                                        }
-                                    }
-                                    if isFocused {
-                                        MediaCardMetadata(
-                                            title: movie.title,
-                                            date: movie.releaseDate,
-                                            overview: movie.overview
-                                        )
-                                        .frame(maxWidth: mediaCardBackdropWidth, minHeight: 120, alignment: .topLeading)
-                                        .transition(.opacity)
-                                        .animation(.easeInOut(duration: 0.2), value: isFocused)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 20) {
+                    ForEach(likedMovies) { movie in
+                        let isFocused = likedMovieFocusedId == movie.id
+                        HStack(spacing: 0) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Button {
+                                    selectedMovie = MovieSelection(id: movie.id)
+                                } label: {
+                                    MediaCard(
+                                        posterPath: movie.posterPath,
+                                        backdropPath: movie.backdropPath,
+                                        config: appState.apiConfiguration,
+                                        isFocused: isFocused
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                                .hoverEffectDisabled(true)
+                                .focused($likedMovieFocusedId, equals: movie.id)
+                                .accessibilityLabel(movie.title)
+                                .contextMenu {
+                                    Button("Remove from Liked", role: .destructive) {
+                                        appState.likedManager.toggleMovie(movie.id)
+                                        Task { await loadAll() }
                                     }
                                 }
-                                if isFocused { Color.clear.frame(width: 32) }
+                                if isFocused {
+                                    MediaCardMetadata(
+                                        title: movie.title,
+                                        date: movie.releaseDate,
+                                        overview: movie.overview
+                                    )
+                                    .frame(maxWidth: mediaCardBackdropWidth, minHeight: 120, alignment: .topLeading)
+                                    .transition(.opacity)
+                                    .animation(.easeInOut(duration: 0.2), value: isFocused)
+                                }
                             }
-                            .id(movie.id)
+                            if isFocused { Color.clear.frame(width: 32) }
                         }
+                        .id(movie.id)
                     }
-                    .scrollTargetLayout()
-                    .padding(.horizontal)
                 }
-                .scrollPosition($likedMoviesScrollPosition, anchor: .leading)
-                .onChange(of: likedMovieFocusedId) { _, id in if let id { likedMoviesScrollPosition.scrollTo(id: id, anchor: .leading) } }
-                .focusSection()
+                .scrollTargetLayout()
+                .padding(.horizontal)
             }
+            .scrollPosition($likedMoviesScrollPosition, anchor: .leading)
+            .onChange(of: likedMovieFocusedId) { _, id in if let id { likedMoviesScrollPosition.scrollTo(id: id, anchor: .leading) } }
+            .focusSection()
+        }
+        .padding(.bottom, 16)
+    }
 
-            if !likedSeries.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(alignment: .top, spacing: 20) {
-                        ForEach(likedSeries) { series in
-                            let isFocused = likedSeriesFocusedId == series.id
-                            HStack(spacing: 0) {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Button {
-                                        selectedSeries = TVSeriesSelection(id: series.id)
-                                    } label: {
-                                        MediaCard(
-                                            posterPath: series.posterPath,
-                                            backdropPath: series.backdropPath,
-                                            config: appState.apiConfiguration,
-                                            isFocused: isFocused
-                                        )
-                                    }
-                                    .buttonStyle(.plain)
-                                    .hoverEffectDisabled(true)
-                                    .focused($likedSeriesFocusedId, equals: series.id)
-                                    .accessibilityLabel(series.name)
-                                    .contextMenu {
-                                        Button("Remove from Liked", role: .destructive) {
-                                            appState.likedManager.toggleSeries(series.id)
-                                            Task { await loadAll() }
-                                        }
-                                    }
-                                    if isFocused {
-                                        MediaCardMetadata(
-                                            title: series.name,
-                                            date: series.firstAirDate,
-                                            overview: series.overview
-                                        )
-                                        .frame(maxWidth: mediaCardBackdropWidth, minHeight: 120, alignment: .topLeading)
-                                        .transition(.opacity)
-                                        .animation(.easeInOut(duration: 0.2), value: isFocused)
+    @ViewBuilder
+    private var likedSeriesSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Liked TV Shows")
+                .font(.title2)
+                .fontWeight(.semibold)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 20) {
+                    ForEach(likedSeries) { series in
+                        let isFocused = likedSeriesFocusedId == series.id
+                        HStack(spacing: 0) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Button {
+                                    selectedSeries = TVSeriesSelection(id: series.id)
+                                } label: {
+                                    MediaCard(
+                                        posterPath: series.posterPath,
+                                        backdropPath: series.backdropPath,
+                                        config: appState.apiConfiguration,
+                                        isFocused: isFocused
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                                .hoverEffectDisabled(true)
+                                .focused($likedSeriesFocusedId, equals: series.id)
+                                .accessibilityLabel(series.name)
+                                .contextMenu {
+                                    Button("Remove from Liked", role: .destructive) {
+                                        appState.likedManager.toggleSeries(series.id)
+                                        Task { await loadAll() }
                                     }
                                 }
-                                if isFocused { Color.clear.frame(width: 32) }
+                                if isFocused {
+                                    MediaCardMetadata(
+                                        title: series.name,
+                                        date: series.firstAirDate,
+                                        overview: series.overview
+                                    )
+                                    .frame(maxWidth: mediaCardBackdropWidth, minHeight: 120, alignment: .topLeading)
+                                    .transition(.opacity)
+                                    .animation(.easeInOut(duration: 0.2), value: isFocused)
+                                }
                             }
-                            .id(series.id)
+                            if isFocused { Color.clear.frame(width: 32) }
                         }
+                        .id(series.id)
                     }
-                    .scrollTargetLayout()
-                    .padding(.horizontal)
                 }
-                .scrollPosition($likedSeriesScrollPosition, anchor: .leading)
-                .onChange(of: likedSeriesFocusedId) { _, id in if let id { likedSeriesScrollPosition.scrollTo(id: id, anchor: .leading) } }
-                .focusSection()
+                .scrollTargetLayout()
+                .padding(.horizontal)
             }
+            .scrollPosition($likedSeriesScrollPosition, anchor: .leading)
+            .onChange(of: likedSeriesFocusedId) { _, id in if let id { likedSeriesScrollPosition.scrollTo(id: id, anchor: .leading) } }
+            .focusSection()
         }
         .padding(.bottom, 16)
     }

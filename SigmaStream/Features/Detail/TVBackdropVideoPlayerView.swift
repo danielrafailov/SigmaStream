@@ -40,11 +40,13 @@ struct TVBackdropVideoPlayerView: View {
                     .ignoresSafeArea()
             }
 
-            // Layer 2: Native AVPlayer Full Screen Video Layer (Zero UI clutter / channel names)
+            // Layer 2: Native AVKit VideoPlayer (Full Screen Hardware Accelerated, 0 UI chrome)
             if let player {
-                TVPlayerLayerRepresentable(player: player)
+                VideoPlayer(player: player)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .ignoresSafeArea()
+                    .disabled(true)
+                    .allowsHitTesting(false)
                     .opacity(isVideoReady ? 1.0 : 0.0)
                     .animation(.easeInOut(duration: 0.8), value: isVideoReady)
             }
@@ -79,7 +81,7 @@ struct TVBackdropVideoPlayerView: View {
         p.automaticallyWaitsToMinimizeStalling = false
         p.actionAtItemEnd = .none
 
-        // Seamless loop
+        // Seamless loop when video reaches end
         itemObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: item,
@@ -89,7 +91,7 @@ struct TVBackdropVideoPlayerView: View {
             p.play()
         }
 
-        // KVO on player status to detect successful render or failure
+        // Observe player readiness
         statusObserver = item.observe(\.status, options: [.new]) { [self] observedItem, _ in
             DispatchQueue.main.async {
                 if observedItem.status == .readyToPlay {
@@ -117,40 +119,6 @@ struct TVBackdropVideoPlayerView: View {
         player?.pause()
         player = nil
         isVideoReady = false
-    }
-}
-
-private struct TVPlayerLayerRepresentable: UIViewRepresentable {
-    let player: AVPlayer
-
-    func makeUIView(context: Context) -> TVPlayerUIView {
-        let view = TVPlayerUIView()
-        view.playerLayer.player = player
-        view.playerLayer.videoGravity = .resizeAspectFill
-        view.playerLayer.needsDisplayOnBoundsChange = true
-        return view
-    }
-
-    func updateUIView(_ uiView: TVPlayerUIView, context: Context) {
-        if uiView.playerLayer.player !== player {
-            uiView.playerLayer.player = player
-        }
-        uiView.playerLayer.frame = uiView.bounds
-    }
-}
-
-private class TVPlayerUIView: UIView {
-    override static var layerClass: AnyClass {
-        AVPlayerLayer.self
-    }
-
-    var playerLayer: AVPlayerLayer {
-        layer as! AVPlayerLayer
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        playerLayer.frame = bounds
     }
 }
 #endif

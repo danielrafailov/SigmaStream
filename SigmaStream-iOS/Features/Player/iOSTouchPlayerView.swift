@@ -538,7 +538,7 @@ struct iOSTouchPlayerView: View {
         isBuffering = true
         // Configure AVAudioSession for AirPlay video & audio routing
         do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback, options: [.allowAirPlay])
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
             try AVAudioSession.sharedInstance().setActive(true)
         } catch {
             print("AudioSession setup error: \(error)")
@@ -582,6 +582,9 @@ struct iOSTouchPlayerView: View {
                     }
                     avPlayer?.play()
                     self.isPlaying = true
+                    Task {
+                        await self.loadMediaSelectionOptions(for: currentItem)
+                    }
                 case .failed:
                     print("[Player] ❌ Stream failed for URL: \(url). Error: \(String(describing: currentItem.error))")
                     if let log = currentItem.errorLog() {
@@ -617,21 +620,6 @@ struct iOSTouchPlayerView: View {
             }
         }
 
-        Task {
-            if let group = try? await item.asset.loadMediaSelectionGroup(for: .audible) {
-                let englishOption = group.options.first { opt in
-                    if let lang = opt.locale?.language.languageCode?.identifier.lowercased(), lang == "en" { return true }
-                    if let tag = opt.extendedLanguageTag?.lowercased(), tag.hasPrefix("en") || tag == "eng" { return true }
-                    if opt.displayName.lowercased().contains("english") { return true }
-                    return false
-                }
-                if let englishOption {
-                    item.select(englishOption, in: group)
-                }
-            }
-            await loadMediaSelectionOptions(for: item)
-        }
-        
         self.player = avPlayer
 
         // Observe periodic playback time

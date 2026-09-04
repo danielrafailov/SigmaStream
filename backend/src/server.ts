@@ -81,6 +81,21 @@ async function main() {
     const app = server.getInstance();
     const streamBuffer = StreamBufferService.getInstance();
 
+    // Hook into ProxyService to stream all video media instead of buffering into memory
+    const proxyServiceInstance = (server as any).proxyService;
+    if (proxyServiceInstance) {
+        proxyServiceInstance.shouldStream = function (url: string) {
+            if (
+                this.isManifestFile('', url) ||
+                /\.m3u8($|\?)/i.test(url) ||
+                /\.(vtt|srt|key)($|\?)/i.test(url)
+            ) {
+                return false;
+            }
+            return true;
+        };
+    }
+
     // Hook into ProxyService for Sliding-Window Lookahead Segment Buffering
     const origProxyRequest = (server as any).proxyService.proxyRequest.bind(
         (server as any).proxyService

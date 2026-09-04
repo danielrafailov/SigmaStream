@@ -545,8 +545,8 @@ struct iOSTouchPlayerView: View {
         }
 
         let item = AVPlayerItem(url: url)
-        item.preferredForwardBufferDuration = 20
-        item.preferredPeakBitRate = 12_000_000
+        item.preferredForwardBufferDuration = 1
+        item.preferredPeakBitRate = 0
 
         let avPlayer = AVPlayer(playerItem: item)
         avPlayer.allowsExternalPlayback = true

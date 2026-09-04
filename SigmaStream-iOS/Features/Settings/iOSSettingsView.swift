@@ -203,12 +203,13 @@ struct iOSSettingsView: View {
     }
 
     private func checkServer() async {
-        guard let url = URL(string: "\(Secrets.streamingServerBaseURL)/v1/health") else { return }
+        let base = Secrets.streamingServerBaseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard let url = URL(string: "\(base)/") else { return }
         do {
             var request = URLRequest(url: url)
-            request.timeoutInterval = 3
+            request.timeoutInterval = 8
             let (_, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse, http.statusCode == 200 {
+            if let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) {
                 await MainActor.run {
                     isServerOnline = true
                     serverStatus = "Online"
@@ -222,7 +223,7 @@ struct iOSSettingsView: View {
         } catch {
             await MainActor.run {
                 isServerOnline = false
-                serverStatus = "Offline"
+                serverStatus = "Offline (\(error.localizedDescription))"
             }
         }
     }

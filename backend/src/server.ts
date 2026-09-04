@@ -332,27 +332,23 @@ async function main() {
                                             );
                                         if (isValid) {
                                             validSources.push(source);
-                                            if (!isResolved) {
-                                                const duration =
-                                                    Date.now() - startTime;
-                                                console.log(
-                                                    `[SourceService] ⚡ Instant stream found by '${provider.name}' in ${duration}ms! Returning immediately.`
-                                                );
-                                                clearTimeout(hardDeadlineTimer);
-                                                result.sources = [
-                                                    source,
-                                                    ...result.sources.filter(
-                                                        (s: any) => s !== source
-                                                    )
-                                                ];
-                                                finishWithResult([result]);
-                                            }
                                         }
                                     } catch {
                                         // Validation failed for this single mirror
                                     }
                                 })
                             );
+
+                            if (validSources.length > 0 && !isResolved) {
+                                result.sources = validSources;
+                                const duration = Date.now() - startTime;
+                                console.log(
+                                    `[SourceService] ⚡ Working stream validated by '${provider.name}' (${validSources.length} sources) in ${duration}ms! Returning.`
+                                );
+                                clearTimeout(hardDeadlineTimer);
+                                finishWithResult([result]);
+                                return;
+                            }
 
                             if (validSources.length > 0 && !isResolved) {
                                 result.sources = validSources;

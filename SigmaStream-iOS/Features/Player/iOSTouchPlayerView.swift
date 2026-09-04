@@ -102,7 +102,7 @@ struct iOSTouchPlayerView: View {
 
             // Searching for Streams / Loading Overlay
             // Shown when resolving streams OR while buffering initial video playback OR on error
-            if streamResolveError != nil || isResolvingStream || (isBuffering && currentTime < 0.5) {
+            if streamResolveError != nil || isResolvingStream || (isBuffering && currentTime < 0.5 && player?.timeControlStatus != .playing) {
                 ZStack {
                     Color.black.ignoresSafeArea()
 
@@ -567,8 +567,10 @@ struct iOSTouchPlayerView: View {
         // Observe player item status
         statusObservation = item.observe(\.status, options: [.new, .initial]) { [weak avPlayer] currentItem, _ in
             DispatchQueue.main.async {
+                print("[Player] 📺 AVPlayerItem status: \(currentItem.status.rawValue)")
                 switch currentItem.status {
                 case .readyToPlay:
+                    print("[Player] ✅ readyToPlay! Starting video playback.")
                     self.isResolvingStream = false
                     self.isBuffering = false
                     if !self.didApplyStartTime {
@@ -581,7 +583,12 @@ struct iOSTouchPlayerView: View {
                     avPlayer?.play()
                     self.isPlaying = true
                 case .failed:
-                    print("Stream failed for URL: \(url). Error: \(String(describing: currentItem.error))")
+                    print("[Player] ❌ Stream failed for URL: \(url). Error: \(String(describing: currentItem.error))")
+                    if let log = currentItem.errorLog() {
+                        for event in log.events {
+                            print("[Player] 🚨 ErrorLog: \(event.errorComment ?? "nil") | code: \(event.errorStatusCode) | domain: \(event.errorDomain)")
+                        }
+                    }
                     self.tryNextURLOrFallback()
                 case .unknown:
                     break
@@ -647,6 +654,7 @@ struct iOSTouchPlayerView: View {
     private func tryNextURLOrFallback() {
         teardownPlayer()
         currentUrlIndex += 1
+        print("[Player] 🔄 Moving to stream candidate #\(currentUrlIndex + 1) of \(currentUrls.count)")
         if currentUrlIndex < currentUrls.count {
             let nextURL = currentUrls[currentUrlIndex]
             initializePlayer(with: nextURL)

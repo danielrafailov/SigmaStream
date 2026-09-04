@@ -22,7 +22,6 @@ struct SigmaSplashView: View {
 
             if let player {
                 SplashVideoPlayerRepresentable(player: player)
-                    .scaleEffect(0.88)
                     .ignoresSafeArea()
             }
         }
@@ -99,7 +98,7 @@ private struct SplashVideoPlayerRepresentable: UIViewRepresentable {
     func makeUIView(context: Context) -> SplashPlayerUIView {
         let view = SplashPlayerUIView()
         view.playerLayer.player = player
-        view.playerLayer.videoGravity = .resizeAspect
+        view.playerLayer.videoGravity = .resizeAspectFill
         return view
     }
 

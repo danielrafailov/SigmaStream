@@ -94,6 +94,56 @@ async function main() {
             }
             return true;
         };
+
+        // Override fetchWithTimeout to manually follow cross-origin redirects while preserving headers (especially Referer)
+        proxyServiceInstance.fetchWithTimeout = async function (
+            url: string,
+            init: any,
+            timeoutMs = 30000
+        ) {
+            let currentUrl = url;
+            let redirects = 0;
+            const maxRedirects = 5;
+
+            while (redirects < maxRedirects) {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(
+                    () => controller.abort(),
+                    timeoutMs
+                );
+
+                try {
+                    const response = await fetch(currentUrl, {
+                        ...init,
+                        signal: controller.signal,
+                        redirect: 'manual'
+                    });
+
+                    if (
+                        [301, 302, 303, 307, 308].includes(response.status) &&
+                        response.headers.get('location')
+                    ) {
+                        clearTimeout(timeoutId);
+                        const redirectLocation =
+                            response.headers.get('location')!;
+                        currentUrl = new URL(
+                            redirectLocation,
+                            currentUrl
+                        ).toString();
+                        redirects++;
+                        continue;
+                    }
+
+                    clearTimeout(timeoutId);
+                    return response;
+                } catch (err) {
+                    clearTimeout(timeoutId);
+                    throw err;
+                }
+            }
+
+            throw new Error(`Too many redirects (max: ${maxRedirects})`);
+        };
     }
 
     // Hook into ProxyService for Sliding-Window Lookahead Segment Buffering

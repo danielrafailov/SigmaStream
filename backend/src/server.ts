@@ -535,15 +535,23 @@ async function main() {
     console.log('[Server] Binding to port...');
     await server.start();
 
-    // Warm up local TTS and STT models in background after server is live
-    setTimeout(() => {
-        getTTS().catch((err) =>
-            console.warn('[TTS] Background model warmup notice:', err.message)
-        );
-        getTranscriber().catch((err) =>
-            console.warn('[STT] Background model warmup notice:', err.message)
-        );
-    }, 500);
+    // Warm up local TTS and STT models in background only if explicitly enabled
+    if (process.env.WARMUP_VOICE_AI === 'true') {
+        setTimeout(() => {
+            getTTS().catch((err) =>
+                console.warn(
+                    '[TTS] Background model warmup notice:',
+                    err.message
+                )
+            );
+            getTranscriber().catch((err) =>
+                console.warn(
+                    '[STT] Background model warmup notice:',
+                    err.message
+                )
+            );
+        }, 2000);
+    }
 }
 
 main().catch((error) => {

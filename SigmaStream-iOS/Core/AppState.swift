@@ -20,15 +20,7 @@ final class AppState {
     let voiceService: VoiceAssistantService
     private(set) var apiConfiguration: APIConfiguration?
     var isKidsMode: Bool {
-        get {
-            KidsConfig.isKidsEdition
-        }
-        set {
-            KidsConfig.setKidsEdition(newValue)
-            Task {
-                await tmdbService.clearMemoryCache()
-            }
-        }
+        KidsConfig.isKidsEdition
     }
 
     init(

@@ -40,36 +40,24 @@ struct iOSSettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                // Parental Controls / Kids Edition Section
-                Section {
-                    Toggle(isOn: Binding(
-                        get: { appState.isKidsMode },
-                        set: { appState.isKidsMode = $0 }
-                    )) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            HStack(spacing: 6) {
-                                Text("Kids Edition")
+                if KidsConfig.isKidsEdition {
+                    Section {
+                        HStack(spacing: 10) {
+                            Image(systemName: "checkmark.shield.fill")
+                                .font(.title2)
+                                .foregroundStyle(.green)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Sigma Kids Active")
                                     .font(.body.bold())
-                                if appState.isKidsMode {
-                                    Text("ACTIVE")
-                                        .font(.caption2.bold())
-                                        .foregroundStyle(.black)
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
-                                        .background(Color.yellow)
-                                        .clipShape(Capsule())
-                                }
+                                Text("All content is strictly restricted to G & PG rated family movies and TV shows.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
-                            Text("Restricts all movies, TV shows, categories, searches, and AI to G & PG rated family content only.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
                         }
+                        .padding(.vertical, 4)
+                    } header: {
+                        Text("Kids Edition")
                     }
-                    .tint(.orange)
-                } header: {
-                    Text("Parental Controls")
-                } footer: {
-                    Text("When active, Deadpool, R-rated, and mature content are completely filtered out.")
                 }
 
                 // AI Voice Assistant Section

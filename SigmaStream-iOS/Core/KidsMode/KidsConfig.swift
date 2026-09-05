@@ -11,31 +11,10 @@ import TMDb
 
 enum KidsConfig {
     #if SIGMA_KIDS
-    static var isKidsEdition: Bool {
-        get { true }
-        set { }
-    }
+    static let isKidsEdition: Bool = true
     #else
-    private static var _isKidsOverride: Bool? = nil
-
     static var isKidsEdition: Bool {
-        get {
-            if let override = _isKidsOverride {
-                return override
-            }
-            if ProcessInfo.processInfo.arguments.contains("-KidsMode") || ProcessInfo.processInfo.environment["SIGMA_KIDS"] == "1" {
-                return true
-            }
-            return UserDefaults.standard.bool(forKey: "isKidsEdition")
-        }
-        set {
-            _isKidsOverride = newValue
-            UserDefaults.standard.set(newValue, forKey: "isKidsEdition")
-        }
-    }
-
-    static func setKidsEdition(_ enabled: Bool) {
-        isKidsEdition = enabled
+        ProcessInfo.processInfo.arguments.contains("-KidsMode") || ProcessInfo.processInfo.environment["SIGMA_KIDS"] == "1"
     }
     #endif
 

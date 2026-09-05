@@ -126,29 +126,6 @@ struct iOSHomeView: View {
                     }
 
                     Spacer()
-
-                    Button {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                            appState.isKidsMode.toggle()
-                        }
-                    } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: appState.isKidsMode ? "figure.and.child.holdinghands" : "person.crop.circle")
-                                .font(.system(size: 13, weight: .bold))
-                            Text(appState.isKidsMode ? "Kids Mode" : "Standard")
-                                .font(.caption2.bold())
-                        }
-                        .foregroundStyle(appState.isKidsMode ? .black : .white)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(
-                            appState.isKidsMode
-                            ? AnyShapeStyle(LinearGradient(colors: [.yellow, .orange], startPoint: .topLeading, endPoint: .bottomTrailing))
-                            : AnyShapeStyle(Color.white.opacity(0.15))
-                        )
-                        .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
@@ -294,11 +271,6 @@ struct iOSHomeView: View {
             .onReceive(NotificationCenter.default.publisher(for: WatchProgressManager.continueWatchingDidChange)) { _ in
                 Task {
                     await loadContinueWatching()
-                }
-            }
-            .onChange(of: appState.isKidsMode) { _, _ in
-                Task {
-                    await loadFeedData()
                 }
             }
         }

@@ -446,6 +446,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SigmaStream/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Sigma;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "SigmaStream connects to your local streaming and AI server to stream movies, TV shows, and voice synthesis.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "SigmaStream uses the microphone to listen to your voice requests.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "SigmaStream uses speech recognition to let you search and discover movies and shows using your voice.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -484,6 +485,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SigmaStream/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Sigma;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "SigmaStream connects to your local streaming and AI server to stream movies, TV shows, and voice synthesis.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "SigmaStream uses the microphone to listen to your voice requests.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "SigmaStream uses speech recognition to let you search and discover movies and shows using your voice.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;

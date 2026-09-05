@@ -1,12 +1,6 @@
-//
-//  HeaderVideoPreviewView.swift
-//  SigmaStream-iOS
-//
-//  Created by Daniel Rafailov on 2026-09-02.
-//
-
 import SwiftUI
 import WebKit
+import AVFoundation
 
 #if os(iOS)
 struct HeaderVideoPreviewView: View {
@@ -19,7 +13,7 @@ struct HeaderVideoPreviewView: View {
     @State private var hasError = false
 
     var body: some View {
-        ZStack(alignment: .bottomTrailing) {
+        ZStack(alignment: .topTrailing) {
             // Layer 1: Static Backdrop Fallback
             if let fallbackImageURL {
                 AsyncImage(url: fallbackImageURL) { phase in
@@ -52,10 +46,14 @@ struct HeaderVideoPreviewView: View {
                 .allowsHitTesting(false) // Allow touch pass-through for vertical scrolling
             }
 
-            // Layer 3: Netflix Glass Audio Mute/Unmute Control Pill
+            // Layer 3: Top-Right Liquid Glass Audio Mute/Unmute Control Pill
             if isVideoReady && !hasError {
                 Button {
                     isMuted.toggle()
+                    if !isMuted {
+                        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback, options: [.mixWithOthers])
+                        try? AVAudioSession.sharedInstance().setActive(true)
+                    }
                 } label: {
                     HStack(spacing: 5) {
                         Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
@@ -71,12 +69,15 @@ struct HeaderVideoPreviewView: View {
                     .shadow(color: .black.opacity(0.4), radius: 4, x: 0, y: 2)
                 }
                 .buttonStyle(.plain)
-                .padding(.trailing, 16)
-                .padding(.bottom, 22)
+                .padding(.trailing, 18)
+                .padding(.top, 50)
                 .transition(.opacity.combined(with: .scale))
             }
         }
         .frame(height: height)
+        .onDisappear {
+            isMuted = true
+        }
     }
 }
 
@@ -121,9 +122,44 @@ private struct TrailerWebViewRepresentable: UIViewRepresentable {
     func updateUIView(_ uiView: WKWebView, context: Context) {
         if context.coordinator.lastMutedState != isMuted {
             context.coordinator.lastMutedState = isMuted
-            let js = isMuted ?
-                "document.querySelector('iframe')?.contentWindow?.postMessage('{\"event\":\"command\",\"func\":\"mute\",\"args\":\"\"}', '*'); if(window.player && player.mute){player.mute();}" :
-                "document.querySelector('iframe')?.contentWindow?.postMessage('{\"event\":\"command\",\"func\":\"unMute\",\"args\":\"\"}', '*'); document.querySelector('iframe')?.contentWindow?.postMessage('{\"event\":\"command\",\"func\":\"setVolume\",\"args\":[100]}', '*'); if(window.player && player.unMute){player.unMute();player.setVolume(100);}"
+            let js: String
+            if isMuted {
+                js = """
+                (function() {
+                    var videos = document.querySelectorAll('video');
+                    videos.forEach(function(v) { v.muted = true; });
+                    if (window.player && typeof player.mute === 'function') { player.mute(); }
+                    window.postMessage('{"event":"command","func":"mute","args":""}', '*');
+                    var iframes = document.querySelectorAll('iframe');
+                    iframes.forEach(function(f) {
+                        try { f.contentWindow.postMessage('{"event":"command","func":"mute","args":""}', '*'); } catch(e){}
+                    });
+                })();
+                """
+            } else {
+                js = """
+                (function() {
+                    var videos = document.querySelectorAll('video');
+                    videos.forEach(function(v) { 
+                        v.muted = false; 
+                        v.volume = 1.0; 
+                    });
+                    if (window.player && typeof player.unMute === 'function') { 
+                        player.unMute(); 
+                        if (typeof player.setVolume === 'function') { player.setVolume(100); }
+                    }
+                    window.postMessage('{"event":"command","func":"unMute","args":""}', '*');
+                    window.postMessage('{"event":"command","func":"setVolume","args":[100]}', '*');
+                    var iframes = document.querySelectorAll('iframe');
+                    iframes.forEach(function(f) {
+                        try { 
+                            f.contentWindow.postMessage('{"event":"command","func":"unMute","args":""}', '*'); 
+                            f.contentWindow.postMessage('{"event":"command","func":"setVolume","args":[100]}', '*'); 
+                        } catch(e){}
+                    });
+                })();
+                """
+            }
             uiView.evaluateJavaScript(js, completionHandler: nil)
         }
     }

@@ -15,8 +15,8 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "4B86B7F83047934B00CA8E37"
-               BuildableName = "SigmaStream-iOS.app"
+               BlueprintIdentifier = "4B86D0023047A00000CA8E37"
+               BuildableName = "SigmaStream-Kids.app"
                ReferencedContainer = "container:SigmaStream.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -44,24 +44,11 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "4B86B7F83047934B00CA8E37"
-            BuildableName = "SigmaStream-iOS.app"
+            BlueprintIdentifier = "4B86D0023047A00000CA8E37"
+            BuildableName = "SigmaStream-Kids.app"
             ReferencedContainer = "container:SigmaStream.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
-      <CommandLineArguments>
-         <CommandLineArgument
-            argument = "-KidsMode"
-            isEnabled = "YES">
-         </CommandLineArgument>
-      </CommandLineArguments>
-      <EnvironmentVariables>
-         <EnvironmentVariable
-            key = "SIGMA_KIDS"
-            value = "1"
-            isEnabled = "YES">
-         </EnvironmentVariable>
-      </EnvironmentVariables>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"
@@ -73,8 +60,8 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "4B86B7F83047934B00CA8E37"
-            BuildableName = "SigmaStream-iOS.app"
+            BlueprintIdentifier = "4B86D0023047A00000CA8E37"
+            BuildableName = "SigmaStream-Kids.app"
             ReferencedContainer = "container:SigmaStream.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>

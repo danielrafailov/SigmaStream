@@ -13,7 +13,5 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>SigmaStream connects to your local streaming and AI server to stream movies, TV shows, and voice synthesis.</string>
 </dict>
 </plist>

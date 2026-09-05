@@ -18,6 +18,7 @@ enum DetailSubTab: String, CaseIterable, Identifiable {
 
 struct iOSMovieDetailView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(AppState.self) private var appState
 
     let movieId: Int
@@ -33,9 +34,13 @@ struct iOSMovieDetailView: View {
     @State private var playableContent: PlayableContent?
     @State private var prefetchedMoviePlayback: (urls: [URL], quality: String?)?
 
+    private var isIPad: Bool {
+        horizontalSizeClass == .regular
+    }
+
     var body: some View {
         GeometryReader { geometry in
-            let headerHeight: CGFloat = 260
+            let headerHeight: CGFloat = isIPad ? 400 : 260
 
             ZStack(alignment: .top) {
                 // Layer 1: Scrollable Content (Slides UNDER the fixed header in Z-axis)
@@ -46,7 +51,7 @@ struct iOSMovieDetailView: View {
                             .frame(height: headerHeight)
 
                         // Content Details strictly constrained to screen width with horizontal margins
-                        VStack(alignment: .leading, spacing: 18) {
+                        VStack(alignment: .leading, spacing: isIPad ? 22 : 18) {
                             // Title (forced to wrap within phone bounds)
                             Text(movie?.title ?? "Movie Details")
                                 .font(.system(size: 26, weight: .bold))
@@ -243,7 +248,9 @@ struct iOSMovieDetailView: View {
                                             .foregroundStyle(.secondary)
                                             .padding(.vertical, 16)
                                     } else {
-                                        let columns = [
+                                        let columns = isIPad ? [
+                                            GridItem(.adaptive(minimum: 140, maximum: 185), spacing: 16)
+                                        ] : [
                                             GridItem(.flexible(), spacing: 14),
                                             GridItem(.flexible(), spacing: 14),
                                             GridItem(.flexible(), spacing: 14)

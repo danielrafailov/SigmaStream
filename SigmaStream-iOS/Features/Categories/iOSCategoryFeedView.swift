@@ -27,16 +27,24 @@ struct iOSCategoryFeedView: View {
     @State private var hasMore = true
     @State private var isLoading = true
     @State private var isLoadingMore = false
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
     @State private var selectedHeroIndex = 0
 
     @State private var selectedMovieId: Int?
     @State private var selectedTVSeriesId: Int?
 
-    private let columns = [
-        GridItem(.flexible(), spacing: 14),
-        GridItem(.flexible(), spacing: 14),
-        GridItem(.flexible(), spacing: 14)
-    ]
+    private var columns: [GridItem] {
+        if horizontalSizeClass == .regular {
+            [GridItem(.adaptive(minimum: 140, maximum: 185), spacing: 16)]
+        } else {
+            [
+                GridItem(.flexible(), spacing: 14),
+                GridItem(.flexible(), spacing: 14),
+                GridItem(.flexible(), spacing: 14)
+            ]
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {

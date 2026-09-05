@@ -20,17 +20,30 @@ struct iOSMediaRowItem: Identifiable {
 }
 
 struct iOSMediaRow: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let title: String
     let items: [iOSMediaRowItem]
     var onSeeAll: (() -> Void)? = nil
     let onSelect: (iOSMediaRowItem) -> Void
 
+    private var isIPad: Bool {
+        horizontalSizeClass == .regular
+    }
+
+    private var cardWidth: CGFloat {
+        isIPad ? 144 : 108
+    }
+
+    private var cardHeight: CGFloat {
+        isIPad ? 216 : 162
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: isIPad ? 12 : 10) {
             // Header
             HStack {
                 Text(title)
-                    .font(.system(size: 18, weight: .bold))
+                    .font(.system(size: isIPad ? 22 : 18, weight: .bold))
                     .foregroundStyle(.white)
 
                 Spacer()
@@ -39,20 +52,20 @@ struct iOSMediaRow: View {
                     Button(action: onSeeAll) {
                         HStack(spacing: 3) {
                             Text("See All")
-                                .font(.system(size: 13, weight: .medium))
+                                .font(.system(size: isIPad ? 15 : 13, weight: .medium))
                             Image(systemName: "chevron.right")
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(.system(size: isIPad ? 13 : 11, weight: .semibold))
                         }
                         .foregroundStyle(Color.blue)
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, isIPad ? 24 : 16)
 
             // Horizontal Swipeable Cards
             ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 12) {
+                LazyHStack(spacing: isIPad ? 16 : 12) {
                     ForEach(items) { item in
                         Button {
                             onSelect(item)
@@ -65,14 +78,14 @@ struct iOSMediaRow: View {
                                 releaseYear: item.releaseYear,
                                 isTVSeries: item.isTVSeries,
                                 progress: item.progress,
-                                cardWidth: 108,
-                                cardHeight: 162
+                                cardWidth: cardWidth,
+                                cardHeight: cardHeight
                             )
                         }
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, isIPad ? 24 : 16)
             }
         }
     }

@@ -14,6 +14,8 @@ struct iOSMovieCategoryListView: View {
     let category: MovieCategory
     @Environment(AppState.self) private var appState
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
     @State private var movies: [MovieListItem] = []
     @State private var currentPage = 1
     @State private var hasMore = true
@@ -22,11 +24,17 @@ struct iOSMovieCategoryListView: View {
     @State private var errorMessage: String?
     @State private var selectedMovieId: Int?
 
-    private let columns = [
-        GridItem(.flexible(), spacing: 14),
-        GridItem(.flexible(), spacing: 14),
-        GridItem(.flexible(), spacing: 14)
-    ]
+    private var columns: [GridItem] {
+        if horizontalSizeClass == .regular {
+            [GridItem(.adaptive(minimum: 140, maximum: 185), spacing: 16)]
+        } else {
+            [
+                GridItem(.flexible(), spacing: 14),
+                GridItem(.flexible(), spacing: 14),
+                GridItem(.flexible(), spacing: 14)
+            ]
+        }
+    }
 
     var body: some View {
         Group {
@@ -136,6 +144,8 @@ struct iOSTVCategoryListView: View {
     let category: TVCategory
     @Environment(AppState.self) private var appState
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
     @State private var shows: [TVSeriesListItem] = []
     @State private var currentPage = 1
     @State private var hasMore = true
@@ -144,11 +154,17 @@ struct iOSTVCategoryListView: View {
     @State private var errorMessage: String?
     @State private var selectedSeriesId: Int?
 
-    private let columns = [
-        GridItem(.flexible(), spacing: 14),
-        GridItem(.flexible(), spacing: 14),
-        GridItem(.flexible(), spacing: 14)
-    ]
+    private var columns: [GridItem] {
+        if horizontalSizeClass == .regular {
+            [GridItem(.adaptive(minimum: 140, maximum: 185), spacing: 16)]
+        } else {
+            [
+                GridItem(.flexible(), spacing: 14),
+                GridItem(.flexible(), spacing: 14),
+                GridItem(.flexible(), spacing: 14)
+            ]
+        }
+    }
 
     var body: some View {
         Group {

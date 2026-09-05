@@ -150,16 +150,23 @@ struct iOSSearchView: View {
     @State private var hasMore = true
     @State private var searchTask: Task<Void, Never>?
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
     // Detail Navigation
     @State private var selectedMovieId: Int?
     @State private var selectedTVSeriesId: Int?
 
-    // 3 columns on iPhone with clean spacing
-    private let columns = [
-        GridItem(.flexible(), spacing: 14),
-        GridItem(.flexible(), spacing: 14),
-        GridItem(.flexible(), spacing: 14)
-    ]
+    private var columns: [GridItem] {
+        if horizontalSizeClass == .regular {
+            [GridItem(.adaptive(minimum: 140, maximum: 185), spacing: 16)]
+        } else {
+            [
+                GridItem(.flexible(), spacing: 14),
+                GridItem(.flexible(), spacing: 14),
+                GridItem(.flexible(), spacing: 14)
+            ]
+        }
+    }
 
     var body: some View {
         NavigationStack {

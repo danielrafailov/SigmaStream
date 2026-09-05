@@ -77,28 +77,29 @@ struct iOSTouchPlayerView: View {
     @State private var rightRipple = false
 
     var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
+        GeometryReader { geometry in
+            ZStack {
+                Color.black.ignoresSafeArea()
 
-            // Video Player Layer
-            if let player {
-                CustomVideoPlayerRepresentable(player: player)
-                    .ignoresSafeArea()
-                    .onTapGesture(count: 2) { location in
-                        // Double-tap to seek
-                        let screenWidth = UIScreen.main.bounds.width
-                        if location.x < screenWidth / 2 {
-                            seekRelative(-10)
-                            triggerLeftRipple()
-                        } else {
-                            seekRelative(10)
-                            triggerRightRipple()
+                // Video Player Layer
+                if let player {
+                    CustomVideoPlayerRepresentable(player: player)
+                        .ignoresSafeArea()
+                        .onTapGesture(count: 2) { location in
+                            // Double-tap to seek
+                            let viewWidth = geometry.size.width
+                            if location.x < viewWidth / 2 {
+                                seekRelative(-10)
+                                triggerLeftRipple()
+                            } else {
+                                seekRelative(10)
+                                triggerRightRipple()
+                            }
                         }
-                    }
-                    .onTapGesture(count: 1) {
-                        toggleControls()
-                    }
-            }
+                        .onTapGesture(count: 1) {
+                            toggleControls()
+                        }
+                }
 
             // Searching for Streams / Loading Overlay
             // Shown when resolving streams OR while buffering initial video playback OR on error
@@ -441,6 +442,7 @@ struct iOSTouchPlayerView: View {
                 }
                 .transition(.opacity.animation(.easeInOut(duration: 0.25)))
             }
+        }
         }
         .statusBarHidden(!showControls && player != nil && !isBuffering)
         .onAppear {

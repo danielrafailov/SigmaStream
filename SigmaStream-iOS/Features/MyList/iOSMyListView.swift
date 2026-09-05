@@ -12,16 +12,24 @@ import TMDb
 struct iOSMyListView: View {
     @Environment(AppState.self) private var appState
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
     @State private var selectedTab = 0 // 0: My List, 1: Liked
     @State private var myListItems: [MediaListItem] = []
     @State private var likedItems: [MediaListItem] = []
     @State private var isLoading = false
 
-    private let columns = [
-        GridItem(.flexible(), spacing: 14),
-        GridItem(.flexible(), spacing: 14),
-        GridItem(.flexible(), spacing: 14)
-    ]
+    private var columns: [GridItem] {
+        if horizontalSizeClass == .regular {
+            [GridItem(.adaptive(minimum: 140, maximum: 185), spacing: 16)]
+        } else {
+            [
+                GridItem(.flexible(), spacing: 14),
+                GridItem(.flexible(), spacing: 14),
+                GridItem(.flexible(), spacing: 14)
+            ]
+        }
+    }
 
     var body: some View {
         NavigationStack {

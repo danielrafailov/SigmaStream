@@ -1,3 +1,10 @@
+//
+//  HeaderVideoPreviewView.swift
+//  SigmaStream-iOS
+//
+//  Created by Daniel Rafailov on 2026-09-02.
+//
+
 import SwiftUI
 import WebKit
 import AVFoundation

@@ -147,6 +147,17 @@ actor TMDbService {
         self.client = TMDbClient(apiKey: apiKey)
     }
 
+    /// Clears in-memory and disk caches when mode changes
+    func clearMemoryCache() {
+        movieCache.removeAll()
+        tvSeriesCache.removeAll()
+        tvSeasonCache.removeAll()
+        trailerYouTubeKeyCache.removeAll()
+        movieCollectionDetailCache.removeAll()
+        searchMoviesTVCache.removeAll()
+        diskCache.clearAll()
+    }
+
     /// Build TMDb URL with api_key
     private func tmdbURL(path: String, queryItems: [String: String] = [:]) -> URL {
         var comps = URLComponents(string: "https://api.themoviedb.org/3" + path)!
@@ -262,17 +273,35 @@ actor TMDbService {
 
     private static let catalogOriginalLanguageEnglishCode = "en"
 
-    /// TMDb discover movie: restrict to original language English (ISO 639-1).
+    /// TMDb discover movie: restrict to original language English (ISO 639-1) and apply kids rating limits when in kids edition.
     private static func discoverMovieQueryItems(_ base: [String: String]) -> [String: String] {
         var q = base
         q["with_original_language"] = catalogOriginalLanguageEnglishCode
+        q["include_adult"] = "false"
+        if KidsConfig.isKidsEdition {
+            q["certification_country"] = "US"
+            q["certification.lte"] = "PG"
+            q["without_genres"] = "27,80,53,10752,10768"
+            if q["with_genres"] == nil {
+                q["with_genres"] = "16|10751"
+            }
+        }
         return q
     }
 
-    /// TMDb discover TV: restrict to original language English (ISO 639-1).
+    /// TMDb discover TV: restrict to original language English (ISO 639-1) and apply kids rating limits when in kids edition.
     private static func discoverTVQueryItems(_ base: [String: String]) -> [String: String] {
         var q = base
         q["with_original_language"] = catalogOriginalLanguageEnglishCode
+        q["include_adult"] = "false"
+        if KidsConfig.isKidsEdition {
+            q["certification_country"] = "US"
+            q["certification.lte"] = "TV-PG"
+            q["without_genres"] = "27,80,53,10752,10768"
+            if q["with_genres"] == nil {
+                q["with_genres"] = "16|10751|10762"
+            }
+        }
         return q
     }
 
@@ -358,6 +387,10 @@ actor TMDbService {
         if imagePathMightIndicateAdultFromURL(movie.posterPath) { return false }
         if imagePathMightIndicateAdultFromURL(movie.backdropPath) { return false }
         if isFutureDate(movie.releaseDate) { return false }
+        if KidsConfig.isKidsEdition {
+            if !KidsConfig.isMovieGenreAllowed(genreIds: movie.genreIDs) { return false }
+            if KidsConfig.containsInappropriateKeywords(text: text) { return false }
+        }
         return true
     }
 
@@ -368,6 +401,10 @@ actor TMDbService {
         if imagePathMightIndicateAdultFromURL(series.posterPath) { return false }
         if imagePathMightIndicateAdultFromURL(series.backdropPath) { return false }
         if isFutureDate(series.firstAirDate) { return false }
+        if KidsConfig.isKidsEdition {
+            if !KidsConfig.isTVGenreAllowed(genreIds: series.genreIDs) { return false }
+            if KidsConfig.containsInappropriateKeywords(text: text) { return false }
+        }
         return true
     }
 
@@ -379,6 +416,11 @@ actor TMDbService {
     private static func isMovieAllowedInCollection(_ movie: MovieListItem) -> Bool {
         if movie.isAdultOnly == true { return false }
         if isFutureDate(movie.releaseDate) { return false }
+        if KidsConfig.isKidsEdition {
+            if !KidsConfig.isMovieGenreAllowed(genreIds: movie.genreIDs) { return false }
+            let text = combinedText(movie.title, movie.originalTitle, movie.overview)
+            if KidsConfig.containsInappropriateKeywords(text: text) { return false }
+        }
         return true
     }
 
@@ -489,6 +531,14 @@ actor TMDbService {
 
     /// Fetch trending movies
     func trendingMovies(inTimeWindow: TrendingTimeWindowFilterType = .day) async throws -> [MovieListItem] {
+        if KidsConfig.isKidsEdition {
+            let url = tmdbURL(
+                path: "/discover/movie",
+                queryItems: Self.discoverMovieQueryItems(["sort_by": "popularity.desc", "page": "1"])
+            )
+            let response: TMDbPaginatedMovieResponse = try await cached("trending_movies_kids", url: url, as: TMDbPaginatedMovieResponse.self)
+            return Self.appSafeMovies(Self.filterShelfMoviesRequireBackdrop(response.results))
+        }
         let window = inTimeWindow == .day ? "day" : "week"
         let url = tmdbURL(path: "/trending/movie/\(window)")
         let response: TMDbPaginatedMovieResponse = try await cached("trending_movies_orig_en_\(window)", url: url, as: TMDbPaginatedMovieResponse.self)
@@ -1089,88 +1139,523 @@ actor TMDbService {
         return Self.appSafeTVSeries(Self.filterShelfTVSeriesRequireBackdrop(response.results))
     }
 
-    /// Curated category discovery for custom feed tabs (Action, Anime, Astrology, Book Adaptations, Canadian, Comedies, Critically Acclaimed, Culture Edit, Documentaries, Dramas, Emmys)
-    func fetchCategoryFeedItems(category: String, page: Int = 1) async throws -> (movies: [MovieListItem], tv: [TVSeriesListItem]) {
-        let p = max(1, page)
+    /// Shelf data model for Netflix-style curated category views
+    struct CategoryShelf: Identifiable {
+        let id = UUID()
+        let title: String
+        let movies: [MovieListItem]
+        let tvSeries: [TVSeriesListItem]
+
+        var isTV: Bool {
+            movies.isEmpty && !tvSeries.isEmpty
+        }
+    }
+
+    /// Fetches rich, Netflix-style tailored shelves specifically curated for a selected category
+    func fetchCategoryCuratedShelves(category: String) async -> [CategoryShelf] {
         switch category.lowercased() {
         case "action":
-            let movieURL = tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "28", "page": "\(p)"]))
-            let tvURL = tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "10759", "page": "\(p)"]))
-            let movies: TMDbPaginatedMovieResponse = (try? await cached("cat_action_m_\(p)", url: movieURL, as: TMDbPaginatedMovieResponse.self)) ?? TMDbPaginatedMovieResponse(results: [], page: 1, totalPages: 1)
-            let tv: TMDbPaginatedTVResponse = (try? await cached("cat_action_tv_\(p)", url: tvURL, as: TMDbPaginatedTVResponse.self)) ?? TMDbPaginatedTVResponse(results: [], page: 1, totalPages: 1)
-            return (Self.appSafeMovies(movies.results), Self.appSafeTVSeries(tv.results))
+            async let s1M = (try? await cached("cat_act_s1", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "28", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s2M = (try? await cached("cat_act_s2", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "28,80", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s3M = (try? await cached("cat_act_s3", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "28,878", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s4TV = (try? await cached("cat_act_s4", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "10759", "sort_by": "popularity.desc"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            async let s5M = (try? await cached("cat_act_s5", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "28", "vote_average.gte": "7.2", "vote_count.gte": "200", "sort_by": "vote_average.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            
+            let (r1, r2, r3, r4, r5) = await (s1M, s2M, s3M, s4TV, s5M)
+            return [
+                CategoryShelf(title: "Get in on the Action", movies: Self.appSafeMovies(r1), tvSeries: []),
+                CategoryShelf(title: "Relentless Crime & Action Thrillers", movies: Self.appSafeMovies(r2), tvSeries: []),
+                CategoryShelf(title: "Action Sci-Fi & Superheroes", movies: Self.appSafeMovies(r3), tvSeries: []),
+                CategoryShelf(title: "Action-Packed TV Shows", movies: [], tvSeries: Self.appSafeTVSeries(r4)),
+                CategoryShelf(title: "Martial Arts & Combat", movies: Self.appSafeMovies(r5), tvSeries: [])
+            ].filter { !$0.movies.isEmpty || !$0.tvSeries.isEmpty }
 
         case "anime":
-            let tvURL = tmdbURL(path: "/discover/tv", queryItems: ["with_genres": "16", "with_original_language": "ja", "sort_by": "popularity.desc", "page": "\(p)"])
-            let movieURL = tmdbURL(path: "/discover/movie", queryItems: ["with_genres": "16", "with_original_language": "ja", "sort_by": "popularity.desc", "page": "\(p)"])
-            let tv: TMDbPaginatedTVResponse = (try? await cached("cat_anime_tv_\(p)", url: tvURL, as: TMDbPaginatedTVResponse.self)) ?? TMDbPaginatedTVResponse(results: [], page: 1, totalPages: 1)
-            let movies: TMDbPaginatedMovieResponse = (try? await cached("cat_anime_m_\(p)", url: movieURL, as: TMDbPaginatedMovieResponse.self)) ?? TMDbPaginatedMovieResponse(results: [], page: 1, totalPages: 1)
-            return (Self.appSafeMovies(movies.results), Self.appSafeTVSeries(tv.results))
-
-        case "astrology":
-            let movieURL = tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "878,14", "page": "\(p)"]))
-            let tvURL = tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "10765,9648", "page": "\(p)"]))
-            let movies: TMDbPaginatedMovieResponse = (try? await cached("cat_astro_m_\(p)", url: movieURL, as: TMDbPaginatedMovieResponse.self)) ?? TMDbPaginatedMovieResponse(results: [], page: 1, totalPages: 1)
-            let tv: TMDbPaginatedTVResponse = (try? await cached("cat_astro_tv_\(p)", url: tvURL, as: TMDbPaginatedTVResponse.self)) ?? TMDbPaginatedTVResponse(results: [], page: 1, totalPages: 1)
-            return (Self.appSafeMovies(movies.results), Self.appSafeTVSeries(tv.results))
-
-        case "book adaptations":
-            let movieURL = tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_keywords": "818", "page": "\(p)"]))
-            let tvURL = tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_keywords": "818", "page": "\(p)"]))
-            let movies: TMDbPaginatedMovieResponse = (try? await cached("cat_books_m_\(p)", url: movieURL, as: TMDbPaginatedMovieResponse.self)) ?? TMDbPaginatedMovieResponse(results: [], page: 1, totalPages: 1)
-            let tv: TMDbPaginatedTVResponse = (try? await cached("cat_books_tv_\(p)", url: tvURL, as: TMDbPaginatedTVResponse.self)) ?? TMDbPaginatedTVResponse(results: [], page: 1, totalPages: 1)
-            return (Self.appSafeMovies(movies.results), Self.appSafeTVSeries(tv.results))
-
-        case "canadian":
-            let movieURL = tmdbURL(path: "/discover/movie", queryItems: ["with_origin_country": "CA", "sort_by": "popularity.desc", "page": "\(p)"])
-            let tvURL = tmdbURL(path: "/discover/tv", queryItems: ["with_origin_country": "CA", "sort_by": "popularity.desc", "page": "\(p)"])
-            let movies: TMDbPaginatedMovieResponse = (try? await cached("cat_ca_m_\(p)", url: movieURL, as: TMDbPaginatedMovieResponse.self)) ?? TMDbPaginatedMovieResponse(results: [], page: 1, totalPages: 1)
-            let tv: TMDbPaginatedTVResponse = (try? await cached("cat_ca_tv_\(p)", url: tvURL, as: TMDbPaginatedTVResponse.self)) ?? TMDbPaginatedTVResponse(results: [], page: 1, totalPages: 1)
-            return (Self.appSafeMovies(movies.results), Self.appSafeTVSeries(tv.results))
+            async let s1TV = (try? await cached("cat_an_s1", url: tmdbURL(path: "/discover/tv", queryItems: ["with_genres": "16", "with_original_language": "ja", "sort_by": "popularity.desc"]), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            async let s2TV = (try? await cached("cat_an_s2", url: tmdbURL(path: "/discover/tv", queryItems: ["with_genres": "16,10759", "with_original_language": "ja", "sort_by": "popularity.desc"]), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            async let s3TV = (try? await cached("cat_an_s3", url: tmdbURL(path: "/discover/tv", queryItems: ["with_genres": "16,10765", "with_original_language": "ja", "sort_by": "popularity.desc"]), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            async let s4M = (try? await cached("cat_an_s4", url: tmdbURL(path: "/discover/movie", queryItems: ["with_genres": "16", "with_original_language": "ja", "sort_by": "popularity.desc"]), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s5M = (try? await cached("cat_an_s5", url: tmdbURL(path: "/discover/movie", queryItems: ["with_genres": "16,878", "with_original_language": "ja", "sort_by": "popularity.desc"]), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            
+            let (r1, r2, r3, r4, r5) = await (s1TV, s2TV, s3TV, s4M, s5M)
+            return [
+                CategoryShelf(title: "Top Trending Anime", movies: [], tvSeries: Self.appSafeTVSeries(r1)),
+                CategoryShelf(title: "Action & Shonen Anime", movies: [], tvSeries: Self.appSafeTVSeries(r2)),
+                CategoryShelf(title: "Fantasy & Supernatural Anime", movies: [], tvSeries: Self.appSafeTVSeries(r3)),
+                CategoryShelf(title: "Anime Feature Films", movies: Self.appSafeMovies(r4), tvSeries: []),
+                CategoryShelf(title: "Sci-Fi & Cyberpunk Anime", movies: Self.appSafeMovies(r5), tvSeries: [])
+            ].filter { !$0.movies.isEmpty || !$0.tvSeries.isEmpty }
 
         case "comedies":
-            let movieURL = tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "35", "page": "\(p)"]))
-            let tvURL = tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "35", "page": "\(p)"]))
-            let movies: TMDbPaginatedMovieResponse = (try? await cached("cat_comedy_m_\(p)", url: movieURL, as: TMDbPaginatedMovieResponse.self)) ?? TMDbPaginatedMovieResponse(results: [], page: 1, totalPages: 1)
-            let tv: TMDbPaginatedTVResponse = (try? await cached("cat_comedy_tv_\(p)", url: tvURL, as: TMDbPaginatedTVResponse.self)) ?? TMDbPaginatedTVResponse(results: [], page: 1, totalPages: 1)
-            return (Self.appSafeMovies(movies.results), Self.appSafeTVSeries(tv.results))
-
-        case "critically acclaimed":
-            let movieURL = tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["vote_average.gte": "7.8", "vote_count.gte": "250", "sort_by": "vote_average.desc", "page": "\(p)"]))
-            let tvURL = tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["vote_average.gte": "7.8", "vote_count.gte": "150", "sort_by": "vote_average.desc", "page": "\(p)"]))
-            let movies: TMDbPaginatedMovieResponse = (try? await cached("cat_acclaim_m_\(p)", url: movieURL, as: TMDbPaginatedMovieResponse.self)) ?? TMDbPaginatedMovieResponse(results: [], page: 1, totalPages: 1)
-            let tv: TMDbPaginatedTVResponse = (try? await cached("cat_acclaim_tv_\(p)", url: tvURL, as: TMDbPaginatedTVResponse.self)) ?? TMDbPaginatedTVResponse(results: [], page: 1, totalPages: 1)
-            return (Self.appSafeMovies(movies.results), Self.appSafeTVSeries(tv.results))
-
-        case "culture edit":
-            let movieURL = tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "99,10402,18", "page": "\(p)"]))
-            let tvURL = tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "99,18", "page": "\(p)"]))
-            let movies: TMDbPaginatedMovieResponse = (try? await cached("cat_culture_m_\(p)", url: movieURL, as: TMDbPaginatedMovieResponse.self)) ?? TMDbPaginatedMovieResponse(results: [], page: 1, totalPages: 1)
-            let tv: TMDbPaginatedTVResponse = (try? await cached("cat_culture_tv_\(p)", url: tvURL, as: TMDbPaginatedTVResponse.self)) ?? TMDbPaginatedTVResponse(results: [], page: 1, totalPages: 1)
-            return (Self.appSafeMovies(movies.results), Self.appSafeTVSeries(tv.results))
-
-        case "documentaries":
-            let movieURL = tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "99", "page": "\(p)"]))
-            let tvURL = tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "99", "page": "\(p)"]))
-            let movies: TMDbPaginatedMovieResponse = (try? await cached("cat_doc_m_\(p)", url: movieURL, as: TMDbPaginatedMovieResponse.self)) ?? TMDbPaginatedMovieResponse(results: [], page: 1, totalPages: 1)
-            let tv: TMDbPaginatedTVResponse = (try? await cached("cat_doc_tv_\(p)", url: tvURL, as: TMDbPaginatedTVResponse.self)) ?? TMDbPaginatedTVResponse(results: [], page: 1, totalPages: 1)
-            return (Self.appSafeMovies(movies.results), Self.appSafeTVSeries(tv.results))
+            async let s1M = (try? await cached("cat_com_s1", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "35", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s2TV = (try? await cached("cat_com_s2", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "35", "sort_by": "popularity.desc"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            async let s3M = (try? await cached("cat_com_s3", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "35,10749", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s4M = (try? await cached("cat_com_s4", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "35,28", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s5M = (try? await cached("cat_com_s5", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "35", "vote_average.gte": "7.3", "vote_count.gte": "200", "sort_by": "vote_average.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            
+            let (r1, r2, r3, r4, r5) = await (s1M, s2TV, s3M, s4M, s5M)
+            return [
+                CategoryShelf(title: "Top Laughs & Comedy Hits", movies: Self.appSafeMovies(r1), tvSeries: []),
+                CategoryShelf(title: "Binge-Worthy Comedy Shows", movies: [], tvSeries: Self.appSafeTVSeries(r2)),
+                CategoryShelf(title: "Romantic Comedies", movies: Self.appSafeMovies(r3), tvSeries: []),
+                CategoryShelf(title: "Action Comedies", movies: Self.appSafeMovies(r4), tvSeries: []),
+                CategoryShelf(title: "Critically Acclaimed Comedies", movies: Self.appSafeMovies(r5), tvSeries: [])
+            ].filter { !$0.movies.isEmpty || !$0.tvSeries.isEmpty }
 
         case "dramas":
-            let movieURL = tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "18", "page": "\(p)"]))
-            let tvURL = tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "18", "page": "\(p)"]))
-            let movies: TMDbPaginatedMovieResponse = (try? await cached("cat_drama_m_\(p)", url: movieURL, as: TMDbPaginatedMovieResponse.self)) ?? TMDbPaginatedMovieResponse(results: [], page: 1, totalPages: 1)
-            let tv: TMDbPaginatedTVResponse = (try? await cached("cat_drama_tv_\(p)", url: tvURL, as: TMDbPaginatedTVResponse.self)) ?? TMDbPaginatedTVResponse(results: [], page: 1, totalPages: 1)
-            return (Self.appSafeMovies(movies.results), Self.appSafeTVSeries(tv.results))
+            async let s1M = (try? await cached("cat_dra_s1", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "18", "vote_average.gte": "7.8", "vote_count.gte": "300", "sort_by": "vote_average.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s2TV = (try? await cached("cat_dra_s2", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "18", "sort_by": "popularity.desc"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            async let s3M = (try? await cached("cat_dra_s3", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "18,80", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s4M = (try? await cached("cat_dra_s4", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "18,10749", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s5M = (try? await cached("cat_dra_s5", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "18,36", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            
+            let (r1, r2, r3, r4, r5) = await (s1M, s2TV, s3M, s4M, s5M)
+            return [
+                CategoryShelf(title: "Award-Winning Dramas", movies: Self.appSafeMovies(r1), tvSeries: []),
+                CategoryShelf(title: "Gripping TV Dramas", movies: [], tvSeries: Self.appSafeTVSeries(r2)),
+                CategoryShelf(title: "Relentless Crime Dramas", movies: Self.appSafeMovies(r3), tvSeries: []),
+                CategoryShelf(title: "Emotional & Romantic Dramas", movies: Self.appSafeMovies(r4), tvSeries: []),
+                CategoryShelf(title: "Historical & Period Dramas", movies: Self.appSafeMovies(r5), tvSeries: [])
+            ].filter { !$0.movies.isEmpty || !$0.tvSeries.isEmpty }
+
+        case "documentaries":
+            async let s1M = (try? await cached("cat_doc_s1", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "99", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s2TV = (try? await cached("cat_doc_s2", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "99", "sort_by": "popularity.desc"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            async let s3M = (try? await cached("cat_doc_s3", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "99,10402", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s4M = (try? await cached("cat_doc_s4", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "99,36", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s5M = (try? await cached("cat_doc_s5", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "99,80", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            
+            let (r1, r2, r3, r4, r5) = await (s1M, s2TV, s3M, s4M, s5M)
+            return [
+                CategoryShelf(title: "Trending Documentaries", movies: Self.appSafeMovies(r1), tvSeries: []),
+                CategoryShelf(title: "Docuseries & Investigative Series", movies: [], tvSeries: Self.appSafeTVSeries(r2)),
+                CategoryShelf(title: "Music & Pop Culture Docs", movies: Self.appSafeMovies(r3), tvSeries: []),
+                CategoryShelf(title: "Nature, Science & Exploration", movies: Self.appSafeMovies(r4), tvSeries: []),
+                CategoryShelf(title: "True Crime & Biographies", movies: Self.appSafeMovies(r5), tvSeries: [])
+            ].filter { !$0.movies.isEmpty || !$0.tvSeries.isEmpty }
+
+        case "critically acclaimed":
+            async let s1M = (try? await cached("cat_acc_s1", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["vote_average.gte": "8.0", "vote_count.gte": "400", "sort_by": "vote_average.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s2TV = (try? await cached("cat_acc_s2", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["vote_average.gte": "8.0", "vote_count.gte": "200", "sort_by": "vote_average.desc"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            async let s3M = (try? await cached("cat_acc_s3", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "878,53", "vote_average.gte": "7.7", "vote_count.gte": "250", "sort_by": "vote_average.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s4M = (try? await cached("cat_acc_s4", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "80,18", "vote_average.gte": "7.8", "vote_count.gte": "300", "sort_by": "vote_average.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s5M = (try? await cached("cat_acc_s5", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["vote_average.gte": "7.5", "vote_count.gte": "150", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            
+            let (r1, r2, r3, r4, r5) = await (s1M, s2TV, s3M, s4M, s5M)
+            return [
+                CategoryShelf(title: "Masterpiece Movies (8.0+ Rating)", movies: Self.appSafeMovies(r1), tvSeries: []),
+                CategoryShelf(title: "Prestige TV Series (8.0+ Rating)", movies: [], tvSeries: Self.appSafeTVSeries(r2)),
+                CategoryShelf(title: "Acclaimed Sci-Fi & Thrillers", movies: Self.appSafeMovies(r3), tvSeries: []),
+                CategoryShelf(title: "Acclaimed Crime & Drama", movies: Self.appSafeMovies(r4), tvSeries: []),
+                CategoryShelf(title: "Cinematic Hidden Gems", movies: Self.appSafeMovies(r5), tvSeries: [])
+            ].filter { !$0.movies.isEmpty || !$0.tvSeries.isEmpty }
+
+        case "book adaptations":
+            async let s1M = (try? await cached("cat_bk_s1", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_keywords": "818", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s2TV = (try? await cached("cat_bk_s2", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_keywords": "818", "sort_by": "popularity.desc"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            async let s3M = (try? await cached("cat_bk_s3", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_keywords": "818", "with_genres": "878,14", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s4M = (try? await cached("cat_bk_s4", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_keywords": "818", "with_genres": "80,9648,53", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s5M = (try? await cached("cat_bk_s5", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_keywords": "818", "with_genres": "18,36", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            
+            let (r1, r2, r3, r4, r5) = await (s1M, s2TV, s3M, s4M, s5M)
+            return [
+                CategoryShelf(title: "Best-Selling Book Adaptations", movies: Self.appSafeMovies(r1), tvSeries: []),
+                CategoryShelf(title: "Epic Series Based on Books", movies: [], tvSeries: Self.appSafeTVSeries(r2)),
+                CategoryShelf(title: "Sci-Fi & Fantasy Novels to Screen", movies: Self.appSafeMovies(r3), tvSeries: []),
+                CategoryShelf(title: "Crime, Mystery & Thriller Books", movies: Self.appSafeMovies(r4), tvSeries: []),
+                CategoryShelf(title: "Literary Classics & Drama", movies: Self.appSafeMovies(r5), tvSeries: [])
+            ].filter { !$0.movies.isEmpty || !$0.tvSeries.isEmpty }
+
+        case "canadian":
+            async let s1M = (try? await cached("cat_ca_s1", url: tmdbURL(path: "/discover/movie", queryItems: ["with_origin_country": "CA", "sort_by": "popularity.desc"]), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s2TV = (try? await cached("cat_ca_s2", url: tmdbURL(path: "/discover/tv", queryItems: ["with_origin_country": "CA", "sort_by": "popularity.desc"]), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            async let s3M = (try? await cached("cat_ca_s3", url: tmdbURL(path: "/discover/movie", queryItems: ["with_origin_country": "CA", "with_genres": "35", "sort_by": "popularity.desc"]), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s4M = (try? await cached("cat_ca_s4", url: tmdbURL(path: "/discover/movie", queryItems: ["with_origin_country": "CA", "with_genres": "53,80", "sort_by": "popularity.desc"]), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s5M = (try? await cached("cat_ca_s5", url: tmdbURL(path: "/discover/movie", queryItems: ["with_origin_country": "CA", "with_genres": "99", "sort_by": "popularity.desc"]), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            
+            let (r1, r2, r3, r4, r5) = await (s1M, s2TV, s3M, s4M, s5M)
+            return [
+                CategoryShelf(title: "Popular Canadian Movies", movies: Self.appSafeMovies(r1), tvSeries: []),
+                CategoryShelf(title: "Hit Canadian TV Shows", movies: [], tvSeries: Self.appSafeTVSeries(r2)),
+                CategoryShelf(title: "Canadian Comedies", movies: Self.appSafeMovies(r3), tvSeries: []),
+                CategoryShelf(title: "Canadian Thrillers & Crime", movies: Self.appSafeMovies(r4), tvSeries: []),
+                CategoryShelf(title: "Canadian Documentaries & Stories", movies: Self.appSafeMovies(r5), tvSeries: [])
+            ].filter { !$0.movies.isEmpty || !$0.tvSeries.isEmpty }
+
+        case "astrology":
+            async let s1M = (try? await cached("cat_ast_s1", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "878", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s2M = (try? await cached("cat_ast_s2", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "14,9648", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s3TV = (try? await cached("cat_ast_s3", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "9648,10765", "sort_by": "popularity.desc"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            async let s4M = (try? await cached("cat_ast_s4", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "14,53", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s5M = (try? await cached("cat_ast_s5", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "878,14", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            
+            let (r1, r2, r3, r4, r5) = await (s1M, s2M, s3TV, s4M, s5M)
+            return [
+                CategoryShelf(title: "Cosmic & Space Odysseys", movies: Self.appSafeMovies(r1), tvSeries: []),
+                CategoryShelf(title: "Mythology, Magic & Astrology", movies: Self.appSafeMovies(r2), tvSeries: []),
+                CategoryShelf(title: "Mind-Bending Mystery Series", movies: [], tvSeries: Self.appSafeTVSeries(r3)),
+                CategoryShelf(title: "Supernatural Thrillers", movies: Self.appSafeMovies(r4), tvSeries: []),
+                CategoryShelf(title: "Destiny & Time Travel", movies: Self.appSafeMovies(r5), tvSeries: [])
+            ].filter { !$0.movies.isEmpty || !$0.tvSeries.isEmpty }
+
+        case "culture edit":
+            async let s1M = (try? await cached("cat_cul_s1", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "99,10402,18", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s2M = (try? await cached("cat_cul_s2", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "10402,99", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s3TV = (try? await cached("cat_cul_s3", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "99", "sort_by": "popularity.desc"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            async let s4M = (try? await cached("cat_cul_s4", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "99,36", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s5M = (try? await cached("cat_cul_s5", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "18,10402", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            
+            let (r1, r2, r3, r4, r5) = await (s1M, s2M, s3TV, s4M, s5M)
+            return [
+                CategoryShelf(title: "Pop Culture & Modern Stories", movies: Self.appSafeMovies(r1), tvSeries: []),
+                CategoryShelf(title: "Music Icons & Legends", movies: Self.appSafeMovies(r2), tvSeries: []),
+                CategoryShelf(title: "Cultural & Lifestyle Series", movies: [], tvSeries: Self.appSafeTVSeries(r3)),
+                CategoryShelf(title: "Fashion, Art & Subcultures", movies: Self.appSafeMovies(r4), tvSeries: []),
+                CategoryShelf(title: "Global Cinema & Indie Hits", movies: Self.appSafeMovies(r5), tvSeries: [])
+            ].filter { !$0.movies.isEmpty || !$0.tvSeries.isEmpty }
 
         case "emmys":
-            let tvURL = tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["vote_average.gte": "7.8", "vote_count.gte": "100", "sort_by": "vote_average.desc", "page": "\(p)"]))
-            let tv: TMDbPaginatedTVResponse = (try? await cached("cat_emmys_tv_\(p)", url: tvURL, as: TMDbPaginatedTVResponse.self)) ?? TMDbPaginatedTVResponse(results: [], page: 1, totalPages: 1)
-            return ([], Self.appSafeTVSeries(tv.results))
+            async let s1TV = (try? await cached("cat_em_s1", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "18", "vote_average.gte": "8.0", "vote_count.gte": "150", "sort_by": "vote_average.desc"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            async let s2TV = (try? await cached("cat_em_s2", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "35", "vote_average.gte": "7.8", "vote_count.gte": "100", "sort_by": "vote_average.desc"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            async let s3TV = (try? await cached("cat_em_s3", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["vote_average.gte": "7.8", "vote_count.gte": "100", "sort_by": "popularity.desc"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            async let s4TV = (try? await cached("cat_em_s4", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["vote_average.gte": "8.2", "vote_count.gte": "200", "sort_by": "vote_average.desc"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            async let s5TV = (try? await cached("cat_em_s5", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "99", "vote_average.gte": "7.5", "vote_count.gte": "50", "sort_by": "vote_average.desc"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            
+            let (r1, r2, r3, r4, r5) = await (s1TV, s2TV, s3TV, s4TV, s5TV)
+            return [
+                CategoryShelf(title: "Outstanding Drama Series", movies: [], tvSeries: Self.appSafeTVSeries(r1)),
+                CategoryShelf(title: "Outstanding Comedy Series", movies: [], tvSeries: Self.appSafeTVSeries(r2)),
+                CategoryShelf(title: "Outstanding Limited Series & Anthologies", movies: [], tvSeries: Self.appSafeTVSeries(r3)),
+                CategoryShelf(title: "Critically Acclaimed TV Masterpieces", movies: [], tvSeries: Self.appSafeTVSeries(r4)),
+                CategoryShelf(title: "Outstanding Documentary Series", movies: [], tvSeries: Self.appSafeTVSeries(r5))
+            ].filter { !$0.movies.isEmpty || !$0.tvSeries.isEmpty }
+
+        case "animation":
+            async let s1M = (try? await cached("cat_anim_s1", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "16", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s2TV = (try? await cached("cat_anim_s2", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "16", "sort_by": "popularity.desc"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            async let s3M = (try? await cached("cat_anim_s3", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "16", "vote_average.gte": "7.5", "sort_by": "vote_average.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s4TV = (try? await cached("cat_anim_s4", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "16,10762", "sort_by": "popularity.desc"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            async let s5M = (try? await cached("cat_anim_s5", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "16,10751", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+
+            let (r1, r2, r3, r4, r5) = await (s1M, s2TV, s3M, s4TV, s5M)
+            return [
+                CategoryShelf(title: "Top Animated Movies", movies: Self.appSafeMovies(r1), tvSeries: []),
+                CategoryShelf(title: "Hit Animated Series", movies: [], tvSeries: Self.appSafeTVSeries(r2)),
+                CategoryShelf(title: "Critically Acclaimed Animation", movies: Self.appSafeMovies(r3), tvSeries: []),
+                CategoryShelf(title: "Kids & Family Cartoons", movies: [], tvSeries: Self.appSafeTVSeries(r4)),
+                CategoryShelf(title: "Beloved Family Animation", movies: Self.appSafeMovies(r5), tvSeries: [])
+            ].filter { !$0.movies.isEmpty || !$0.tvSeries.isEmpty }
+
+        case "disney & pixar":
+            async let s1M = (try? await cached("cat_dp_s1", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_companies": "3", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s2M = (try? await cached("cat_dp_s2", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_companies": "2|6125", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s3TV = (try? await cached("cat_dp_s3", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_companies": "2|6125", "sort_by": "popularity.desc"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            async let s4M = (try? await cached("cat_dp_s4", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_companies": "2|3|6125", "vote_average.gte": "7.5", "sort_by": "vote_average.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+
+            let (r1, r2, r3, r4) = await (s1M, s2M, s3TV, s4M)
+            return [
+                CategoryShelf(title: "Pixar Favorites", movies: Self.appSafeMovies(r1), tvSeries: []),
+                CategoryShelf(title: "Disney Animated Classics & Hits", movies: Self.appSafeMovies(r2), tvSeries: []),
+                CategoryShelf(title: "Disney Series & Adventures", movies: [], tvSeries: Self.appSafeTVSeries(r3)),
+                CategoryShelf(title: "Timeless Disney & Pixar Masterpieces", movies: Self.appSafeMovies(r4), tvSeries: [])
+            ].filter { !$0.movies.isEmpty || !$0.tvSeries.isEmpty }
+
+        case "family fun":
+            async let s1M = (try? await cached("cat_ff_s1", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "10751", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s2TV = (try? await cached("cat_ff_s2", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "10751,10762", "sort_by": "popularity.desc"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            async let s3M = (try? await cached("cat_ff_s3", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "10751,35", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s4M = (try? await cached("cat_ff_s4", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "10751,12", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+
+            let (r1, r2, r3, r4) = await (s1M, s2TV, s3M, s4M)
+            return [
+                CategoryShelf(title: "Family Movie Night Hits", movies: Self.appSafeMovies(r1), tvSeries: []),
+                CategoryShelf(title: "Family TV Series", movies: [], tvSeries: Self.appSafeTVSeries(r2)),
+                CategoryShelf(title: "Laugh-Out-Loud Family Comedies", movies: Self.appSafeMovies(r3), tvSeries: []),
+                CategoryShelf(title: "Epic Family Adventures", movies: Self.appSafeMovies(r4), tvSeries: [])
+            ].filter { !$0.movies.isEmpty || !$0.tvSeries.isEmpty }
+
+        case "dreamworks & minions":
+            async let s1M = (try? await cached("cat_dw_s1", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_companies": "521", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s2M = (try? await cached("cat_dw_s2", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_companies": "3341", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s3M = (try? await cached("cat_dw_s3", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_companies": "521|3341|9383", "vote_average.gte": "7.0", "sort_by": "vote_average.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s4TV = (try? await cached("cat_dw_s4", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_companies": "521", "sort_by": "popularity.desc"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+
+            let (r1, r2, r3, r4) = await (s1M, s2M, s3M, s4TV)
+            return [
+                CategoryShelf(title: "DreamWorks Animation Adventures", movies: Self.appSafeMovies(r1), tvSeries: []),
+                CategoryShelf(title: "Illumination & Minions Fun", movies: Self.appSafeMovies(r2), tvSeries: []),
+                CategoryShelf(title: "Top CGI Family Blockbusters", movies: Self.appSafeMovies(r3), tvSeries: []),
+                CategoryShelf(title: "DreamWorks TV Series", movies: [], tvSeries: Self.appSafeTVSeries(r4))
+            ].filter { !$0.movies.isEmpty || !$0.tvSeries.isEmpty }
+
+        case "animated superheroes":
+            async let s1M = (try? await cached("cat_ash_s1", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "16", "with_keywords": "9715|849|180547", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s2TV = (try? await cached("cat_ash_s2", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "16", "with_keywords": "9715|849|180547", "sort_by": "popularity.desc"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            async let s3M = (try? await cached("cat_ash_s3", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "16,28", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+
+            let (r1, r2, r3) = await (s1M, s2TV, s3M)
+            return [
+                CategoryShelf(title: "Animated Superhero Movies", movies: Self.appSafeMovies(r1), tvSeries: []),
+                CategoryShelf(title: "Superhero Cartoons & Series", movies: [], tvSeries: Self.appSafeTVSeries(r2)),
+                CategoryShelf(title: "High-Octane Animated Action", movies: Self.appSafeMovies(r3), tvSeries: [])
+            ].filter { !$0.movies.isEmpty || !$0.tvSeries.isEmpty }
+
+        case "animal adventures":
+            async let s1M = (try? await cached("cat_aa_s1", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "16,12", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s2TV = (try? await cached("cat_aa_s2", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "10762,10751", "sort_by": "popularity.desc"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            async let s3M = (try? await cached("cat_aa_s3", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "16,35,10751", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+
+            let (r1, r2, r3) = await (s1M, s2TV, s3M)
+            return [
+                CategoryShelf(title: "Wild Animal Adventures", movies: Self.appSafeMovies(r1), tvSeries: []),
+                CategoryShelf(title: "Creature & Nature Series", movies: [], tvSeries: Self.appSafeTVSeries(r2)),
+                CategoryShelf(title: "Hilarious Animal Stories", movies: Self.appSafeMovies(r3), tvSeries: [])
+            ].filter { !$0.movies.isEmpty || !$0.tvSeries.isEmpty }
+
+        case "comedy & laughs":
+            async let s1M = (try? await cached("cat_cl_s1", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "35,10751", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s2TV = (try? await cached("cat_cl_s2", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "35,10762", "sort_by": "popularity.desc"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            async let s3M = (try? await cached("cat_cl_s3", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "16,35", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+
+            let (r1, r2, r3) = await (s1M, s2TV, s3M)
+            return [
+                CategoryShelf(title: "Laugh-Out-Loud Comedies", movies: Self.appSafeMovies(r1), tvSeries: []),
+                CategoryShelf(title: "Funny TV Shows & Cartoons", movies: [], tvSeries: Self.appSafeTVSeries(r2)),
+                CategoryShelf(title: "Goofy Animated Laughs", movies: Self.appSafeMovies(r3), tvSeries: [])
+            ].filter { !$0.movies.isEmpty || !$0.tvSeries.isEmpty }
+
+        case "fantasy & magic":
+            async let s1M = (try? await cached("cat_fm_s1", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "14,10751", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s2M = (try? await cached("cat_fm_s2", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "16,14", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s3TV = (try? await cached("cat_fm_s3", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "10765,10762", "sort_by": "popularity.desc"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+
+            let (r1, r2, r3) = await (s1M, s2M, s3TV)
+            return [
+                CategoryShelf(title: "Enchanted Worlds & Fairy Tales", movies: Self.appSafeMovies(r1), tvSeries: []),
+                CategoryShelf(title: "Magical Animated Quests", movies: Self.appSafeMovies(r2), tvSeries: []),
+                CategoryShelf(title: "Fantasy TV Adventures", movies: [], tvSeries: Self.appSafeTVSeries(r3))
+            ].filter { !$0.movies.isEmpty || !$0.tvSeries.isEmpty }
+
+        case "music & sing-along":
+            async let s1M = (try? await cached("cat_ms_s1", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "16,10402", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s2M = (try? await cached("cat_ms_s2", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "10402,10751", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s3TV = (try? await cached("cat_ms_s3", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "10402,10762", "sort_by": "popularity.desc"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+
+            let (r1, r2, r3) = await (s1M, s2M, s3TV)
+            return [
+                CategoryShelf(title: "Animated Musical Hits", movies: Self.appSafeMovies(r1), tvSeries: []),
+                CategoryShelf(title: "Sing-Along Family Favorites", movies: Self.appSafeMovies(r2), tvSeries: []),
+                CategoryShelf(title: "Musical TV Series", movies: [], tvSeries: Self.appSafeTVSeries(r3))
+            ].filter { !$0.movies.isEmpty || !$0.tvSeries.isEmpty }
+
+        case "science & discovery":
+            async let s1M = (try? await cached("cat_sd_s1", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "878,10751", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let s2TV = (try? await cached("cat_sd_s2", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "99,10762", "sort_by": "popularity.desc"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            async let s3M = (try? await cached("cat_sd_s3", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "99,10751", "sort_by": "popularity.desc"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+
+            let (r1, r2, r3) = await (s1M, s2TV, s3M)
+            return [
+                CategoryShelf(title: "Sci-Fi Adventures for Kids", movies: Self.appSafeMovies(r1), tvSeries: []),
+                CategoryShelf(title: "Discovery & Learning TV", movies: [], tvSeries: Self.appSafeTVSeries(r2)),
+                CategoryShelf(title: "Nature & Space Documentaries", movies: Self.appSafeMovies(r3), tvSeries: [])
+            ].filter { !$0.movies.isEmpty || !$0.tvSeries.isEmpty }
 
         default:
-            return ([], [])
+            return []
         }
+    }
+
+    /// Fetches paginated movies and tv series for the "More in [Category]" grid
+    func fetchCategoryFeedItems(category: String, page: Int) async throws -> (movies: [MovieListItem], tv: [TVSeriesListItem]) {
+        switch category.lowercased() {
+        case "action":
+            async let m = (try? await cached("cat_more_act_m_\(page)", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "28", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let t = (try? await cached("cat_more_act_t_\(page)", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "10759", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            return await (Self.appSafeMovies(m), Self.appSafeTVSeries(t))
+        case "anime":
+            async let m = (try? await cached("cat_more_an_m_\(page)", url: tmdbURL(path: "/discover/movie", queryItems: ["with_genres": "16", "with_original_language": "ja", "sort_by": "popularity.desc", "page": "\(page)"]), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let t = (try? await cached("cat_more_an_t_\(page)", url: tmdbURL(path: "/discover/tv", queryItems: ["with_genres": "16", "with_original_language": "ja", "sort_by": "popularity.desc", "page": "\(page)"]), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            return await (Self.appSafeMovies(m), Self.appSafeTVSeries(t))
+        case "comedies":
+            async let m = (try? await cached("cat_more_com_m_\(page)", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "35", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let t = (try? await cached("cat_more_com_t_\(page)", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "35", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            return await (Self.appSafeMovies(m), Self.appSafeTVSeries(t))
+        case "dramas":
+            async let m = (try? await cached("cat_more_dra_m_\(page)", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "18", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let t = (try? await cached("cat_more_dra_t_\(page)", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "18", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            return await (Self.appSafeMovies(m), Self.appSafeTVSeries(t))
+        case "documentaries":
+            async let m = (try? await cached("cat_more_doc_m_\(page)", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "99", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let t = (try? await cached("cat_more_doc_t_\(page)", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "99", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            return await (Self.appSafeMovies(m), Self.appSafeTVSeries(t))
+        case "critically acclaimed":
+            async let m = (try? await cached("cat_more_crit_m_\(page)", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["vote_average.gte": "8.0", "vote_count.gte": "300", "sort_by": "vote_average.desc", "page": "\(page)"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let t = (try? await cached("cat_more_crit_t_\(page)", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["vote_average.gte": "8.0", "vote_count.gte": "200", "sort_by": "vote_average.desc", "page": "\(page)"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            return await (Self.appSafeMovies(m), Self.appSafeTVSeries(t))
+        case "book adaptations":
+            async let m = (try? await cached("cat_more_bk_m_\(page)", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_keywords": "818|180547", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let t = (try? await cached("cat_more_bk_t_\(page)", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_keywords": "818|180547", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            return await (Self.appSafeMovies(m), Self.appSafeTVSeries(t))
+        case "canadian":
+            async let m = (try? await cached("cat_more_ca_m_\(page)", url: tmdbURL(path: "/discover/movie", queryItems: ["with_origin_country": "CA", "sort_by": "popularity.desc", "page": "\(page)"]), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let t = (try? await cached("cat_more_ca_t_\(page)", url: tmdbURL(path: "/discover/tv", queryItems: ["with_origin_country": "CA", "sort_by": "popularity.desc", "page": "\(page)"]), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            return await (Self.appSafeMovies(m), Self.appSafeTVSeries(t))
+        case "astrology":
+            async let m = (try? await cached("cat_more_ast_m_\(page)", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "878,14", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let t = (try? await cached("cat_more_ast_t_\(page)", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "10765", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            return await (Self.appSafeMovies(m), Self.appSafeTVSeries(t))
+        case "culture edit":
+            async let m = (try? await cached("cat_more_cul_m_\(page)", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "99,10402", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let t = (try? await cached("cat_more_cul_t_\(page)", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "99", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            return await (Self.appSafeMovies(m), Self.appSafeTVSeries(t))
+        case "emmys":
+            async let t = (try? await cached("cat_more_em_t_\(page)", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["vote_average.gte": "7.8", "vote_count.gte": "100", "sort_by": "vote_average.desc", "page": "\(page)"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            return ([], await Self.appSafeTVSeries(t))
+        case "animation":
+            async let m = (try? await cached("cat_more_anim_m_\(page)", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "16", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let t = (try? await cached("cat_more_anim_t_\(page)", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "16", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            return await (Self.appSafeMovies(m), Self.appSafeTVSeries(t))
+        case "disney & pixar":
+            async let m = (try? await cached("cat_more_dp_m_\(page)", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_companies": "2|3|6125", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let t = (try? await cached("cat_more_dp_t_\(page)", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_companies": "2|6125", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            return await (Self.appSafeMovies(m), Self.appSafeTVSeries(t))
+        case "family fun":
+            async let m = (try? await cached("cat_more_ff_m_\(page)", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "10751", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let t = (try? await cached("cat_more_ff_t_\(page)", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "10751,10762", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            return await (Self.appSafeMovies(m), Self.appSafeTVSeries(t))
+        case "dreamworks & minions":
+            async let m = (try? await cached("cat_more_dw_m_\(page)", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_companies": "521|3341", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let t = (try? await cached("cat_more_dw_t_\(page)", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_companies": "521", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            return await (Self.appSafeMovies(m), Self.appSafeTVSeries(t))
+        case "animated superheroes":
+            async let m = (try? await cached("cat_more_ash_m_\(page)", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "16", "with_keywords": "9715|849|180547", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let t = (try? await cached("cat_more_ash_t_\(page)", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "16", "with_keywords": "9715|849|180547", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            return await (Self.appSafeMovies(m), Self.appSafeTVSeries(t))
+        case "animal adventures":
+            async let m = (try? await cached("cat_more_aa_m_\(page)", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "16,12", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let t = (try? await cached("cat_more_aa_t_\(page)", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "10762,10751", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            return await (Self.appSafeMovies(m), Self.appSafeTVSeries(t))
+        case "comedy & laughs":
+            async let m = (try? await cached("cat_more_cl_m_\(page)", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "35,10751", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let t = (try? await cached("cat_more_cl_t_\(page)", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "35,10762", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            return await (Self.appSafeMovies(m), Self.appSafeTVSeries(t))
+        case "fantasy & magic":
+            async let m = (try? await cached("cat_more_fm_m_\(page)", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "14,10751", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let t = (try? await cached("cat_more_fm_t_\(page)", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "10765,10762", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            return await (Self.appSafeMovies(m), Self.appSafeTVSeries(t))
+        case "music & sing-along":
+            async let m = (try? await cached("cat_more_ms_m_\(page)", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "16,10402", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let t = (try? await cached("cat_more_ms_t_\(page)", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "10402,10762", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            return await (Self.appSafeMovies(m), Self.appSafeTVSeries(t))
+        case "science & discovery":
+            async let m = (try? await cached("cat_more_sd_m_\(page)", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["with_genres": "878,10751", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let t = (try? await cached("cat_more_sd_t_\(page)", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["with_genres": "99,10762", "sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            return await (Self.appSafeMovies(m), Self.appSafeTVSeries(t))
+        default:
+            async let m = (try? await cached("cat_more_def_m_\(page)", url: tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(["sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedMovieResponse.self))?.results ?? []
+            async let t = (try? await cached("cat_more_def_t_\(page)", url: tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(["sort_by": "popularity.desc", "page": "\(page)"])), as: TMDbPaginatedTVResponse.self))?.results ?? []
+            return await (Self.appSafeMovies(m), Self.appSafeTVSeries(t))
+        }
+    }
+
+    /// Discover movies matching exact user filter parameters (genres, release era, rating, sort order)
+    func discoverFilteredMovies(
+        genreIds: Set<Int>,
+        yearFilter: String,
+        minRating: Double,
+        sortBy: String,
+        page: Int = 1
+    ) async throws -> [MovieListItem] {
+        var query: [String: String] = [
+            "page": "\(page)",
+            "sort_by": sortBy
+        ]
+
+        if !genreIds.isEmpty {
+            query["with_genres"] = genreIds.map(String.init).joined(separator: ",")
+        }
+
+        if yearFilter != "All" {
+            if let singleYear = Int(yearFilter) {
+                query["primary_release_year"] = "\(singleYear)"
+            } else if yearFilter == "2010s" {
+                query["primary_release_date.gte"] = "2010-01-01"
+                query["primary_release_date.lte"] = "2019-12-31"
+            } else if yearFilter == "2000s" {
+                query["primary_release_date.gte"] = "2000-01-01"
+                query["primary_release_date.lte"] = "2009-12-31"
+            } else if yearFilter == "90s" {
+                query["primary_release_date.gte"] = "1990-01-01"
+                query["primary_release_date.lte"] = "1999-12-31"
+            } else if yearFilter == "80s" {
+                query["primary_release_date.gte"] = "1980-01-01"
+                query["primary_release_date.lte"] = "1989-12-31"
+            } else if yearFilter == "70s & older" {
+                query["primary_release_date.lte"] = "1979-12-31"
+            }
+        }
+
+        if minRating > 0 {
+            query["vote_average.gte"] = String(format: "%.1f", minRating)
+            query["vote_count.gte"] = "50"
+        } else if sortBy.contains("vote_average") {
+            query["vote_count.gte"] = "150"
+        }
+
+        let url = tmdbURL(path: "/discover/movie", queryItems: Self.discoverMovieQueryItems(query))
+        let cacheKey = "filter_mov_\(genreIds.sorted().map(String.init).joined(separator: "_"))_\(yearFilter)_\(minRating)_\(sortBy)_\(page)"
+        let response: TMDbPaginatedMovieResponse = try await cached(cacheKey, url: url, as: TMDbPaginatedMovieResponse.self)
+        return Self.appSafeMovies(response.results)
+    }
+
+    /// Discover TV series matching exact user filter parameters (genres, release era, rating, sort order)
+    func discoverFilteredTV(
+        genreIds: Set<Int>,
+        yearFilter: String,
+        minRating: Double,
+        sortBy: String,
+        page: Int = 1
+    ) async throws -> [TVSeriesListItem] {
+        var query: [String: String] = [
+            "page": "\(page)",
+            "sort_by": sortBy
+        ]
+
+        if !genreIds.isEmpty {
+            query["with_genres"] = genreIds.map(String.init).joined(separator: ",")
+        }
+
+        if yearFilter != "All" {
+            if let singleYear = Int(yearFilter) {
+                query["first_air_date_year"] = "\(singleYear)"
+            } else if yearFilter == "2010s" {
+                query["first_air_date.gte"] = "2010-01-01"
+                query["first_air_date.lte"] = "2019-12-31"
+            } else if yearFilter == "2000s" {
+                query["first_air_date.gte"] = "2000-01-01"
+                query["first_air_date.lte"] = "2009-12-31"
+            } else if yearFilter == "90s" {
+                query["first_air_date.gte"] = "1990-01-01"
+                query["first_air_date.lte"] = "1999-12-31"
+            } else if yearFilter == "80s" {
+                query["first_air_date.gte"] = "1980-01-01"
+                query["first_air_date.lte"] = "1989-12-31"
+            } else if yearFilter == "70s & older" {
+                query["first_air_date.lte"] = "1979-12-31"
+            }
+        }
+
+        if minRating > 0 {
+            query["vote_average.gte"] = String(format: "%.1f", minRating)
+            query["vote_count.gte"] = "30"
+        } else if sortBy.contains("vote_average") {
+            query["vote_count.gte"] = "100"
+        }
+
+        let url = tmdbURL(path: "/discover/tv", queryItems: Self.discoverTVQueryItems(query))
+        let cacheKey = "filter_tv_\(genreIds.sorted().map(String.init).joined(separator: "_"))_\(yearFilter)_\(minRating)_\(sortBy)_\(page)"
+        let response: TMDbPaginatedTVResponse = try await cached(cacheKey, url: url, as: TMDbPaginatedTVResponse.self)
+        return Self.appSafeTVSeries(response.results)
     }
 
     /// Fetch movie genres
@@ -1193,6 +1678,14 @@ actor TMDbService {
 
     /// Fetch trending TV series
     func trendingTVSeries(inTimeWindow: TrendingTimeWindowFilterType = .day) async throws -> [TVSeriesListItem] {
+        if KidsConfig.isKidsEdition {
+            let url = tmdbURL(
+                path: "/discover/tv",
+                queryItems: Self.discoverTVQueryItems(["sort_by": "popularity.desc", "page": "1"])
+            )
+            let response: TMDbPaginatedTVResponse = try await cached("trending_tv_kids", url: url, as: TMDbPaginatedTVResponse.self)
+            return Self.appSafeTVSeries(Self.filterShelfTVSeriesRequireBackdrop(response.results))
+        }
         let window = inTimeWindow == .day ? "day" : "week"
         let url = tmdbURL(path: "/trending/tv/\(window)")
         let response: TMDbPaginatedTVResponse = try await cached("trending_tv_orig_en_\(window)", url: url, as: TMDbPaginatedTVResponse.self)
@@ -1213,6 +1706,19 @@ actor TMDbService {
     /// Fetch now playing movies (currently in theatres)
     func nowPlayingMovies(page: Int? = nil) async throws -> [MovieListItem] {
         let p = page ?? 1
+        if KidsConfig.isKidsEdition {
+            let from = Self.tmdbDiscoverDate(daysFromToday: -90)
+            let url = tmdbURL(
+                path: "/discover/movie",
+                queryItems: Self.discoverMovieQueryItems([
+                    "primary_release_date.gte": from,
+                    "sort_by": "popularity.desc",
+                    "page": "\(p)"
+                ])
+            )
+            let response: TMDbPaginatedMovieResponse = try await cached("now_playing_kids_\(p)", url: url, as: TMDbPaginatedMovieResponse.self)
+            return Self.appSafeMovies(Self.filterShelfMoviesRequireBackdrop(response.results))
+        }
         let url = tmdbURL(path: "/movie/now_playing", queryItems: ["page": "\(p)"])
         let response: TMDbPaginatedMovieResponse = try await cached("now_playing_movies_orig_en_\(p)", url: url, as: TMDbPaginatedMovieResponse.self)
         return Self.appSafeMovies(Self.filterShelfMoviesRequireBackdrop(Self.filterMovieListOriginalLanguageEnglish(response.results)))
@@ -1414,6 +1920,19 @@ actor TMDbService {
             let response: TMDbPaginatedMovieResponse = try await cached("movies_genx_orig_en_\(page)", url: url, as: TMDbPaginatedMovieResponse.self)
             return (Self.appSafeMovies(Self.filterShelfMoviesRequireBackdrop(response.results)), page < (response.totalPages ?? page))
         case .nowPlaying:
+            if KidsConfig.isKidsEdition {
+                let from = Self.tmdbDiscoverDate(daysFromToday: -90)
+                let url = tmdbURL(
+                    path: "/discover/movie",
+                    queryItems: Self.discoverMovieQueryItems([
+                        "primary_release_date.gte": from,
+                        "sort_by": "popularity.desc",
+                        "page": "\(page)"
+                    ])
+                )
+                let response: TMDbPaginatedMovieResponse = try await cached("now_playing_movies_kids_\(page)", url: url, as: TMDbPaginatedMovieResponse.self)
+                return (Self.appSafeMovies(Self.filterShelfMoviesRequireBackdrop(response.results)), page < (response.totalPages ?? page))
+            }
             let url = tmdbURL(path: "/movie/now_playing", queryItems: ["page": "\(page)"])
             let response: TMDbPaginatedMovieResponse = try await cached("now_playing_movies_orig_en_\(page)", url: url, as: TMDbPaginatedMovieResponse.self)
             let items = Self.filterShelfMoviesRequireBackdrop(Self.filterMovieListOriginalLanguageEnglish(response.results))

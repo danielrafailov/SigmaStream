@@ -21,11 +21,14 @@ struct iOSTVSeriesDetailView: View {
     @State private var loadedSeason: TVSeason?
     @State private var recommendations: [TVSeriesListItem] = []
     @State private var trailers: [TMDbVideo] = []
+    @State private var cast: [CastMember] = []
     @State private var selectedTab: DetailSubTab = .moreLikeThis
 
     @State private var isLoading = true
     @State private var isLoadingSeason = false
     @State private var playableContent: PlayableContent?
+    @State private var prefetchedEpisodePlayback: (urls: [URL], quality: String?)?
+    @State private var prefetchedEpisodeKey: String?
 
     var body: some View {
         GeometryReader { geometry in
@@ -47,302 +50,339 @@ struct iOSTVSeriesDetailView: View {
                                 .foregroundStyle(.white)
                                 .fixedSize(horizontal: false, vertical: true)
 
-                        // Metadata Row: [Year] [Age Rating] [Seasons] [Rating]
-                        HStack(spacing: 10) {
-                            if let date = series?.firstAirDate {
-                                Text(String(Calendar.current.component(.year, from: date)))
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                            }
-
-                            // Age Rating in between year and seasons
-                            if let ageRating, !ageRating.isEmpty {
-                                Text(ageRating)
-                                    .font(.caption2.bold())
-                                    .foregroundStyle(.white.opacity(0.9))
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(Color.white.opacity(0.18))
-                                    .clipShape(RoundedRectangle(cornerRadius: 4))
-                            }
-
-                            if let count = series?.numberOfSeasons {
-                                Text("\(count) Season\(count > 1 ? "s" : "")")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                            }
-
-                            if let rating = series?.voteAverage, rating > 0 {
-                                HStack(spacing: 3) {
-                                    Image(systemName: "star.fill")
-                                        .font(.system(size: 11))
-                                        .foregroundStyle(.yellow)
-                                    Text(String(format: "%.1f", rating))
-                                        .font(.subheadline.bold())
-                                        .foregroundStyle(.white)
-                                }
-                            }
-                        }
-
-                        // Play Show Button
-                        Button {
-                            playFirstOrResumeEpisode()
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "play.fill")
-                                    .font(.system(size: 16, weight: .bold))
-                                Text(hasResumePosition ? "Resume Show" : "Play Show")
-                                    .font(.system(size: 16, weight: .bold))
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(Color.white)
-                            .foregroundStyle(.black)
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        }
-                        .padding(.top, 4)
-
-                        // Overview description
-                        if let overview = series?.overview, !overview.isEmpty {
-                            Text(overview)
-                                .font(.subheadline)
-                                .foregroundStyle(.white.opacity(0.85))
-                                .lineSpacing(4)
-                        }
-
-                        // Action Buttons: + My List & Like (Thumbs Up) placed BELOW description
-                        HStack(spacing: 40) {
-                            Button {
-                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                    toggleMyList()
-                                }
-                            } label: {
-                                VStack(spacing: 6) {
-                                    Image(systemName: isInMyList ? "checkmark" : "plus")
-                                        .font(.system(size: 20, weight: .bold))
-                                    Text("My List")
-                                        .font(.caption2)
-                                }
-                                .foregroundStyle(.white)
-                            }
-
-                            Button {
-                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                    toggleLiked()
-                                }
-                            } label: {
-                                VStack(spacing: 6) {
-                                    Image(systemName: isLiked ? "hand.thumbsup.fill" : "hand.thumbsup")
-                                        .font(.system(size: 20, weight: .bold))
-                                    Text("Like")
-                                        .font(.caption2)
-                                }
-                                .foregroundStyle(.white)
-                            }
-
-                            Spacer()
-                        }
-                        .padding(.top, 2)
-
-                        Divider()
-                            .background(Color.white.opacity(0.15))
-                            .padding(.vertical, 4)
-
-                        // Season Selector & Episodes
-                        if let seasons = series?.seasons?.filter({ $0.seasonNumber > 0 }), !seasons.isEmpty {
-                            VStack(alignment: .leading, spacing: 14) {
-                                HStack {
-                                    Text("Episodes")
-                                        .font(.headline.bold())
-                                        .foregroundStyle(.white)
-
-                                    Spacer()
-
-                                    Menu {
-                                        ForEach(seasons, id: \.id) { s in
-                                            Button("Season \(s.seasonNumber)") {
-                                                selectedSeasonNumber = s.seasonNumber
-                                                Task { await loadSeason(s.seasonNumber) }
-                                            }
-                                        }
-                                    } label: {
-                                        HStack(spacing: 6) {
-                                            Text("Season \(selectedSeasonNumber)")
-                                                .font(.subheadline.bold())
-                                            Image(systemName: "chevron.down")
-                                                .font(.caption.bold())
-                                        }
-                                        .foregroundStyle(.white)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 6)
-                                        .background(Color.white.opacity(0.12))
-                                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                                    }
+                            // Metadata Row: [Year] [Age Rating] [Seasons] [Rating]
+                            HStack(spacing: 10) {
+                                if let date = series?.firstAirDate {
+                                    Text(String(Calendar.current.component(.year, from: date)))
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
                                 }
 
-                                // Episode Cards
-                                if isLoadingSeason {
-                                    ProgressView()
-                                        .frame(maxWidth: .infinity, alignment: .center)
-                                        .padding(40)
-                                } else if let episodes = loadedSeason?.episodes, !episodes.isEmpty {
-                                    VStack(spacing: 16) {
-                                        ForEach(episodes, id: \.id) { ep in
-                                            episodeRow(ep)
-                                        }
+                                // Age Rating in between year and seasons
+                                if let ageRating, !ageRating.isEmpty {
+                                    Text(ageRating)
+                                        .font(.caption2.bold())
+                                        .foregroundStyle(.white.opacity(0.9))
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(Color.white.opacity(0.18))
+                                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                                }
+
+                                if let count = series?.numberOfSeasons, count > 0 {
+                                    Text("\(count) Season\(count > 1 ? "s" : "")")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                if let rating = series?.voteAverage, rating > 0 {
+                                    HStack(spacing: 3) {
+                                        Image(systemName: "star.fill")
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(.yellow)
+                                        Text(String(format: "%.1f", rating))
+                                            .font(.subheadline.bold())
+                                            .foregroundStyle(.white)
                                     }
                                 }
                             }
-                        }
 
-                        // Sub-Tabs: "More Like This" & "Trailers & More"
-                        VStack(alignment: .leading, spacing: 14) {
-                            HStack(spacing: 24) {
+                            // Play / Resume Button
+                            Button {
+                                playFirstOrResumeEpisode()
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "play.fill")
+                                        .font(.system(size: 16, weight: .bold))
+                                    Text(hasResumePosition ? "Resume Episode" : "Play Episode 1")
+                                        .font(.headline)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 14)
+                                .background(Color.white)
+                                .foregroundStyle(.black)
+                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+
+                            // Secondary Actions Row: My List, Liked, Share
+                            HStack(spacing: 28) {
                                 Button {
-                                    withAnimation(.easeInOut(duration: 0.2)) {
-                                        selectedTab = .moreLikeThis
-                                    }
+                                    toggleMyList()
                                 } label: {
                                     VStack(spacing: 6) {
-                                        Text("More Like This")
-                                            .font(.subheadline.bold())
-                                            .foregroundStyle(selectedTab == .moreLikeThis ? .white : .secondary)
-
-                                        Rectangle()
-                                            .fill(selectedTab == .moreLikeThis ? Color.red : Color.clear)
-                                            .frame(height: 3)
+                                        Image(systemName: isInMyList ? "checkmark" : "plus")
+                                            .font(.system(size: 20, weight: .semibold))
+                                        Text("My List")
+                                            .font(.caption2)
                                     }
+                                    .foregroundStyle(isInMyList ? Color.red : Color.white)
                                 }
                                 .buttonStyle(.plain)
 
                                 Button {
-                                    withAnimation(.easeInOut(duration: 0.2)) {
-                                        selectedTab = .trailersAndMore
-                                    }
+                                    toggleLiked()
                                 } label: {
                                     VStack(spacing: 6) {
-                                        Text("Trailers & More")
-                                            .font(.subheadline.bold())
-                                            .foregroundStyle(selectedTab == .trailersAndMore ? .white : .secondary)
-
-                                        Rectangle()
-                                            .fill(selectedTab == .trailersAndMore ? Color.red : Color.clear)
-                                            .frame(height: 3)
+                                        Image(systemName: isLiked ? "hand.thumbsup.fill" : "hand.thumbsup")
+                                            .font(.system(size: 20, weight: .semibold))
+                                        Text("Rate")
+                                            .font(.caption2)
                                     }
+                                    .foregroundStyle(isLiked ? Color.blue : Color.white)
                                 }
                                 .buttonStyle(.plain)
 
                                 Spacer()
                             }
+                            .padding(.top, 4)
+
+                            // Overview / Synopsis
+                            if let overview = series?.overview, !overview.isEmpty {
+                                Text(overview)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.white.opacity(0.85))
+                                    .lineSpacing(3)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+
+                            // Cast & Creators
+                            VStack(alignment: .leading, spacing: 6) {
+                                if !cast.isEmpty {
+                                    Text("Starring: \(cast.prefix(4).map(\.name).joined(separator: ", "))")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                }
+
+                                if let creators = series?.createdBy, !creators.isEmpty {
+                                    Text("Created by: \(creators.map(\.name).joined(separator: ", "))")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                            }
+
+                            // Season Selector & Episode List Section
+                            VStack(alignment: .leading, spacing: 14) {
+                                HStack {
+                                    Text("Episodes")
+                                        .font(.title3.bold())
+                                        .foregroundStyle(.white)
+
+                                    Spacer()
+
+                                    // Season Picker Dropdown Menu
+                                    if let seasons = series?.seasons?.filter({ $0.seasonNumber > 0 }), seasons.count > 1 {
+                                        Menu {
+                                            ForEach(seasons) { season in
+                                                Button {
+                                                    selectedSeasonNumber = season.seasonNumber
+                                                    Task {
+                                                        await loadSeason(season.seasonNumber)
+                                                    }
+                                                } label: {
+                                                    HStack {
+                                                        Text("Season \(season.seasonNumber)")
+                                                        if selectedSeasonNumber == season.seasonNumber {
+                                                            Image(systemName: "checkmark")
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        } label: {
+                                            HStack(spacing: 6) {
+                                                Text("Season \(selectedSeasonNumber)")
+                                                    .font(.subheadline.bold())
+                                                    .foregroundStyle(.white)
+                                                Image(systemName: "chevron.down")
+                                                    .font(.caption2.bold())
+                                                    .foregroundStyle(.secondary)
+                                            }
+                                            .padding(.horizontal, 12)
+                                            .padding(.vertical, 6)
+                                            .background(Color(uiColor: .secondarySystemBackground))
+                                            .clipShape(Capsule())
+                                        }
+                                    }
+                                }
+
+                                if isLoadingSeason {
+                                    HStack {
+                                        Spacer()
+                                        ProgressView()
+                                            .padding(.vertical, 20)
+                                        Spacer()
+                                    }
+                                } else if let episodes = loadedSeason?.episodes, !episodes.isEmpty {
+                                    LazyVStack(spacing: 16) {
+                                        ForEach(episodes) { ep in
+                                            episodeRow(ep)
+                                        }
+                                    }
+                                } else {
+                                    Text("No episodes available for Season \(selectedSeasonNumber).")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                        .padding(.vertical, 12)
+                                }
+                            }
                             .padding(.top, 8)
 
-                            // Sub-Tab Contents
-                            if selectedTab == .moreLikeThis {
-                                if recommendations.isEmpty {
-                                    Text("No similar titles found.")
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                        .padding(.vertical, 16)
-                                } else {
-                                    let columns = [
-                                        GridItem(.flexible(), spacing: 14),
-                                        GridItem(.flexible(), spacing: 14),
-                                        GridItem(.flexible(), spacing: 14)
-                                    ]
-                                    LazyVGrid(columns: columns, spacing: 16) {
-                                        ForEach(recommendations) { rec in
-                                            NavigationLink {
-                                                iOSTVSeriesDetailView(seriesId: rec.id)
-                                            } label: {
-                                                iOSMediaCard(
-                                                    id: rec.id,
-                                                    title: rec.name,
-                                                    posterPath: ImageURLBuilder.posterURL(for: rec.posterPath, config: appState.apiConfiguration, idealWidth: 342),
-                                                    rating: rec.voteAverage,
-                                                    releaseYear: rec.firstAirDate.map { String(Calendar.current.component(.year, from: $0)) },
-                                                    isTVSeries: true,
-                                                    progress: nil,
-                                                    showLabels: false
-                                                )
-                                            }
-                                            .buttonStyle(.plain)
+                            // Sub-Tabs: [More Like This] [Trailers & More]
+                            VStack(alignment: .leading, spacing: 16) {
+                                HStack(spacing: 24) {
+                                    Button {
+                                        withAnimation(.easeInOut(duration: 0.2)) {
+                                            selectedTab = .moreLikeThis
+                                        }
+                                    } label: {
+                                        VStack(spacing: 6) {
+                                            Text("More Like This")
+                                                .font(.subheadline.bold())
+                                                .foregroundStyle(selectedTab == .moreLikeThis ? .white : .secondary)
+
+                                            Rectangle()
+                                                .fill(selectedTab == .moreLikeThis ? Color.red : Color.clear)
+                                                .frame(height: 3)
                                         }
                                     }
-                                    .padding(.horizontal, 4)
-                                    .padding(.top, 4)
+                                    .buttonStyle(.plain)
+
+                                    Button {
+                                        withAnimation(.easeInOut(duration: 0.2)) {
+                                            selectedTab = .trailersAndMore
+                                        }
+                                    } label: {
+                                        VStack(spacing: 6) {
+                                            Text("Trailers & More")
+                                                .font(.subheadline.bold())
+                                                .foregroundStyle(selectedTab == .trailersAndMore ? .white : .secondary)
+
+                                            Rectangle()
+                                                .fill(selectedTab == .trailersAndMore ? Color.red : Color.clear)
+                                                .frame(height: 3)
+                                        }
+                                    }
+                                    .buttonStyle(.plain)
+
+                                    Spacer()
                                 }
-                            } else {
-                                // Trailers & More
-                                if trailers.isEmpty {
-                                    Text("No trailers available.")
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                        .padding(.vertical, 16)
-                                } else {
-                                    VStack(spacing: 16) {
-                                        ForEach(trailers, id: \.id) { video in
-                                            Button {
-                                                if let ytAppURL = video.youtubeAppURL, UIApplication.shared.canOpenURL(ytAppURL) {
-                                                    UIApplication.shared.open(ytAppURL)
-                                                } else if let ytURL = video.youtubeWatchURL {
-                                                    UIApplication.shared.open(ytURL)
-                                                }
-                                            } label: {
-                                                VStack(alignment: .leading, spacing: 8) {
-                                                    ZStack(alignment: .center) {
-                                                        if let thumbURL = video.youtubeThumbnailURL {
-                                                            AsyncImage(url: thumbURL) { phase in
-                                                                if let img = phase.image {
-                                                                    img
-                                                                        .resizable()
-                                                                        .aspectRatio(contentMode: .fill)
-                                                                } else {
-                                                                    Color.white.opacity(0.08)
-                                                                }
-                                                            }
-                                                        } else {
-                                                            Color.white.opacity(0.08)
-                                                        }
+                                .padding(.top, 8)
 
-                                                        Image(systemName: "play.fill")
-                                                            .font(.title2)
-                                                            .foregroundStyle(.white)
-                                                            .padding(14)
-                                                            .background(.ultraThinMaterial)
-                                                            .clipShape(Circle())
-                                                    }
-                                                    .frame(height: 180)
-                                                    .frame(maxWidth: .infinity)
-                                                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-                                                    Text(video.name)
-                                                        .font(.subheadline.bold())
-                                                        .foregroundStyle(.white)
-                                                        .lineLimit(2)
+                                // Sub-Tab Contents
+                                if selectedTab == .moreLikeThis {
+                                    if recommendations.isEmpty {
+                                        Text("No similar titles found.")
+                                            .font(.subheadline)
+                                            .foregroundStyle(.secondary)
+                                            .padding(.vertical, 16)
+                                    } else {
+                                        let columns = [
+                                            GridItem(.flexible(), spacing: 14),
+                                            GridItem(.flexible(), spacing: 14),
+                                            GridItem(.flexible(), spacing: 14)
+                                        ]
+                                        LazyVGrid(columns: columns, spacing: 16) {
+                                            ForEach(recommendations) { item in
+                                                NavigationLink {
+                                                    iOSTVSeriesDetailView(seriesId: item.id)
+                                                } label: {
+                                                    iOSMediaCard(
+                                                        id: item.id,
+                                                        title: item.name,
+                                                        posterPath: ImageURLBuilder.posterURL(for: item.posterPath, config: appState.apiConfiguration, idealWidth: 342),
+                                                        rating: item.voteAverage,
+                                                        releaseYear: item.firstAirDate.map { String(Calendar.current.component(.year, from: $0)) },
+                                                        isTVSeries: true,
+                                                        progress: nil,
+                                                        showLabels: false
+                                                    )
                                                 }
+                                                .buttonStyle(.plain)
                                             }
-                                            .buttonStyle(.plain)
                                         }
                                     }
-                                    .padding(.top, 4)
+                                } else {
+                                    if trailers.isEmpty {
+                                        Text("No trailers available.")
+                                            .font(.subheadline)
+                                            .foregroundStyle(.secondary)
+                                            .padding(.vertical, 16)
+                                    } else {
+                                        LazyVStack(spacing: 16) {
+                                            ForEach(trailers, id: \.id) { video in
+                                                Button {
+                                                    if let appURL = video.youtubeAppURL, UIApplication.shared.canOpenURL(appURL) {
+                                                        UIApplication.shared.open(appURL)
+                                                    } else if let watchURL = video.youtubeWatchURL {
+                                                        UIApplication.shared.open(watchURL)
+                                                    }
+                                                } label: {
+                                                    VStack(alignment: .leading, spacing: 8) {
+                                                        ZStack(alignment: .center) {
+                                                            if let thumbURL = video.youtubeThumbnailURL {
+                                                                AsyncImage(url: thumbURL) { phase in
+                                                                    if let img = phase.image {
+                                                                        img
+                                                                            .resizable()
+                                                                            .aspectRatio(contentMode: .fill)
+                                                                    } else {
+                                                                        Color.white.opacity(0.08)
+                                                                    }
+                                                                }
+                                                            } else {
+                                                                Color.white.opacity(0.08)
+                                                            }
+
+                                                            Image(systemName: "play.fill")
+                                                                .font(.title2)
+                                                                .foregroundStyle(.white)
+                                                                .padding(14)
+                                                                .background(.ultraThinMaterial)
+                                                                .clipShape(Circle())
+                                                        }
+                                                        .frame(height: 180)
+                                                        .frame(maxWidth: .infinity)
+                                                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                                                        Text(video.name)
+                                                            .font(.subheadline.bold())
+                                                            .foregroundStyle(.white)
+                                                            .lineLimit(2)
+                                                    }
+                                                }
+                                                .buttonStyle(.plain)
+                                            }
+                                        }
+                                        .padding(.top, 4)
+                                    }
                                 }
                             }
                         }
+                        .padding(.horizontal, 18)
+                        .padding(.top, 16)
+                        .frame(width: geometry.size.width, alignment: .leading)
+                        .padding(.bottom, 40)
                     }
-                    .padding(.horizontal, 18)
-                    .padding(.top, 16)
-                    .frame(width: geometry.size.width, alignment: .leading)
-                    .padding(.bottom, 40)
+                    .frame(width: geometry.size.width)
                 }
                 .frame(width: geometry.size.width)
-            }
-            .frame(width: geometry.size.width, height: geometry.size.height)
 
                 // Layer 2: Fixed Top Backdrop Poster Header (Sits on top in Z-index)
                 ZStack(alignment: .topLeading) {
                     ZStack(alignment: .bottom) {
-                        if let backdropPath = series?.backdropPath {
-                            let backdropURL = ImageURLBuilder.backdropURL(for: backdropPath, config: appState.apiConfiguration, idealWidth: 780)
+                        let backdropURL = series?.backdropPath.flatMap {
+                            ImageURLBuilder.backdropURL(for: $0, config: appState.apiConfiguration, idealWidth: 780)
+                        }
+
+                        if let bestTrailerKey {
+                            HeaderVideoPreviewView(
+                                videoKey: bestTrailerKey,
+                                fallbackImageURL: backdropURL,
+                                height: headerHeight
+                            )
+                        } else if let backdropURL {
                             AsyncImage(url: backdropURL) { phase in
                                 if let image = phase.image {
                                     image
@@ -365,6 +405,7 @@ struct iOSTVSeriesDetailView: View {
                             endPoint: .bottom
                         )
                         .frame(height: 48)
+                        .allowsHitTesting(false)
                     }
                     .frame(width: geometry.size.width, height: headerHeight)
                     .clipped()
@@ -479,6 +520,17 @@ struct iOSTVSeriesDetailView: View {
         appState.likedManager.toggleSeries(seriesId)
     }
 
+    private var bestTrailerKey: String? {
+        let yt = trailers.filter { $0.site.lowercased() == "youtube" && !$0.key.isEmpty }
+        if let trailer = yt.first(where: { $0.type.lowercased() == "trailer" }) {
+            return trailer.key
+        }
+        if let teaser = yt.first(where: { $0.type.lowercased() == "teaser" }) {
+            return teaser.key
+        }
+        return yt.first?.key
+    }
+
     private func loadSeriesDetails() async {
         isLoading = true
         defer { isLoading = false }
@@ -498,7 +550,25 @@ struct iOSTVSeriesDetailView: View {
         defer { isLoadingSeason = false }
         do {
             self.loadedSeason = try await appState.tmdbService.tvSeasonDetails(seriesId: seriesId, seasonNumber: seasonNumber)
+            prefetchTargetEpisodeIfPossible()
         } catch {}
+    }
+
+    private func prefetchTargetEpisodeIfPossible() {
+        guard let episodes = loadedSeason?.episodes, !episodes.isEmpty else { return }
+        let targetEp = episodes.first {
+            (appState.watchProgressManager.resumeTimeForEpisode(seriesId: seriesId, season: $0.seasonNumber, episode: $0.episodeNumber) ?? 0) > 5
+        } ?? episodes[0]
+        let epKey = "\(seriesId)_\(targetEp.seasonNumber)_\(targetEp.episodeNumber)"
+        guard prefetchedEpisodeKey != epKey else { return }
+        prefetchedEpisodeKey = epKey
+        Task {
+            if let pair = try? await appState.streamingService.playableURLsAndQualityForEpisode(seriesId: seriesId, season: targetEp.seasonNumber, episode: targetEp.episodeNumber) {
+                await MainActor.run {
+                    self.prefetchedEpisodePlayback = pair
+                }
+            }
+        }
     }
 
     private var hasResumePosition: Bool {
@@ -524,10 +594,13 @@ struct iOSTVSeriesDetailView: View {
 
     private func playEpisode(season: Int, episode: Int, title: String) {
         let resumeTime = appState.watchProgressManager.resumeTimeForEpisode(seriesId: seriesId, season: season, episode: episode)
-        // Immediately opens loader screen and searches for stream inside iOSTouchPlayerView
+        let epKey = "\(seriesId)_\(season)_\(episode)"
+        let preUrls = (prefetchedEpisodeKey == epKey) ? (prefetchedEpisodePlayback?.urls ?? []) : []
+        let preQual = (prefetchedEpisodeKey == epKey) ? prefetchedEpisodePlayback?.quality : nil
         playableContent = PlayableContent(
-            urls: [],
+            urls: preUrls,
             title: "\(series?.name ?? "Show") - S\(season) E\(episode) \(title)",
+            quality: preQual,
             startTime: resumeTime,
             tvSeriesId: seriesId,
             season: season,

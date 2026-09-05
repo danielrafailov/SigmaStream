@@ -64,7 +64,9 @@ struct iOSMediaRow: View {
                                 rating: item.rating,
                                 releaseYear: item.releaseYear,
                                 isTVSeries: item.isTVSeries,
-                                progress: item.progress
+                                progress: item.progress,
+                                cardWidth: 108,
+                                cardHeight: 162
                             )
                         }
                         .buttonStyle(.plain)

@@ -25,9 +25,9 @@ actor StreamingService {
         self.baseURL = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         // OMSS waits for slow providers before writing any bytes; idle gap exceeds URLSession.shared’s default (~60s).
         let cfg = URLSessionConfiguration.default
-        cfg.timeoutIntervalForRequest = 600
-        cfg.timeoutIntervalForResource = 600
-        cfg.waitsForConnectivity = true
+        cfg.timeoutIntervalForRequest = 30
+        cfg.timeoutIntervalForResource = 60
+        cfg.waitsForConnectivity = false
         self.session = URLSession(configuration: cfg)
     }
 
@@ -85,38 +85,47 @@ actor StreamingService {
     private func fetchSourceResponse(from url: URL) async throws -> OMSSSourceResponse {
         let cacheKey = url.absoluteString
         if let entry = sourceResponseCache[cacheKey], entry.expiresAt > Date() {
+            print("[StreamingService] ⚡️ Using cached sources for: \(url.absoluteString)")
             return entry.response
         }
 
+        print("[StreamingService] 🚀 Fetching sources from: \(url.absoluteString)")
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        let (data, response) = try await session.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw StreamingError.invalidResponse
-        }
-
-        if httpResponse.statusCode == 404 {
-            let errorBody = try? JSONDecoder().decode(OMSSErrorResponse.self, from: data)
-            let msg = errorBody?.error?.message ?? "No sources found"
-            throw StreamingError.noSourcesAvailable(msg)
-        }
-
-        guard (200...299).contains(httpResponse.statusCode) else {
-            throw StreamingError.serverError(statusCode: httpResponse.statusCode)
-        }
-
         do {
+            let (data, response) = try await session.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                print("[StreamingService] ❌ Invalid response type for \(url.absoluteString)")
+                throw StreamingError.invalidResponse
+            }
+
+            print("[StreamingService] 📥 HTTP \(httpResponse.statusCode) from \(url.absoluteString) (\(data.count) bytes)")
+
+            if httpResponse.statusCode == 404 {
+                let errorBody = try? JSONDecoder().decode(OMSSErrorResponse.self, from: data)
+                let msg = errorBody?.error?.message ?? "No sources found"
+                print("[StreamingService] ⚠️ 404 No sources: \(msg)")
+                throw StreamingError.noSourcesAvailable(msg)
+            }
+
+            guard (200...299).contains(httpResponse.statusCode) else {
+                print("[StreamingService] ❌ Server error HTTP \(httpResponse.statusCode)")
+                throw StreamingError.serverError(statusCode: httpResponse.statusCode)
+            }
+
             let decoded = try JSONDecoder().decode(OMSSSourceResponse.self, from: data)
             sourceResponseCache[cacheKey] = CachedOMSSResponse(
                 response: decoded,
                 expiresAt: Date().addingTimeInterval(sourceResponseCacheTTL)
             )
+            print("[StreamingService] ✅ Resolved \(decoded.sources.count) sources (\(decoded.sources.filter { $0.isPlayable }.count) playable)")
             return decoded
         } catch {
-            throw StreamingError.decodeFailed(error)
+            print("[StreamingService] ❌ Error requesting \(url.absoluteString): \(error)")
+            throw error
         }
     }
 

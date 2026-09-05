@@ -340,8 +340,17 @@ struct iOSMovieDetailView: View {
                 // Layer 2: Fixed Top Backdrop Poster Header (Sits on top in Z-index)
                 ZStack(alignment: .topLeading) {
                     ZStack(alignment: .bottom) {
-                        if let backdropPath = movie?.backdropPath {
-                            let backdropURL = ImageURLBuilder.backdropURL(for: backdropPath, config: appState.apiConfiguration, idealWidth: 780)
+                        let backdropURL = movie?.backdropPath.flatMap {
+                            ImageURLBuilder.backdropURL(for: $0, config: appState.apiConfiguration, idealWidth: 780)
+                        }
+
+                        if let bestTrailerKey {
+                            HeaderVideoPreviewView(
+                                videoKey: bestTrailerKey,
+                                fallbackImageURL: backdropURL,
+                                height: headerHeight
+                            )
+                        } else if let backdropURL {
                             AsyncImage(url: backdropURL) { phase in
                                 if let image = phase.image {
                                     image
@@ -364,6 +373,7 @@ struct iOSMovieDetailView: View {
                             endPoint: .bottom
                         )
                         .frame(height: 48)
+                        .allowsHitTesting(false)
                     }
                     .frame(width: geometry.size.width, height: headerHeight)
                     .clipped()
@@ -396,9 +406,28 @@ struct iOSMovieDetailView: View {
             iOSTouchPlayerView(playableContent: content)
         }
         .task {
+            // 1. Parallel Stream Resolution for 0s instantaneous playback on tap
+            Task {
+                if let pair = try? await appState.streamingService.playableURLsAndQualityForMovie(tmdbId: movieId) {
+                    await MainActor.run {
+                        self.prefetchedMoviePlayback = pair
+                    }
+                }
+            }
+            // 2. Load Details, Trailers, and Recommendations
             await loadMovieDetails()
-            scheduleMoviePrefetchIfReleased()
         }
+    }
+
+    private var bestTrailerKey: String? {
+        let yt = trailers.filter { $0.site.lowercased() == "youtube" && !$0.key.isEmpty }
+        if let trailer = yt.first(where: { $0.type.lowercased() == "trailer" }) {
+            return trailer.key
+        }
+        if let teaser = yt.first(where: { $0.type.lowercased() == "teaser" }) {
+            return teaser.key
+        }
+        return yt.first?.key
     }
 
     private var hasResumePosition: Bool {

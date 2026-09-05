@@ -67,6 +67,7 @@ struct CollectionsView: View {
                 }
                 .padding(.vertical)
             }
+            .background(Color.black.ignoresSafeArea())
             .navigationTitle("")
             .navigationDestination(item: $categoryForSeeAll) { wrapper in
                 MovieCollectionCategoryListView(category: wrapper.category)

@@ -71,6 +71,7 @@ struct MoviesView: View {
                 .scrollTargetLayout()
                 .padding(.vertical)
             }
+            .background(Color.black.ignoresSafeArea())
             .navigationTitle("")
             .navigationDestination(item: $selectedMovie) { selection in
                 MovieDetailView(movieId: selection.id)

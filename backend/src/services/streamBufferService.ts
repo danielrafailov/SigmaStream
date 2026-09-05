@@ -57,12 +57,27 @@ export class StreamBufferService {
     private readonly MAX_TOTAL_SEGMENTS = 500;
     // Segment expiration TTL (20 minutes)
     private readonly SEGMENT_TTL_MS = 20 * 60 * 1000;
-    // Lookahead forward prefetch depth (up to 60 segments ~ 8 to 10 minutes ahead)
-    private readonly FORWARD_PREFETCH_COUNT = 60;
-    // Trailing backward retain depth (up to 30 segments ~ 4 to 5 minutes behind for instant rewind)
-    private readonly BACKWARD_PREFETCH_COUNT = 30;
-    // Maximum concurrent background downloads (up to 8 parallel workers for instant burst filling)
-    private readonly MAX_CONCURRENT_PREFETCH = 8;
+    // Lookahead forward prefetch depth (up to 50 segments ~ 6 to 8 minutes ahead)
+    private readonly FORWARD_PREFETCH_COUNT = 50;
+    // Trailing backward retain depth (up to 20 segments ~ 3 minutes behind for instant rewind)
+    private readonly BACKWARD_PREFETCH_COUNT = 20;
+    // High-performance concurrent background downloads for audio + video tracks
+    private readonly MAX_CONCURRENT_PREFETCH = 5;
+
+    // Realistic rotating User-Agents to prevent bot detection and rate limits
+    private readonly ROTATING_USER_AGENTS = [
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0',
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/604.1'
+    ];
+    private uaIndex = 0;
+
+    private getRandomUserAgent(): string {
+        this.uaIndex = (this.uaIndex + 1) % this.ROTATING_USER_AGENTS.length;
+        return this.ROTATING_USER_AGENTS[this.uaIndex];
+    }
 
     private activePrefetchWorkers = 0;
     private prefetchQueue: Array<{
@@ -156,10 +171,11 @@ export class StreamBufferService {
                 `[StreamBuffer] 📋 Registered ${segments.length} segments for: ${pName}`
             );
 
-            // Trigger immediate aggressive burst pre-roll prefetch for the first 30 segments (~4-5 mins of video) on startup
-            const initialBurstCount = Math.min(30, segments.length);
+            // Smooth burst pre-roll prefetch: first 8 segments at top priority, remaining 16 smoothly queued
+            const initialBurstCount = Math.min(24, segments.length);
             for (let k = 0; k < initialBurstCount; k++) {
-                this.queuePrefetch(segments[k], requestHeaders, 150 - k);
+                const priority = k < 8 ? 150 - k : 80 - k;
+                this.queuePrefetch(segments[k], requestHeaders, priority);
             }
         } catch (err) {
             console.warn('[StreamBuffer] Failed to register manifest:', err);
@@ -407,54 +423,68 @@ export class StreamBufferService {
             )
                 return;
 
-            try {
-                const controller = new AbortController();
-                this.inFlightControllers.set(normUrl, controller);
-                const timeoutId = setTimeout(() => controller.abort(), 20000);
+            const maxRetries = 2;
+            for (let attempt = 0; attempt <= maxRetries; attempt++) {
+                try {
+                    const controller = new AbortController();
+                    this.inFlightControllers.set(normUrl, controller);
+                    const timeoutId = setTimeout(() => controller.abort(), 20000);
 
-                const reqHeaders: Record<string, string> = {
-                    'User-Agent':
-                        headers?.['User-Agent'] ||
-                        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.6912.95 Safari/537.36',
-                    ...(headers || {})
-                };
-                delete reqHeaders['range'];
-                delete reqHeaders['Range'];
+                    const chosenUA = this.getRandomUserAgent();
+                    const reqHeaders: Record<string, string> = {
+                        'User-Agent': chosenUA,
+                        'Accept': '*/*',
+                        'Accept-Language': 'en-US,en;q=0.9',
+                        ...(headers || {})
+                    };
+                    delete reqHeaders['range'];
+                    delete reqHeaders['Range'];
 
-                const res = await fetch(realUrl, {
-                    headers: reqHeaders,
-                    signal: controller.signal
-                });
-                clearTimeout(timeoutId);
-
-                if (res.ok) {
-                    const arrayBuf = await res.arrayBuffer();
-                    const buf = Buffer.from(arrayBuf);
-                    const contentType =
-                        res.headers.get('content-type') || 'video/mp2t';
-
-                    this.putSegment(normUrl, {
-                        data: buf,
-                        contentType,
-                        headers: {
-                            'Content-Disposition': 'inline',
-                            'Accept-Ranges': 'bytes',
-                            'Cache-Control': 'public, max-age=7200'
-                        },
-                        statusCode: res.status,
-                        cachedAt: Date.now()
+                    const res = await fetch(realUrl, {
+                        headers: reqHeaders,
+                        signal: controller.signal
                     });
+                    clearTimeout(timeoutId);
 
-                    const segShort =
-                        realUrl.split('?')[0].split('/').pop() || 'segment';
-                    console.log(
-                        `[StreamBuffer] 📥 Background Prefetched: ${segShort} (${(buf.length / 1024 / 1024).toFixed(2)} MB)`
-                    );
+                    if (res.status === 429 || res.status === 503) {
+                        const backoffMs = 300 * Math.pow(2, attempt) + Math.random() * 150;
+                        console.warn(
+                            `[StreamBuffer] ⚠️ CDN Rate Limit (HTTP ${res.status}) on ${realUrl.slice(-25)}, backing off ${Math.round(backoffMs)}ms...`
+                        );
+                        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+                        continue;
+                    }
+
+                    if (res.ok) {
+                        const arrayBuf = await res.arrayBuffer();
+                        const buf = Buffer.from(arrayBuf);
+                        const contentType =
+                            res.headers.get('content-type') || 'video/mp2t';
+
+                        this.putSegment(normUrl, {
+                            data: buf,
+                            contentType,
+                            headers: {
+                                'Content-Disposition': 'inline',
+                                'Accept-Ranges': 'bytes',
+                                'Cache-Control': 'public, max-age=7200'
+                            },
+                            statusCode: res.status,
+                            cachedAt: Date.now()
+                        });
+
+                        const segShort =
+                            realUrl.split('?')[0].split('/').pop() || 'segment';
+                        console.log(
+                            `[StreamBuffer] 📥 Background Prefetched: ${segShort} (${(buf.length / 1024 / 1024).toFixed(2)} MB)`
+                        );
+                        break;
+                    }
+                } catch {
+                    // Background prefetch cancellation / error is non-critical
+                } finally {
+                    this.inFlightControllers.delete(normUrl);
                 }
-            } catch {
-                // Background prefetch cancellation / error is non-critical
-            } finally {
-                this.inFlightControllers.delete(normUrl);
             }
         };
 
@@ -485,7 +515,8 @@ export class StreamBufferService {
             this.activePrefetchWorkers++;
             nextItem.task().finally(() => {
                 this.activePrefetchWorkers--;
-                this.processPrefetchQueue();
+                // Stagger subsequent worker trigger by 15ms to keep buffer saturated
+                setTimeout(() => this.processPrefetchQueue(), 15);
             });
         }
     }

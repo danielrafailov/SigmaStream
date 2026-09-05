@@ -87,6 +87,7 @@ struct MovieCollectionCategoryListView: View {
                 }
             }
         }
+        .background(Color.black.ignoresSafeArea())
         .navigationTitle("")
         .navigationDestination(item: $selectedCollection) { selection in
             MovieCollectionDetailView(collectionId: selection.id, fallbackTitle: selection.title)

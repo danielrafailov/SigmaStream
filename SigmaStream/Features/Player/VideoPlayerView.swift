@@ -56,8 +56,8 @@ struct VideoPlayerView: View {
     private let pollInterval: TimeInterval = 0.2
     private let progressSaveInterval: TimeInterval = 15
 
-    /// Larger forward buffer reduces intermittent freezes on high-bitrate streams.
-    private let preferredForwardBufferDuration: TimeInterval = 25
+    /// Fast initial buffer so Apple TV starts playback immediately.
+    private let preferredForwardBufferDuration: TimeInterval = 2
     /// Cap adaptive bitrate (~6 Mbps) so Apple TV prefers stable 1080p-class variants.
     private let preferredPeakBitRate: Double = 6_000_000
 

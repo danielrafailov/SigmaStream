@@ -9,12 +9,19 @@ import SwiftUI
 import TMDb
 
 #if os(iOS)
+struct CuratedCategoryShelf: Identifiable {
+    let id = UUID()
+    let title: String
+    let items: [iOSMediaRowItem]
+}
+
 struct iOSCategoryFeedView: View {
     let categoryName: String
     @Environment(\.dismiss) private var dismiss
     @Environment(AppState.self) private var appState
 
     @State private var heroItems: [MediaListItem] = []
+    @State private var curatedShelves: [CuratedCategoryShelf] = []
     @State private var allItems: [iOSMediaRowItem] = []
     @State private var currentPage = 1
     @State private var hasMore = true
@@ -59,7 +66,7 @@ struct iOSCategoryFeedView: View {
             if isLoading {
                 ProgressView("Loading \(categoryName)...")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if allItems.isEmpty {
+            } else if curatedShelves.isEmpty && allItems.isEmpty {
                 ContentUnavailableView(
                     "No Titles Found",
                     systemImage: "film.stack",
@@ -73,51 +80,67 @@ struct iOSCategoryFeedView: View {
                             categoryHeroCarousel
                         }
 
-                        // Grid Section Header
-                        HStack {
-                            Text("All in \(categoryName)")
-                                .font(.system(size: 20, weight: .bold))
-                                .foregroundStyle(.white)
-                            Spacer()
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 4)
-
-                        // 3-Column Media Grid with Pagination
-                        LazyVGrid(columns: columns, spacing: 16) {
-                            ForEach(Array(allItems.enumerated()), id: \.element.id) { index, item in
-                                Button {
-                                    if item.isTVSeries {
-                                        selectedTVSeriesId = item.id
-                                    } else {
-                                        selectedMovieId = item.id
-                                    }
-                                } label: {
-                                    iOSMediaCard(
-                                        id: item.id,
-                                        title: item.title,
-                                        posterPath: item.posterURL,
-                                        rating: item.rating,
-                                        releaseYear: item.releaseYear,
-                                        isTVSeries: item.isTVSeries,
-                                        progress: nil
-                                    )
-                                }
-                                .buttonStyle(.plain)
-                                .onAppear {
-                                    if index >= allItems.count - 4 && hasMore && !isLoadingMore {
-                                        Task { await loadMore() }
-                                    }
+                        // Curated Category Shelves (Netflix-style tailored lists)
+                        ForEach(curatedShelves) { shelf in
+                            iOSMediaRow(
+                                title: shelf.title,
+                                items: shelf.items
+                            ) { item in
+                                if item.isTVSeries {
+                                    selectedTVSeriesId = item.id
+                                } else {
+                                    selectedMovieId = item.id
                                 }
                             }
-
-                            if isLoadingMore {
-                                ProgressView()
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 20)
-                            }
                         }
-                        .padding(.horizontal, 16)
+
+                        // More in Category Section Header
+                        if !allItems.isEmpty {
+                            HStack {
+                                Text("More in \(categoryName)")
+                                    .font(.system(size: 20, weight: .bold))
+                                    .foregroundStyle(.white)
+                                Spacer()
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.top, 4)
+
+                            // 3-Column Media Grid with Pagination
+                            LazyVGrid(columns: columns, spacing: 16) {
+                                ForEach(Array(allItems.enumerated()), id: \.element.id) { index, item in
+                                    Button {
+                                        if item.isTVSeries {
+                                            selectedTVSeriesId = item.id
+                                        } else {
+                                            selectedMovieId = item.id
+                                        }
+                                    } label: {
+                                        iOSMediaCard(
+                                            id: item.id,
+                                            title: item.title,
+                                            posterPath: item.posterURL,
+                                            rating: item.rating,
+                                            releaseYear: item.releaseYear,
+                                            isTVSeries: item.isTVSeries,
+                                            progress: nil
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+                                    .onAppear {
+                                        if index >= allItems.count - 4 && hasMore && !isLoadingMore {
+                                            Task { await loadMore() }
+                                        }
+                                    }
+                                }
+
+                                if isLoadingMore {
+                                    ProgressView()
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 20)
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                        }
                     }
                     .padding(.bottom, 40)
                 }
@@ -299,12 +322,53 @@ struct iOSCategoryFeedView: View {
         isLoading = true
         defer { isLoading = false }
         do {
-            let result = try await appState.tmdbService.fetchCategoryFeedItems(category: categoryName, page: 1)
-            var heroes: [MediaListItem] = []
-            var items: [iOSMediaRowItem] = []
+            async let shelvesFetch = appState.tmdbService.fetchCategoryCuratedShelves(category: categoryName)
+            async let baseItemsFetch = appState.tmdbService.fetchCategoryFeedItems(category: categoryName, page: 1)
 
-            for m in result.movies {
-                let posterURL = ImageURLBuilder.posterURL(for: m.posterPath, config: appState.apiConfiguration, idealWidth: 500)
+            let shelves = await shelvesFetch
+            let baseItems = (try? await baseItemsFetch) ?? (movies: [], tv: [])
+
+            // Map Curated Shelves
+            var mappedShelves: [CuratedCategoryShelf] = []
+            for shelf in shelves {
+                var shelfItems: [iOSMediaRowItem] = []
+                for m in shelf.movies {
+                    let posterURL = ImageURLBuilder.posterURL(for: m.posterPath, config: appState.apiConfiguration, idealWidth: 342)
+                    let year = m.releaseDate.map { String(Calendar.current.component(.year, from: $0)) }
+                    shelfItems.append(iOSMediaRowItem(
+                        id: m.id,
+                        title: m.title,
+                        posterURL: posterURL,
+                        rating: m.voteAverage,
+                        releaseYear: year,
+                        isTVSeries: false,
+                        progress: nil
+                    ))
+                }
+                for t in shelf.tvSeries {
+                    let posterURL = ImageURLBuilder.posterURL(for: t.posterPath, config: appState.apiConfiguration, idealWidth: 342)
+                    let year = t.firstAirDate.map { String(Calendar.current.component(.year, from: $0)) }
+                    shelfItems.append(iOSMediaRowItem(
+                        id: t.id,
+                        title: t.name,
+                        posterURL: posterURL,
+                        rating: t.voteAverage,
+                        releaseYear: year,
+                        isTVSeries: true,
+                        progress: nil
+                    ))
+                }
+                if !shelfItems.isEmpty {
+                    mappedShelves.append(CuratedCategoryShelf(title: shelf.title, items: shelfItems))
+                }
+            }
+
+            // Map Hero and Grid Items
+            var heroes: [MediaListItem] = []
+            var allGrid: [iOSMediaRowItem] = []
+
+            for m in baseItems.movies {
+                let posterURL = ImageURLBuilder.posterURL(for: m.posterPath, config: appState.apiConfiguration, idealWidth: 780) ?? ImageURLBuilder.backdropURL(for: m.backdropPath, config: appState.apiConfiguration, idealWidth: 780)
                 let year = m.releaseDate.map { String(Calendar.current.component(.year, from: $0)) }
                 heroes.append(MediaListItem(
                     id: m.id,
@@ -315,7 +379,7 @@ struct iOSCategoryFeedView: View {
                     isTVSeries: false,
                     releaseDate: m.releaseDate
                 ))
-                items.append(iOSMediaRowItem(
+                allGrid.append(iOSMediaRowItem(
                     id: m.id,
                     title: m.title,
                     posterURL: posterURL,
@@ -326,8 +390,8 @@ struct iOSCategoryFeedView: View {
                 ))
             }
 
-            for t in result.tv {
-                let posterURL = ImageURLBuilder.posterURL(for: t.posterPath, config: appState.apiConfiguration, idealWidth: 500)
+            for t in baseItems.tv {
+                let posterURL = ImageURLBuilder.posterURL(for: t.posterPath, config: appState.apiConfiguration, idealWidth: 780) ?? ImageURLBuilder.backdropURL(for: t.backdropPath, config: appState.apiConfiguration, idealWidth: 780)
                 let year = t.firstAirDate.map { String(Calendar.current.component(.year, from: $0)) }
                 heroes.append(MediaListItem(
                     id: t.id,
@@ -338,7 +402,7 @@ struct iOSCategoryFeedView: View {
                     isTVSeries: true,
                     releaseDate: t.firstAirDate
                 ))
-                items.append(iOSMediaRowItem(
+                allGrid.append(iOSMediaRowItem(
                     id: t.id,
                     title: t.name,
                     posterURL: posterURL,
@@ -349,9 +413,24 @@ struct iOSCategoryFeedView: View {
                 ))
             }
 
+            // If heroItems from base is empty, take from first shelf
+            if heroes.isEmpty, let firstShelf = mappedShelves.first {
+                for item in firstShelf.items.prefix(6) {
+                    heroes.append(MediaListItem(
+                        id: item.id,
+                        title: item.title,
+                        posterURL: item.posterURL,
+                        rating: item.rating,
+                        releaseYear: item.releaseYear,
+                        isTVSeries: item.isTVSeries
+                    ))
+                }
+            }
+
+            self.curatedShelves = mappedShelves
             self.heroItems = Array(heroes.prefix(6))
-            self.allItems = items
-            self.hasMore = items.count >= 15
+            self.allItems = allGrid
+            self.hasMore = allGrid.count >= 12
         } catch {}
     }
 

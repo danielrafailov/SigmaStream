@@ -62,11 +62,18 @@ enum MovieCategory: String, CaseIterable {
     }
 
     /// Genre / keyword discover rows (same order on Movies tab and Home).
-    static let catalogDiscoverRows: [MovieCategory] = [
-        .action, .comedy, .drama, .thriller, .sciFi,
-        .crime, .family, .animation, .documentaries, .horror,
-        .fantasy, .mystery, .history, .epicSpectacleAdventures, .war, .western, .racing, .basedOnBooks
-    ]
+    static var catalogDiscoverRows: [MovieCategory] {
+        if KidsConfig.isKidsEdition {
+            return [
+                .animation, .family, .comedy, .fantasy, .sciFi, .action, .documentaries, .basedOnBooks
+            ]
+        }
+        return [
+            .action, .comedy, .drama, .thriller, .sciFi,
+            .crime, .family, .animation, .documentaries, .horror,
+            .fantasy, .mystery, .history, .epicSpectacleAdventures, .war, .western, .racing, .basedOnBooks
+        ]
+    }
 }
 
 /// Represents a category section for TV series.
@@ -111,9 +118,16 @@ enum TVCategory: String, CaseIterable {
         }
     }
 
-    static let catalogDiscoverRows: [TVCategory] = [
-        .actionAdventure, .comedy, .drama, .thriller, .sciFiFantasy,
-        .crime, .family, .animation, .documentaries, .horror,
-        .kids, .mystery, .racing, .basedOnBooks
-    ]
+    static var catalogDiscoverRows: [TVCategory] {
+        if KidsConfig.isKidsEdition {
+            return [
+                .kids, .animation, .family, .comedy, .sciFiFantasy, .actionAdventure, .basedOnBooks
+            ]
+        }
+        return [
+            .actionAdventure, .comedy, .drama, .thriller, .sciFiFantasy,
+            .crime, .family, .animation, .documentaries, .horror,
+            .kids, .mystery, .racing, .basedOnBooks
+        ]
+    }
 }

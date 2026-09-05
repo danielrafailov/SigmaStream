@@ -63,6 +63,11 @@ final class TMDbCache {
     func removeData(_ key: String) {
         try? fileManager.removeItem(at: fileURL(for: key))
     }
+
+    /// Clear all cached entries
+    func clearAll() {
+        try? fileManager.removeItem(at: cacheDirectory)
+    }
 }
 
 private struct DataCacheEntry: Codable {

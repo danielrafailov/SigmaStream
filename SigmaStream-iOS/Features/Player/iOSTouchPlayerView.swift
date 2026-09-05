@@ -53,9 +53,15 @@ struct iOSTouchPlayerView: View {
     @State private var selectedQuality: String?
     @State private var timeObserverToken: Any?
 
-    @State private var isResolvingStream = false
+    @State private var isResolvingStream = true
+    @State private var isBuffering = true
     @State private var streamResolveError: String?
     @State private var currentUrls: [URL] = []
+    @State private var currentUrlIndex = 0
+    @State private var didApplyStartTime = false
+    @State private var didAttemptFreshResolve = false
+    @State private var statusObservation: NSKeyValueObservation?
+    @State private var timeControlStatusObservation: NSKeyValueObservation?
 
     // Audio & Subtitle Selection
     @State private var audibleGroup: AVMediaSelectionGroup?
@@ -92,9 +98,14 @@ struct iOSTouchPlayerView: View {
                     .onTapGesture(count: 1) {
                         toggleControls()
                     }
-            } else {
-                // Loader Screen / Searching for Streams Animation
+            }
+
+            // Searching for Streams / Loading Overlay
+            // Shown when resolving streams OR while buffering initial video playback OR on error
+            if streamResolveError != nil || isResolvingStream || (isBuffering && currentTime < 0.5 && player?.timeControlStatus != .playing) {
                 ZStack {
+                    Color.black.ignoresSafeArea()
+
                     // Top dismiss button during loading or error
                     VStack {
                         HStack {
@@ -148,7 +159,7 @@ struct iOSTouchPlayerView: View {
                         .padding(24)
                     } else {
                         VStack(spacing: 16) {
-                            Text("Searching for streams")
+                            Text(isResolvingStream ? "Searching for streams" : "Loading stream")
                                 .font(.system(size: 24, weight: .bold))
                                 .foregroundStyle(.white)
 
@@ -163,6 +174,14 @@ struct iOSTouchPlayerView: View {
                         }
                     }
                 }
+            } else if isBuffering && currentTime >= 0.5 {
+                // Mid-playback buffering indicator
+                ProgressView()
+                    .scaleEffect(1.4)
+                    .tint(.white)
+                    .padding(20)
+                    .background(.ultraThinMaterial)
+                    .clipShape(Circle())
             }
 
             // Left / Right Double-Tap Indicator Overlays
@@ -423,14 +442,19 @@ struct iOSTouchPlayerView: View {
                 .transition(.opacity.animation(.easeInOut(duration: 0.25)))
             }
         }
-        .statusBarHidden(!showControls && player != nil)
+        .statusBarHidden(!showControls && player != nil && !isBuffering)
         .onAppear {
             lockLandscapeOrientation()
             currentUrls = playableContent.urls
             selectedQuality = playableContent.quality
+            currentUrlIndex = 0
+            didApplyStartTime = false
+            didAttemptFreshResolve = false
             if currentUrls.isEmpty {
                 resolveAndStartPlayback()
             } else if let first = currentUrls.first {
+                isResolvingStream = false
+                isBuffering = true
                 initializePlayer(with: first)
             }
         }
@@ -466,6 +490,7 @@ struct iOSTouchPlayerView: View {
 
     private func resolveAndStartPlayback() {
         isResolvingStream = true
+        isBuffering = true
         streamResolveError = nil
 
         Task {
@@ -491,6 +516,7 @@ struct iOSTouchPlayerView: View {
 
                 await MainActor.run {
                     self.currentUrls = resolved.urls
+                    self.currentUrlIndex = 0
                     self.selectedQuality = resolved.quality
                     self.isResolvingStream = false
                     if let first = resolved.urls.first {
@@ -500,6 +526,7 @@ struct iOSTouchPlayerView: View {
             } catch {
                 await MainActor.run {
                     self.isResolvingStream = false
+                    self.isBuffering = false
                     let msg = userFacingStreamingErrorMessage(for: error)
                     self.streamResolveError = msg.isEmpty ? "No stream found" : msg
                 }
@@ -508,15 +535,24 @@ struct iOSTouchPlayerView: View {
     }
 
     private func initializePlayer(with url: URL) {
+        isBuffering = true
         // Configure AVAudioSession for AirPlay video & audio routing
         do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback, options: [.allowAirPlay])
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
             try AVAudioSession.sharedInstance().setActive(true)
         } catch {
             print("AudioSession setup error: \(error)")
         }
 
-        let item = AVPlayerItem(url: url)
+        let asset = AVURLAsset(url: url, options: [
+            "AVURLAssetHTTPHeaderFieldsKey": [
+                "Bypass-Tunnel-Reminder": "true"
+            ]
+        ])
+        let item = AVPlayerItem(asset: asset)
+        item.preferredForwardBufferDuration = 0
+        item.preferredPeakBitRate = 0
+
         let avPlayer = AVPlayer(playerItem: item)
         avPlayer.allowsExternalPlayback = true
         avPlayer.usesExternalPlaybackWhileExternalScreenIsActive = true
@@ -529,21 +565,66 @@ struct iOSTouchPlayerView: View {
         )
         avPlayer.setMediaSelectionCriteria(englishCriteria, forMediaCharacteristic: .audible)
         
-        Task {
-            if let group = try? await item.asset.loadMediaSelectionGroup(for: .audible) {
-                let englishOption = group.options.first { opt in
-                    if let lang = opt.locale?.language.languageCode?.identifier.lowercased(), lang == "en" { return true }
-                    if let tag = opt.extendedLanguageTag?.lowercased(), tag.hasPrefix("en") || tag == "eng" { return true }
-                    if opt.displayName.lowercased().contains("english") { return true }
-                    return false
-                }
-                if let englishOption {
-                    item.select(englishOption, in: group)
+        // Clean up previous observations
+        statusObservation?.invalidate()
+        timeControlStatusObservation?.invalidate()
+
+        // Observe player item status
+        statusObservation = item.observe(\.status, options: [.new, .initial]) { [weak avPlayer] currentItem, _ in
+            DispatchQueue.main.async {
+                print("[Player] 📺 AVPlayerItem status: \(currentItem.status.rawValue)")
+                switch currentItem.status {
+                case .readyToPlay:
+                    print("[Player] ✅ readyToPlay! Starting video playback.")
+                    self.isResolvingStream = false
+                    self.isBuffering = false
+                    if !self.didApplyStartTime {
+                        if let startTime = self.playableContent.startTime, startTime > 5 {
+                            let cmTime = CMTime(seconds: startTime, preferredTimescale: 600)
+                            avPlayer?.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
+                        }
+                        self.didApplyStartTime = true
+                    }
+                    avPlayer?.playImmediately(atRate: 1.0)
+                    self.isPlaying = true
+                    Task {
+                        await self.loadMediaSelectionOptions(for: currentItem)
+                    }
+                case .failed:
+                    print("[Player] ❌ Stream failed for URL: \(url). Error: \(String(describing: currentItem.error))")
+                    if let log = currentItem.errorLog() {
+                        for event in log.events {
+                            print("[Player] 🚨 ErrorLog: \(event.errorComment ?? "nil") | code: \(event.errorStatusCode) | domain: \(event.errorDomain)")
+                        }
+                    }
+                    self.tryNextURLOrFallback()
+                case .unknown:
+                    break
+                @unknown default:
+                    break
                 }
             }
-            await loadMediaSelectionOptions(for: item)
         }
-        
+
+        // Observe player timeControlStatus
+        timeControlStatusObservation = avPlayer.observe(\.timeControlStatus, options: [.new]) { player, _ in
+            DispatchQueue.main.async {
+                switch player.timeControlStatus {
+                case .waitingToPlayAtSpecifiedRate:
+                    if self.isPlaying {
+                        self.isBuffering = true
+                    }
+                case .playing:
+                    self.isBuffering = false
+                    self.isResolvingStream = false
+                case .paused:
+                    self.isBuffering = false
+                @unknown default:
+                    break
+                }
+            }
+        }
+
         self.player = avPlayer
 
         // Observe periodic playback time
@@ -558,18 +639,37 @@ struct iOSTouchPlayerView: View {
             }
         }
 
-        // Resume from saved playback position if available
-        if let startTime = playableContent.startTime, startTime > 5 {
-            let cmTime = CMTime(seconds: startTime, preferredTimescale: 600)
-            avPlayer.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
-        }
-
         avPlayer.play()
         isPlaying = true
         scheduleControlsHide()
     }
 
+    private func tryNextURLOrFallback() {
+        teardownPlayer()
+        currentUrlIndex += 1
+        print("[Player] 🔄 Moving to stream candidate #\(currentUrlIndex + 1) of \(currentUrls.count)")
+        if currentUrlIndex < currentUrls.count {
+            let nextURL = currentUrls[currentUrlIndex]
+            initializePlayer(with: nextURL)
+        } else {
+            if !didAttemptFreshResolve {
+                didAttemptFreshResolve = true
+                currentUrlIndex = 0
+                currentUrls = []
+                resolveAndStartPlayback()
+            } else {
+                isResolvingStream = false
+                isBuffering = false
+                streamResolveError = "No playable stream found for this title. Please try another source or try again later."
+            }
+        }
+    }
+
     private func teardownPlayer() {
+        statusObservation?.invalidate()
+        statusObservation = nil
+        timeControlStatusObservation?.invalidate()
+        timeControlStatusObservation = nil
         if let token = timeObserverToken, let player {
             player.removeTimeObserver(token)
             timeObserverToken = nil

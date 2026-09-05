@@ -27,6 +27,52 @@ enum SearchSortOption: String, CaseIterable, Identifiable {
     case titleDesc = "Title (Z → A)"
 
     var id: String { rawValue }
+
+    var tmdbMovieSortBy: String {
+        switch self {
+        case .popularityDesc: return "popularity.desc"
+        case .popularityAsc: return "popularity.asc"
+        case .ratingDesc: return "vote_average.desc"
+        case .ratingAsc: return "vote_average.asc"
+        case .releaseDateDesc: return "primary_release_date.desc"
+        case .releaseDateAsc: return "primary_release_date.asc"
+        case .titleAsc: return "title.asc"
+        case .titleDesc: return "title.desc"
+        }
+    }
+
+    var tmdbTVSortBy: String {
+        switch self {
+        case .popularityDesc: return "popularity.desc"
+        case .popularityAsc: return "popularity.asc"
+        case .ratingDesc: return "vote_average.desc"
+        case .ratingAsc: return "vote_average.asc"
+        case .releaseDateDesc: return "first_air_date.desc"
+        case .releaseDateAsc: return "first_air_date.asc"
+        case .titleAsc: return "name.asc"
+        case .titleDesc: return "name.desc"
+        }
+    }
+}
+
+enum SearchResultLimit: String, CaseIterable, Identifiable {
+    case five = "5"
+    case ten = "10"
+    case twenty = "20"
+    case fifty = "50"
+    case infinite = "Infinite"
+
+    var id: String { rawValue }
+
+    var limitNumber: Int? {
+        switch self {
+        case .five: return 5
+        case .ten: return 10
+        case .twenty: return 20
+        case .fifty: return 50
+        case .infinite: return nil
+        }
+    }
 }
 
 struct SearchGenreItem: Identifiable {
@@ -34,26 +80,32 @@ struct SearchGenreItem: Identifiable {
     let name: String
 }
 
-private let searchAvailableGenres: [SearchGenreItem] = [
-    SearchGenreItem(id: 28, name: "Action"),
-    SearchGenreItem(id: 12, name: "Adventure"),
-    SearchGenreItem(id: 16, name: "Animation"),
-    SearchGenreItem(id: 35, name: "Comedy"),
-    SearchGenreItem(id: 80, name: "Crime"),
-    SearchGenreItem(id: 99, name: "Documentary"),
-    SearchGenreItem(id: 18, name: "Drama"),
-    SearchGenreItem(id: 10751, name: "Family"),
-    SearchGenreItem(id: 14, name: "Fantasy"),
-    SearchGenreItem(id: 36, name: "History"),
-    SearchGenreItem(id: 27, name: "Horror"),
-    SearchGenreItem(id: 10402, name: "Music"),
-    SearchGenreItem(id: 9648, name: "Mystery"),
-    SearchGenreItem(id: 10749, name: "Romance"),
-    SearchGenreItem(id: 878, name: "Sci-Fi"),
-    SearchGenreItem(id: 53, name: "Thriller"),
-    SearchGenreItem(id: 10752, name: "War"),
-    SearchGenreItem(id: 37, name: "Western")
-]
+private var searchAvailableGenres: [SearchGenreItem] {
+    let all: [SearchGenreItem] = [
+        SearchGenreItem(id: 28, name: "Action"),
+        SearchGenreItem(id: 12, name: "Adventure"),
+        SearchGenreItem(id: 16, name: "Animation"),
+        SearchGenreItem(id: 35, name: "Comedy"),
+        SearchGenreItem(id: 80, name: "Crime"),
+        SearchGenreItem(id: 99, name: "Documentary"),
+        SearchGenreItem(id: 18, name: "Drama"),
+        SearchGenreItem(id: 10751, name: "Family"),
+        SearchGenreItem(id: 14, name: "Fantasy"),
+        SearchGenreItem(id: 36, name: "History"),
+        SearchGenreItem(id: 27, name: "Horror"),
+        SearchGenreItem(id: 10402, name: "Music"),
+        SearchGenreItem(id: 9648, name: "Mystery"),
+        SearchGenreItem(id: 10749, name: "Romance"),
+        SearchGenreItem(id: 878, name: "Sci-Fi"),
+        SearchGenreItem(id: 53, name: "Thriller"),
+        SearchGenreItem(id: 10752, name: "War"),
+        SearchGenreItem(id: 37, name: "Western")
+    ]
+    if KidsConfig.isKidsEdition {
+        return all.filter { !KidsConfig.blockedGenreIDs.contains($0.id) }
+    }
+    return all
+}
 
 private let searchAvailableYears = [
     "All", "2025", "2024", "2023", "2022", "2021", "2020", "2010s", "2000s", "90s", "80s", "70s & older"
@@ -66,9 +118,10 @@ struct SearchFilterOptions: Equatable {
     var actorName: String = ""
     var minRating: Double = 0.0
     var sortBy: SearchSortOption = .popularityDesc
+    var resultLimit: SearchResultLimit = .infinite
 
     var isActive: Bool {
-        mediaType != 0 || !selectedGenreIds.isEmpty || selectedYear != "All" || !actorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || minRating > 0 || sortBy != .popularityDesc
+        mediaType != 0 || !selectedGenreIds.isEmpty || selectedYear != "All" || !actorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || minRating > 0 || sortBy != .popularityDesc || resultLimit != .infinite
     }
 
     mutating func reset() {
@@ -78,6 +131,7 @@ struct SearchFilterOptions: Equatable {
         actorName = ""
         minRating = 0.0
         sortBy = .popularityDesc
+        resultLimit = .infinite
     }
 }
 
@@ -91,6 +145,9 @@ struct iOSSearchView: View {
     @State private var searchResults: [MediaListItem] = []
     @State private var aiSpokenResponse: String?
     @State private var isSearching = false
+    @State private var isLoadingMore = false
+    @State private var currentPage = 1
+    @State private var hasMore = true
     @State private var searchTask: Task<Void, Never>?
 
     // Detail Navigation
@@ -228,13 +285,13 @@ struct iOSSearchView: View {
                                 .font(.headline)
                                 .foregroundStyle(.secondary)
                             if searchMode == .ai {
-                                Text("Try \"recommend a 90s action thriller\" or \"best sci-fi shows\"")
+                                Text(KidsConfig.isKidsEdition ? "Try \"find funny Disney movies\" or \"best superhero cartoons\"" : "Try \"recommend a 90s action thriller\" or \"best sci-fi shows\"")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                     .multilineTextAlignment(.center)
                                     .padding(.horizontal, 32)
                             } else {
-                                Text("Use the search bar or tap the ☰ filter button to browse by genre, year, actor, and ratings")
+                                Text(KidsConfig.isKidsEdition ? "Search favorite animated movies, cartoons, and family shows" : "Use the search bar or tap the ☰ filter button to browse by genre, year, actor, and ratings")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                     .multilineTextAlignment(.center)
@@ -308,7 +365,7 @@ struct iOSSearchView: View {
                             // Media Grid
                             if !searchResults.isEmpty {
                                 LazyVGrid(columns: columns, spacing: 16) {
-                                    ForEach(searchResults) { item in
+                                    ForEach(Array(searchResults.enumerated()), id: \.element.id) { index, item in
                                         Button {
                                             if item.isTVSeries {
                                                 selectedTVSeriesId = item.id
@@ -327,6 +384,17 @@ struct iOSSearchView: View {
                                             )
                                         }
                                         .buttonStyle(.plain)
+                                        .onAppear {
+                                            if index >= searchResults.count - 4 && hasMore && !isLoadingMore && filters.resultLimit == .infinite {
+                                                Task { await loadNextSearchPage() }
+                                            }
+                                        }
+                                    }
+
+                                    if isLoadingMore {
+                                        ProgressView()
+                                            .frame(maxWidth: .infinity)
+                                            .padding(.vertical, 20)
                                     }
                                 }
                                 .padding(.horizontal, 16)
@@ -356,16 +424,7 @@ struct iOSSearchView: View {
             .sheet(isPresented: $showFilterSheet) {
                 SearchFilterSheetView(
                     filters: $filters,
-                    onApplyFiltersOnly: {
-                        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !query.isEmpty {
-                            searchTask?.cancel()
-                            searchTask = Task {
-                                await executeSearch(query: query, mode: searchMode, isExplicitFilterSearch: false)
-                            }
-                        }
-                    },
-                    onApplySearch: {
+                    onApply: {
                         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
                         searchTask?.cancel()
                         searchTask = Task {
@@ -411,13 +470,21 @@ struct iOSSearchView: View {
         }
     }
 
-    private func executeSearch(query: String, mode: SearchMode, isExplicitFilterSearch: Bool) async {
+    private func executeSearch(query: String, mode: SearchMode, isExplicitFilterSearch: Bool, page: Int = 1, isPaging: Bool = false) async {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty && !filters.isActive && !isExplicitFilterSearch { return }
 
-        await MainActor.run {
-            isSearching = true
-            aiSpokenResponse = nil
+        if !isPaging {
+            await MainActor.run {
+                isSearching = true
+                aiSpokenResponse = nil
+                currentPage = 1
+                hasMore = true
+            }
+        } else {
+            await MainActor.run {
+                isLoadingMore = true
+            }
         }
 
         do {
@@ -486,98 +553,175 @@ struct iOSSearchView: View {
                 // Apply Sort Order to AI results as well
                 combined = sortMediaItems(combined, by: filters.sortBy)
 
+                if let limit = filters.resultLimit.limitNumber {
+                    combined = Array(combined.prefix(limit))
+                }
+
                 await MainActor.run {
                     self.searchResults = combined
                     self.aiSpokenResponse = result.spokenResponse
                     self.isSearching = false
+                    self.isLoadingMore = false
+                    self.hasMore = false
                 }
 
                 // Speak response via active celebrity voice
                 appState.voiceService.speak(result.spokenResponse)
             } else {
                 var results: [MediaListItem] = []
-                
-                // Determine search target: query text -> actor name -> first selected genre -> fallback default
-                let searchTarget: String
-                if !trimmed.isEmpty {
-                    searchTarget = trimmed
-                } else if !filters.actorName.isEmpty {
-                    searchTarget = filters.actorName
-                } else if let firstGenreId = filters.selectedGenreIds.first,
-                          let genreObj = searchAvailableGenres.first(where: { $0.id == firstGenreId }) {
-                    searchTarget = genreObj.name
+
+                if trimmed.isEmpty {
+                    // Discover search with authentic TMDb sorting and filters
+                    if filters.mediaType == 0 || filters.mediaType == 1 {
+                        let movies = try await appState.tmdbService.discoverFilteredMovies(
+                            genreIds: filters.selectedGenreIds,
+                            yearFilter: filters.selectedYear,
+                            minRating: filters.minRating,
+                            sortBy: filters.sortBy.tmdbMovieSortBy,
+                            page: page
+                        )
+                        let movieItems = movies.map { m in
+                            MediaListItem(
+                                id: m.id,
+                                title: m.title,
+                                posterURL: ImageURLBuilder.posterURL(for: m.posterPath, config: appState.apiConfiguration, idealWidth: 342),
+                                rating: m.voteAverage,
+                                releaseYear: m.releaseDate.map { String(Calendar.current.component(.year, from: $0)) },
+                                isTVSeries: false,
+                                releaseDate: m.releaseDate
+                            )
+                        }
+                        results.append(contentsOf: movieItems)
+                    }
+
+                    if filters.mediaType == 0 || filters.mediaType == 2 {
+                        let tvSeries = try await appState.tmdbService.discoverFilteredTV(
+                            genreIds: filters.selectedGenreIds,
+                            yearFilter: filters.selectedYear,
+                            minRating: filters.minRating,
+                            sortBy: filters.sortBy.tmdbTVSortBy,
+                            page: page
+                        )
+                        let tvItems = tvSeries.map { tv in
+                            MediaListItem(
+                                id: tv.id,
+                                title: tv.name,
+                                posterURL: ImageURLBuilder.posterURL(for: tv.posterPath, config: appState.apiConfiguration, idealWidth: 342),
+                                rating: tv.voteAverage,
+                                releaseYear: tv.firstAirDate.map { String(Calendar.current.component(.year, from: $0)) },
+                                isTVSeries: true,
+                                releaseDate: tv.firstAirDate
+                            )
+                        }
+                        results.append(contentsOf: tvItems)
+                    }
+
+                    // Secondary in-memory sort if needed
+                    results = sortMediaItems(results, by: filters.sortBy)
                 } else {
-                    searchTarget = "Action"
-                }
+                    // Search by query keyword
+                    let searchTarget = trimmed
 
-                if filters.mediaType == 0 || filters.mediaType == 1 {
-                    let movies = try await appState.tmdbService.searchMovies(query: searchTarget)
-                    let movieItems = movies.compactMap { m -> MediaListItem? in
-                        // Year filter check
-                        if filters.selectedYear != "All", let date = m.releaseDate {
-                            let year = Calendar.current.component(.year, from: date)
-                            if !matchesYearFilter(year: year, filter: filters.selectedYear) {
+                    if filters.mediaType == 0 || filters.mediaType == 1 {
+                        let movies = try await appState.tmdbService.searchMovies(query: searchTarget)
+                        let movieItems = movies.compactMap { m -> MediaListItem? in
+                            // Year filter check
+                            if filters.selectedYear != "All", let date = m.releaseDate {
+                                let year = Calendar.current.component(.year, from: date)
+                                if !matchesYearFilter(year: year, filter: filters.selectedYear) {
+                                    return nil
+                                }
+                            }
+                            // Rating filter check
+                            if filters.minRating > 0, let rating = m.voteAverage, rating < filters.minRating {
                                 return nil
                             }
+                            return MediaListItem(
+                                id: m.id,
+                                title: m.title,
+                                posterURL: ImageURLBuilder.posterURL(for: m.posterPath, config: appState.apiConfiguration, idealWidth: 342),
+                                rating: m.voteAverage,
+                                releaseYear: m.releaseDate.map { String(Calendar.current.component(.year, from: $0)) },
+                                isTVSeries: false,
+                                releaseDate: m.releaseDate
+                            )
                         }
-                        // Rating filter check
-                        if filters.minRating > 0, let rating = m.voteAverage, rating < filters.minRating {
-                            return nil
-                        }
-                        return MediaListItem(
-                            id: m.id,
-                            title: m.title,
-                            posterURL: ImageURLBuilder.posterURL(for: m.posterPath, config: appState.apiConfiguration, idealWidth: 342),
-                            rating: m.voteAverage,
-                            releaseYear: m.releaseDate.map { String(Calendar.current.component(.year, from: $0)) },
-                            isTVSeries: false,
-                            releaseDate: m.releaseDate
-                        )
+                        results.append(contentsOf: movieItems)
                     }
-                    results.append(contentsOf: movieItems)
-                }
 
-                if filters.mediaType == 0 || filters.mediaType == 2 {
-                    let tvSeries = try await appState.tmdbService.searchTVSeries(query: searchTarget)
-                    let tvItems = tvSeries.compactMap { tv -> MediaListItem? in
-                        // Year filter check
-                        if filters.selectedYear != "All", let date = tv.firstAirDate {
-                            let year = Calendar.current.component(.year, from: date)
-                            if !matchesYearFilter(year: year, filter: filters.selectedYear) {
+                    if filters.mediaType == 0 || filters.mediaType == 2 {
+                        let tvSeries = try await appState.tmdbService.searchTVSeries(query: searchTarget)
+                        let tvItems = tvSeries.compactMap { tv -> MediaListItem? in
+                            // Year filter check
+                            if filters.selectedYear != "All", let date = tv.firstAirDate {
+                                let year = Calendar.current.component(.year, from: date)
+                                if !matchesYearFilter(year: year, filter: filters.selectedYear) {
+                                    return nil
+                                }
+                            }
+                            // Rating filter check
+                            if filters.minRating > 0, let rating = tv.voteAverage, rating < filters.minRating {
                                 return nil
                             }
+                            return MediaListItem(
+                                id: tv.id,
+                                title: tv.name,
+                                posterURL: ImageURLBuilder.posterURL(for: tv.posterPath, config: appState.apiConfiguration, idealWidth: 342),
+                                rating: tv.voteAverage,
+                                releaseYear: tv.firstAirDate.map { String(Calendar.current.component(.year, from: $0)) },
+                                isTVSeries: true,
+                                releaseDate: tv.firstAirDate
+                            )
                         }
-                        // Rating filter check
-                        if filters.minRating > 0, let rating = tv.voteAverage, rating < filters.minRating {
-                            return nil
-                        }
-                        return MediaListItem(
-                            id: tv.id,
-                            title: tv.name,
-                            posterURL: ImageURLBuilder.posterURL(for: tv.posterPath, config: appState.apiConfiguration, idealWidth: 342),
-                            rating: tv.voteAverage,
-                            releaseYear: tv.firstAirDate.map { String(Calendar.current.component(.year, from: $0)) },
-                            isTVSeries: true,
-                            releaseDate: tv.firstAirDate
-                        )
+                        results.append(contentsOf: tvItems)
                     }
-                    results.append(contentsOf: tvItems)
-                }
 
-                // Apply Sorting
-                results = sortMediaItems(results, by: filters.sortBy)
+                    // Apply Sorting
+                    results = sortMediaItems(results, by: filters.sortBy)
+                }
 
                 guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    self.searchResults = results
-                    self.isSearching = false
+
+                if let limit = filters.resultLimit.limitNumber {
+                    let capped = Array(results.prefix(limit))
+                    await MainActor.run {
+                        self.searchResults = capped
+                        self.isSearching = false
+                        self.isLoadingMore = false
+                        self.hasMore = false
+                    }
+                } else {
+                    let fetchedCount = results.count
+                    await MainActor.run {
+                        if isPaging {
+                            self.searchResults.append(contentsOf: results)
+                            self.currentPage = page
+                        } else {
+                            self.searchResults = results
+                            self.currentPage = page
+                        }
+                        self.isSearching = false
+                        self.isLoadingMore = false
+                        self.hasMore = fetchedCount >= 15
+                    }
                 }
             }
         } catch {
             await MainActor.run {
                 self.isSearching = false
+                self.isLoadingMore = false
+                if !isPaging {
+                    self.searchResults = []
+                }
+                self.hasMore = false
             }
         }
+    }
+
+    private func loadNextSearchPage() async {
+        guard !isLoadingMore && hasMore && filters.resultLimit == .infinite else { return }
+        let next = currentPage + 1
+        await executeSearch(query: searchText, mode: searchMode, isExplicitFilterSearch: filters.isActive, page: next, isPaging: true)
     }
 
     private func sortMediaItems(_ items: [MediaListItem], by sort: SearchSortOption) -> [MediaListItem] {
@@ -618,19 +762,16 @@ struct iOSSearchView: View {
 struct SearchFilterSheetView: View {
     @Environment(\.dismiss) private var dismiss
     @Binding var filters: SearchFilterOptions
-    let onApplyFiltersOnly: () -> Void
-    let onApplySearch: () -> Void
+    let onApply: () -> Void
 
     @State private var draftFilters: SearchFilterOptions
 
     init(
         filters: Binding<SearchFilterOptions>,
-        onApplyFiltersOnly: @escaping () -> Void,
-        onApplySearch: @escaping () -> Void
+        onApply: @escaping () -> Void
     ) {
         self._filters = filters
-        self.onApplyFiltersOnly = onApplyFiltersOnly
-        self.onApplySearch = onApplySearch
+        self.onApply = onApply
         self._draftFilters = State(initialValue: filters.wrappedValue)
     }
 
@@ -669,7 +810,7 @@ struct SearchFilterSheetView: View {
 
                 // Section 4: Actor / Cast
                 Section("Starring Actor / Cast") {
-                    TextField("e.g. Tom Cruise, Cillian Murphy", text: $draftFilters.actorName)
+                    TextField(KidsConfig.isKidsEdition ? "e.g. Tom Hanks, Chris Pratt, Kristen Bell" : "e.g. Tom Cruise, Cillian Murphy", text: $draftFilters.actorName)
                 }
 
                 // Section 5: Minimum Rating
@@ -686,7 +827,17 @@ struct SearchFilterSheetView: View {
                     }
                 }
 
-                // Section 6: Genres
+                // Section 6: Result Limit (5, 10, 20, 50, Infinite)
+                Section("Result Limit") {
+                    Picker("Limit", selection: $draftFilters.resultLimit) {
+                        ForEach(SearchResultLimit.allCases) { lim in
+                            Text(lim.rawValue).tag(lim)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+
+                // Section 7: Genres
                 Section("Genres") {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 90), spacing: 8)], spacing: 8) {
                         ForEach(searchAvailableGenres) { genre in
@@ -713,49 +864,26 @@ struct SearchFilterSheetView: View {
                     .padding(.vertical, 4)
                 }
 
-                // Section 7: Action Buttons (Apply Filter Search & Apply Filters)
+                // Section 8: Action Button (Apply Filters)
                 Section {
-                    VStack(spacing: 12) {
-                        // 1. Primary Button: Apply Filter Search (Immediately queries all entertainment matching filters)
-                        Button {
-                            filters = draftFilters
-                            dismiss()
-                            onApplySearch()
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "sparkle.magnifyingglass")
-                                    .font(.headline)
-                                Text("Apply Filter Search")
-                                    .font(.headline.bold())
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(Color.blue)
-                            .foregroundStyle(.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    Button {
+                        filters = draftFilters
+                        dismiss()
+                        onApply()
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.headline)
+                            Text("Apply Filters")
+                                .font(.headline.bold())
                         }
-                        .buttonStyle(.plain)
-
-                        // 2. Secondary Button: Apply Filters (Saves active filter preferences)
-                        Button {
-                            filters = draftFilters
-                            dismiss()
-                            onApplyFiltersOnly()
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "line.3.horizontal.decrease")
-                                    .font(.subheadline)
-                                Text("Apply Filters")
-                                    .font(.subheadline.weight(.semibold))
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                            .background(Color(uiColor: .secondarySystemBackground))
-                            .foregroundStyle(.primary)
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        }
-                        .buttonStyle(.plain)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color.blue)
+                        .foregroundStyle(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
+                    .buttonStyle(.plain)
                     .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
                     .listRowBackground(Color.clear)
                 }

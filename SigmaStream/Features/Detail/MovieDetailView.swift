@@ -136,6 +136,7 @@ struct MovieDetailView: View {
                 }
             }
         }
+        .background(Color.black.ignoresSafeArea())
         .navigationTitle("")
         .task {
             await loadMovie()
@@ -387,10 +388,10 @@ struct MovieDetailView: View {
     }
 
     private func loadMovie() async {
+        scheduleMoviePrefetchIfReleased()
         do {
             movie = try await appState.tmdbService.movieDetails(forMovieId: movieId)
             trailerYouTubeKey = try? await appState.tmdbService.movieTrailerYouTubeKey(movieId: movieId)
-            scheduleMoviePrefetchIfReleased()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -399,12 +400,7 @@ struct MovieDetailView: View {
 
     /// Warm OMSS cache while the user reads metadata so Play can snap open after aggregated scrape finishes.
     private func scheduleMoviePrefetchIfReleased() {
-        guard let movie else { return }
-        if let date = movie.releaseDate, date > Calendar.current.startOfDay(for: Date()) {
-            return
-        }
         moviePrefetchTask?.cancel()
-        prefetchedMoviePlayback = nil
         moviePrefetchTask = Task {
             do {
                 let pair = try await appState.streamingService.playableURLsAndQualityForMovie(tmdbId: movieId)

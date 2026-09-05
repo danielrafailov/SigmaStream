@@ -84,6 +84,7 @@ struct TVCategoryListView: View {
                 }
             }
         }
+        .background(Color.black.ignoresSafeArea())
         .defaultFocus($focusedSeriesId, tvSeries.first?.id)
         .navigationTitle("")
         .navigationDestination(item: $selectedSeries) { selection in

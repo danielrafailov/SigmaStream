@@ -62,6 +62,7 @@ export class VixSrcProvider extends BaseProvider {
                 );
             }
 
+            const embedUrl = this.BASE_URL + sublink.src;
             const tokenData = this.extractTokenData(html, media);
             if (!tokenData) {
                 return this.emptyResult('Invalid or expired token', media);
@@ -71,7 +72,7 @@ export class VixSrcProvider extends BaseProvider {
 
             const playlistContent = await this.fetchPlaylist(
                 masterUrl,
-                pageUrl,
+                embedUrl,
                 media
             );
             if (!playlistContent) {
@@ -81,7 +82,7 @@ export class VixSrcProvider extends BaseProvider {
             return this.parsePlaylist(
                 playlistContent,
                 masterUrl,
-                pageUrl,
+                embedUrl,
                 media
             );
         } catch (error) {
@@ -147,9 +148,11 @@ export class VixSrcProvider extends BaseProvider {
         html: string,
         media: ProviderMediaObject
     ): { token: string; expires: string; playlist: string } | null {
-        const token = html.match(/token["']\s*:\s*["']([^"']+)/)?.[1];
-        const expires = html.match(/expires["']\s*:\s*["']([^"']+)/)?.[1];
-        const playlist = html.match(/url\s*:\s*["']([^"']+)/)?.[1];
+        const token = html.match(/['"]?token['"]?\s*:\s*['"]([^'"]+)['"]/)?.[1];
+        const expires = html.match(/['"]?expires['"]?\s*:\s*['"]([^'"]+)['"]/)?.[1];
+        const playlist = (html.match(/url\s*:\s*['"](https:[^'"]+playlist[^'"]*)/)?.[1] ||
+                         html.match(/['"]?url['"]?\s*:\s*['"]([^'"]+playlist[^'"]*)/)?.[1])
+                         ?.replace(/\\\//g, '/');
 
         if (!token || !expires || !playlist) {
             return null;
@@ -194,7 +197,8 @@ export class VixSrcProvider extends BaseProvider {
             const response = await fetch(url, {
                 headers: {
                     ...this.HEADERS,
-                    Referer: referer
+                    Referer: referer,
+                    Origin: this.BASE_URL
                 }
             });
 

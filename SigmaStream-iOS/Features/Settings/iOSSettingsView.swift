@@ -40,6 +40,38 @@ struct iOSSettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                // Parental Controls / Kids Edition Section
+                Section {
+                    Toggle(isOn: Binding(
+                        get: { appState.isKidsMode },
+                        set: { appState.isKidsMode = $0 }
+                    )) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(spacing: 6) {
+                                Text("Kids Edition")
+                                    .font(.body.bold())
+                                if appState.isKidsMode {
+                                    Text("ACTIVE")
+                                        .font(.caption2.bold())
+                                        .foregroundStyle(.black)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(Color.yellow)
+                                        .clipShape(Capsule())
+                                }
+                            }
+                            Text("Restricts all movies, TV shows, categories, searches, and AI to G & PG rated family content only.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .tint(.orange)
+                } header: {
+                    Text("Parental Controls")
+                } footer: {
+                    Text("When active, Deadpool, R-rated, and mature content are completely filtered out.")
+                }
+
                 // AI Voice Assistant Section
                 Section {
                     ForEach(voices) { voice in
@@ -203,12 +235,13 @@ struct iOSSettingsView: View {
     }
 
     private func checkServer() async {
-        guard let url = URL(string: "\(Secrets.streamingServerBaseURL)/v1/health") else { return }
+        let base = Secrets.streamingServerBaseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard let url = URL(string: "\(base)/") else { return }
         do {
             var request = URLRequest(url: url)
-            request.timeoutInterval = 3
+            request.timeoutInterval = 8
             let (_, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse, http.statusCode == 200 {
+            if let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) {
                 await MainActor.run {
                     isServerOnline = true
                     serverStatus = "Online"
@@ -222,7 +255,7 @@ struct iOSSettingsView: View {
         } catch {
             await MainActor.run {
                 isServerOnline = false
-                serverStatus = "Offline"
+                serverStatus = "Offline (\(error.localizedDescription))"
             }
         }
     }

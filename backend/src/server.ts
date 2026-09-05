@@ -1,19 +1,81 @@
 import { OMSSServer } from '@omss/framework';
-import 'dotenv/config';
+import dotenv from 'dotenv';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Explicitly load .env from backend root regardless of PM2 working directory
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+dotenv.config();
+
+import { setGlobalDispatcher, ProxyAgent, Dispatcher } from 'undici';
+
+class RotatingProxyDispatcher extends Dispatcher {
+    private agents: ProxyAgent[];
+    private index = 0;
+
+    constructor(urls: string[]) {
+        super();
+        this.agents = urls.map((u) => new ProxyAgent(u));
+    }
+
+    dispatch(options: any, handler: any): boolean {
+        const agent = this.agents[this.index % this.agents.length];
+        this.index = (this.index + 1) % this.agents.length;
+        return agent.dispatch(options, handler);
+    }
+
+    close() {
+        return Promise.all(this.agents.map((a) => a.close())) as any;
+    }
+
+    destroy() {
+        return Promise.all(this.agents.map((a) => a.destroy())) as any;
+    }
+}
 import { knownThirdPartyProxies } from './thirdPartyProxies.js';
 import { streamPatterns } from './streamPatterns.js';
 import { generateSpeechWav, getTTS } from './tts.js';
 import { transcribeWav, getTranscriber } from './stt.js';
 import { StreamBufferService } from './services/streamBufferService.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 async function main() {
     console.log('[Server] Starting CinePro backend...');
+
+    // Optional Outbound Forward Proxy Pool (e.g. Webshare.io)
+    const forwardProxy =
+        process.env.WEBSHARE_PROXY ||
+        process.env.FORWARD_PROXY ||
+        process.env.HTTPS_PROXY ||
+        process.env.HTTP_PROXY;
+    if (forwardProxy) {
+        try {
+            const urls = forwardProxy
+                .split(',')
+                .map((u) => u.trim())
+                .filter(Boolean);
+            if (urls.length === 1) {
+                console.log(
+                    `[Proxy] 🌐 Setting global outbound proxy: ${urls[0].replace(/:[^:@]+@/, ':****@')}`
+                );
+                setGlobalDispatcher(new ProxyAgent(urls[0]));
+            } else if (urls.length > 1) {
+                console.log(
+                    `[Proxy] 🌐 Setting rotating proxy pool across ${urls.length} endpoints`
+                );
+                setGlobalDispatcher(new RotatingProxyDispatcher(urls));
+            }
+        } catch (err: any) {
+            console.warn(
+                '[Proxy] ⚠️ Failed to configure outbound proxy dispatcher:',
+                err.message
+            );
+        }
+    }
 
     const server = new OMSSServer({
         name: 'CinePro',
@@ -81,7 +143,75 @@ async function main() {
     const app = server.getInstance();
     const streamBuffer = StreamBufferService.getInstance();
 
-    // Hook into ProxyService for Sliding-Window Lookahead Segment Buffering
+    // Hook into ProxyService to stream all video media instead of buffering into memory
+    const proxyServiceInstance = (server as any).proxyService;
+    if (proxyServiceInstance) {
+        proxyServiceInstance.shouldStream = function (url: string) {
+            if (
+                this.isManifestFile('', url) ||
+                /\.m3u8($|\?)/i.test(url) ||
+                /\.mpd($|\?)/i.test(url) ||
+                /\/playlist/i.test(url) ||
+                /\/manifest/i.test(url) ||
+                /\.(vtt|srt|key)($|\?)/i.test(url)
+            ) {
+                return false;
+            }
+            return true;
+        };
+
+        // Override fetchWithTimeout to manually follow cross-origin redirects while preserving headers (especially Referer)
+        proxyServiceInstance.fetchWithTimeout = async function (
+            url: string,
+            init: any,
+            timeoutMs = 30000
+        ) {
+            let currentUrl = url;
+            let redirects = 0;
+            const maxRedirects = 5;
+
+            while (redirects < maxRedirects) {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(
+                    () => controller.abort(),
+                    timeoutMs
+                );
+
+                try {
+                    const response = await fetch(currentUrl, {
+                        ...init,
+                        signal: controller.signal,
+                        redirect: 'manual'
+                    });
+
+                    if (
+                        [301, 302, 303, 307, 308].includes(response.status) &&
+                        response.headers.get('location')
+                    ) {
+                        clearTimeout(timeoutId);
+                        const redirectLocation =
+                            response.headers.get('location')!;
+                        currentUrl = new URL(
+                            redirectLocation,
+                            currentUrl
+                        ).toString();
+                        redirects++;
+                        continue;
+                    }
+
+                    clearTimeout(timeoutId);
+                    return response;
+                } catch (err) {
+                    clearTimeout(timeoutId);
+                    throw err;
+                }
+            }
+
+            throw new Error(`Too many redirects (max: ${maxRedirects})`);
+        };
+    }
+
+    // Hook into ProxyService to ensure Content-Length header is correct when manifest data is rewritten
     const origProxyRequest = (server as any).proxyService.proxyRequest.bind(
         (server as any).proxyService
     );
@@ -97,75 +227,23 @@ async function main() {
             return origProxyRequest(encodedData);
         }
 
-        const targetUrl = proxyData.url;
-
-        // 1. If it's a TS / M4S video or audio segment, serve via Lookahead Ring Buffer
-        if (
-            /\.(ts|m4s)($|\?)/i.test(targetUrl) ||
-            targetUrl.includes('/segment') ||
-            targetUrl.includes('seg-')
-        ) {
-            const cached = await streamBuffer.getOrFetchSegment(
-                targetUrl,
-                async (fetchUrl: string) => {
-                    const res = await origProxyRequest(encodedData);
-                    if ('data' in res) {
-                        return {
-                            data: res.data,
-                            contentType: res.contentType,
-                            headers: res.headers,
-                            statusCode: res.statusCode
-                        };
-                    }
-                    const chunks: Buffer[] = [];
-                    for await (const chunk of res.stream) {
-                        chunks.push(
-                            Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
-                        );
-                    }
-                    return {
-                        data: Buffer.concat(chunks),
-                        contentType: res.contentType,
-                        headers: res.headers,
-                        statusCode: res.statusCode
-                    };
-                },
-                proxyData.headers
-            );
-
-            if (cached) {
-                return {
-                    data: cached.data,
-                    contentType: cached.contentType,
-                    statusCode: cached.statusCode || 200,
-                    headers: {
-                        ...(cached.headers || {}),
-                        'Content-Length': String(cached.data.length),
-                        'Accept-Ranges': 'bytes',
-                        'Cache-Control': 'public, max-age=7200',
-                        'Access-Control-Allow-Origin': '*'
-                    }
-                };
-            }
-        }
-
-        // 2. Run original proxy request for manifests / keys / subtitles
         const res = await origProxyRequest(encodedData);
 
-        // 3. If it's an M3U8 manifest, register its segments in StreamBufferService
+        // Fix Content-Length header if buffered data length changed (e.g. manifest rewriting)
         if ('data' in res && Buffer.isBuffer(res.data)) {
-            const text = res.data.toString('utf-8');
-            if (text.includes('#EXTM3U')) {
-                streamBuffer.registerManifest(
-                    targetUrl,
-                    text,
-                    proxyData.headers
-                );
+            if (res.headers) {
+                res.headers['Content-Length'] = String(res.data.length);
             }
         }
 
         return res;
     };
+
+    // In-memory High Performance Stream Cache (4-hour TTL)
+    const streamResolutionCache = new Map<
+        string,
+        { result: any[]; expiresAt: number }
+    >();
 
     // Hook into SourceService for Instant First-Success Stream Resolution
     const sourceService = (server as any).sourceService;
@@ -174,100 +252,180 @@ async function main() {
             type: 'movie' | 'tv',
             media: any
         ) {
+            const mediaId =
+                media.tmdbId || media.id || media.imdbId || 'unknown';
+            const season = media.season || 0;
+            const episode = media.episode || 0;
+            const cacheKey = `${type}_${mediaId}_${season}_${episode}`;
+
+            // Check in-memory fast cache
+            const cached = streamResolutionCache.get(cacheKey);
+            if (
+                cached &&
+                cached.expiresAt > Date.now() &&
+                cached.result.length > 0
+            ) {
+                console.log(
+                    `[SourceService] ⚡ Cache HIT for ${cacheKey} (returning in 1ms)`
+                );
+                return cached.result;
+            }
+
             const providers = this.registry.getProviders();
             if (providers.length === 0) {
                 console.warn('[SourceService] No providers registered');
                 return [];
             }
 
+            // Prioritize fast, direct-API providers first with working HLS (VixSrc)
+            const FAST_PROVIDERS = [
+                'vixsrc',
+                'vidsrc',
+                'fsharetv',
+                'vidapi',
+                'cinesu',
+                'popr',
+                'vidnest',
+                'streammafia'
+            ];
             const supportedProviders = providers
                 .filter((p: any) =>
                     p.capabilities.supportedContentTypes.includes(
                         type === 'movie' ? 'movies' : 'tv'
                     )
                 )
-                .filter((p: any) => p.enabled);
+                .filter((p: any) => p.enabled)
+                .sort((a: any, b: any) => {
+                    const aKey = (a.id || a.name || '').toLowerCase();
+                    const bKey = (b.id || b.name || '').toLowerCase();
+                    const aIdx = FAST_PROVIDERS.indexOf(aKey);
+                    const bIdx = FAST_PROVIDERS.indexOf(bKey);
+                    const aRank = aIdx !== -1 ? aIdx : 999;
+                    const bRank = bIdx !== -1 ? bIdx : 999;
+                    return aRank - bRank;
+                });
 
             console.log(
-                `[SourceService] 🚀 Concurrent fetch across ${supportedProviders.length} provider(s) (first-working-stream wins)`
+                `[SourceService] 🚀 Concurrent fast fetch across ${supportedProviders.length} provider(s)`
             );
 
             return new Promise((resolve) => {
                 let isResolved = false;
                 let pendingCount = supportedProviders.length;
                 const collectedResults: any[] = [];
+                let gatheringTimer: NodeJS.Timeout | null = null;
 
                 if (supportedProviders.length === 0) {
                     return resolve([]);
                 }
 
+                const finishWithResult = (res: any[]) => {
+                    if (isResolved) return;
+                    isResolved = true;
+                    if (gatheringTimer) clearTimeout(gatheringTimer);
+                    clearTimeout(hardDeadlineTimer);
+
+                    // Ensure every result object has valid arrays for OMSS buildResponse
+                    res.forEach((r: any) => {
+                        if (!Array.isArray(r.sources)) r.sources = [];
+                        if (!Array.isArray(r.subtitles)) r.subtitles = [];
+                        if (!Array.isArray(r.diagnostics)) r.diagnostics = [];
+                    });
+
+                    if (res.length > 0) {
+                        // Prioritize providers with HLS streams so native AVPlayer can play immediately
+                        res.sort((a: any, b: any) => {
+                            const aHls = a.sources?.some((s: any) => s.type === 'hls') ? 0 : 1;
+                            const bHls = b.sources?.some((s: any) => s.type === 'hls') ? 0 : 1;
+                            return aHls - bHls;
+                        });
+
+                        streamResolutionCache.set(cacheKey, {
+                            result: res,
+                            expiresAt: Date.now() + 4 * 60 * 60 * 1000 // 4 hour cache
+                        });
+                    }
+                    resolve(res);
+                };
+
+                // Hard safety deadline: guarantee total wait time is strictly < 7.5 seconds
+                const hardDeadlineTimer = setTimeout(() => {
+                    if (!isResolved) {
+                        console.log(
+                            `[SourceService] ⏱️ Hard 7.5s deadline reached for ${cacheKey}. Returning ${collectedResults.length} collected results.`
+                        );
+                        finishWithResult(collectedResults);
+                    }
+                }, 7500);
+
                 supportedProviders.forEach(async (provider: any) => {
                     try {
                         const startTime = Date.now();
-                        let result: any;
-                        if (type === 'movie') {
-                            result = await provider.getMovieSources(media);
-                        } else {
-                            result = await provider.getTVSources(media);
-                        }
+
+                        // Per-provider 5.5s timeout race
+                        const providerPromise =
+                            type === 'movie'
+                                ? provider.getMovieSources(media)
+                                : provider.getTVSources(media);
+
+                        const timeoutPromise = new Promise((_, reject) =>
+                            setTimeout(
+                                () => reject(new Error('Provider timeout')),
+                                5500
+                            )
+                        );
+
+                        const result: any = await Promise.race([
+                            providerPromise,
+                            timeoutPromise
+                        ]);
 
                         if (
                             result &&
                             result.sources &&
                             result.sources.length > 0
                         ) {
-                            // Parallel validation of returned sources
-                            const validatedSources = await Promise.allSettled(
-                                result.sources.map(async (source: any) => {
-                                    try {
-                                        const urlObj = new URL(source.url);
-                                        const data =
-                                            urlObj.searchParams.get('data');
-                                        if (!data) return source;
-                                        const proxyData = (
-                                            server as any
-                                        ).proxyService.constructor.decodeProxyData(
-                                            data
-                                        );
-                                        const isValid =
-                                            await sourceService.validateSourceUrl(
-                                                proxyData
-                                            );
-                                        return isValid ? source : null;
-                                    } catch {
-                                        return source;
-                                    }
-                                })
+                            const duration = Date.now() - startTime;
+                            console.log(
+                                `[SourceService] ⚡ Provider '${provider.name}' (${provider.id}) returned ${result.sources.length} sources in ${duration}ms`
                             );
+                            collectedResults.push(result);
 
-                            const validSources = validatedSources
-                                .filter(
-                                    (r: any) =>
-                                        r.status === 'fulfilled' && r.value
-                                )
-                                .map((r: any) => r.value);
+                            const hasHls = result.sources.some((s: any) => s.type === 'hls');
 
-                            if (validSources.length > 0) {
-                                result.sources = validSources;
-                                const duration = Date.now() - startTime;
-                                console.log(
-                                    `[SourceService] ⚡ First working stream found by '${provider.name}' (${validSources.length} sources) in ${duration}ms! Returning immediately.`
-                                );
-                                if (!isResolved) {
-                                    isResolved = true;
-                                    return resolve([result]);
-                                }
+                            // If this provider returned HLS streams (like VixSrc), finalize immediately!
+                            if (hasHls) {
+                                if (gatheringTimer) clearTimeout(gatheringTimer);
+                                finishWithResult(collectedResults);
+                                return;
+                            }
+
+                            // If only non-HLS streams returned so far (e.g. MP4), allow up to 2500ms
+                            // for higher-quality HLS providers (like VixSrc) to finish
+                            if (!gatheringTimer && !isResolved) {
+                                gatheringTimer = setTimeout(() => {
+                                    if (!isResolved) {
+                                        console.log(
+                                            `[SourceService] 🎯 Aggregation window complete for ${cacheKey}. Returning ${collectedResults.length} provider result(s).`
+                                        );
+                                        finishWithResult(collectedResults);
+                                    }
+                                }, 2500);
+                            }
+
+                            // If we have collected results from multiple providers, finalize
+                            if (collectedResults.length >= 2) {
+                                if (gatheringTimer) clearTimeout(gatheringTimer);
+                                finishWithResult(collectedResults);
+                                return;
                             }
                         }
-
-                        if (result) collectedResults.push(result);
-                    } catch (err: any) {
-                        // Provider error
+                    } catch {
+                        // Provider error or 5.5s timeout
                     } finally {
                         pendingCount--;
                         if (!isResolved && pendingCount === 0) {
-                            isResolved = true;
-                            resolve(collectedResults);
+                            finishWithResult(collectedResults);
                         }
                     }
                 });
@@ -444,15 +602,23 @@ async function main() {
     console.log('[Server] Binding to port...');
     await server.start();
 
-    // Warm up local TTS and STT models in background after server is live
-    setTimeout(() => {
-        getTTS().catch((err) =>
-            console.warn('[TTS] Background model warmup notice:', err.message)
-        );
-        getTranscriber().catch((err) =>
-            console.warn('[STT] Background model warmup notice:', err.message)
-        );
-    }, 500);
+    // Warm up local TTS and STT models in background only if explicitly enabled
+    if (process.env.WARMUP_VOICE_AI === 'true') {
+        setTimeout(() => {
+            getTTS().catch((err) =>
+                console.warn(
+                    '[TTS] Background model warmup notice:',
+                    err.message
+                )
+            );
+            getTranscriber().catch((err) =>
+                console.warn(
+                    '[STT] Background model warmup notice:',
+                    err.message
+                )
+            );
+        }, 2000);
+    }
 }
 
 main().catch((error) => {

@@ -9,7 +9,7 @@ enum Secrets {
     // Replace with your TMDb API key (https://www.themoviedb.org/settings/api)
     static let tmdbApiKey = "a6df3aeb4cabf76f74eada17351cf1a3"
     
-    // Local Mac Streaming & AI Voice Server (e.g. "http://192.168.2.54:3000" or "http://localhost:3000")
+    // Direct Local Wi-Fi Backend Server
     static let streamingServerBaseURL = "http://192.168.2.54:3000"
     
     // Google Gemini API Keys (Automatically cycles through keys when quotas expire)

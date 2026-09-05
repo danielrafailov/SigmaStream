@@ -84,6 +84,7 @@ struct MovieCategoryListView: View {
                 }
             }
         }
+        .background(Color.black.ignoresSafeArea())
         .defaultFocus($focusedMovieId, movies.first?.id)
         .navigationTitle("")
         .navigationDestination(item: $selectedMovie) { selection in

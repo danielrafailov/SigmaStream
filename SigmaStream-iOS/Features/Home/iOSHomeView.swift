@@ -56,24 +56,41 @@ struct iOSHomeView: View {
     @State private var selectedTVCategory: TVCategory?
     @State private var selectedCuratedCategory: String?
 
-    private let curatedCategories = [
-        "Action",
-        "Anime",
-        "Astrology",
-        "Book Adaptations",
-        "Canadian",
-        "Comedies",
-        "Critically Acclaimed",
-        "Culture Edit",
-        "Documentaries",
-        "Dramas",
-        "Emmys"
-    ]
+    private var curatedCategories: [String] {
+        if KidsConfig.isKidsEdition {
+            return [
+                "Animation",
+                "Disney & Pixar",
+                "Family Fun",
+                "DreamWorks & Minions",
+                "Animated Superheroes",
+                "Animal Adventures",
+                "Comedy & Laughs",
+                "Fantasy & Magic",
+                "Music & Sing-Along",
+                "Science & Discovery"
+            ]
+        } else {
+            return [
+                "Action",
+                "Anime",
+                "Astrology",
+                "Book Adaptations",
+                "Canadian",
+                "Comedies",
+                "Critically Acclaimed",
+                "Culture Edit",
+                "Documentaries",
+                "Dramas",
+                "Emmys"
+            ]
+        }
+    }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Top Header: Logo + "Home"
+                // Top Header: Logo + "Home" (or "Sigma KIDS")
                 HStack(spacing: 12) {
                     Image("SigmaLogo")
                         .resizable()
@@ -81,11 +98,57 @@ struct iOSHomeView: View {
                         .frame(width: 32, height: 32)
                         .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
 
-                    Text("Home")
-                        .font(.system(size: 26, weight: .bold))
-                        .foregroundStyle(.white)
+                    if KidsConfig.isKidsEdition {
+                        HStack(spacing: 8) {
+                            Text("Sigma")
+                                .font(.system(size: 26, weight: .bold))
+                                .foregroundStyle(.white)
+
+                            Text("KIDS")
+                                .font(.system(size: 13, weight: .heavy, design: .rounded))
+                                .foregroundStyle(.black)
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 3)
+                                .background(
+                                    LinearGradient(
+                                        colors: [Color(red: 1.0, green: 0.85, blue: 0.0), Color(red: 1.0, green: 0.45, blue: 0.0)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .clipShape(Capsule())
+                                .shadow(color: .orange.opacity(0.5), radius: 4, y: 2)
+                        }
+                    } else {
+                        Text("Home")
+                            .font(.system(size: 26, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
 
                     Spacer()
+
+                    Button {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                            appState.isKidsMode.toggle()
+                        }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: appState.isKidsMode ? "figure.and.child.holdinghands" : "person.crop.circle")
+                                .font(.system(size: 13, weight: .bold))
+                            Text(appState.isKidsMode ? "Kids Mode" : "Standard")
+                                .font(.caption2.bold())
+                        }
+                        .foregroundStyle(appState.isKidsMode ? .black : .white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(
+                            appState.isKidsMode
+                            ? AnyShapeStyle(LinearGradient(colors: [.yellow, .orange], startPoint: .topLeading, endPoint: .bottomTrailing))
+                            : AnyShapeStyle(Color.white.opacity(0.15))
+                        )
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
@@ -231,6 +294,11 @@ struct iOSHomeView: View {
             .onReceive(NotificationCenter.default.publisher(for: WatchProgressManager.continueWatchingDidChange)) { _ in
                 Task {
                     await loadContinueWatching()
+                }
+            }
+            .onChange(of: appState.isKidsMode) { _, _ in
+                Task {
+                    await loadFeedData()
                 }
             }
         }

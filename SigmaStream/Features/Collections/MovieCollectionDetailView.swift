@@ -37,6 +37,7 @@ struct MovieCollectionDetailView: View {
                 collectionContentView(detail: detail)
             }
         }
+        .background(Color.black.ignoresSafeArea())
         .navigationTitle("")
         .navigationDestination(item: $selectedMovie) { selection in
             MovieDetailView(movieId: selection.id)

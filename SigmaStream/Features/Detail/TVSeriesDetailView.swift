@@ -137,6 +137,7 @@ struct TVSeriesDetailView: View {
                 }
             }
         }
+        .background(Color.black.ignoresSafeArea())
         .task {
             await loadSeries()
         }

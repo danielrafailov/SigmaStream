@@ -230,21 +230,29 @@ async function main() {
     app.addHook('onSend', async (request, reply, payload) => {
         if (request.url.startsWith('/v1/proxy')) {
             const query = request.query as { data?: string };
-            if (
-                query?.data &&
-                typeof payload === 'string' &&
-                payload.includes('#EXTM3U')
-            ) {
-                try {
-                    const decoded = decodeURIComponent(query.data);
-                    const proxyData = JSON.parse(decoded);
-                    streamBuffer.registerManifest(
-                        proxyData.url,
-                        payload,
-                        proxyData.headers
-                    );
-                } catch (e) {
-                    // Ignore parsing error
+            if (query?.data) {
+                let manifestStr: string | null = null;
+                if (typeof payload === 'string' && payload.includes('#EXTM3U')) {
+                    manifestStr = payload;
+                } else if (Buffer.isBuffer(payload)) {
+                    const str = payload.toString('utf-8');
+                    if (str.includes('#EXTM3U')) {
+                        manifestStr = str;
+                    }
+                }
+
+                if (manifestStr) {
+                    try {
+                        const decoded = decodeURIComponent(query.data);
+                        const proxyData = JSON.parse(decoded);
+                        streamBuffer.registerManifest(
+                            proxyData.url,
+                            manifestStr,
+                            proxyData.headers
+                        );
+                    } catch (e) {
+                        // Ignore parsing error
+                    }
                 }
             }
         }

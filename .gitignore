@@ -1,5 +1,7 @@
 # API Keys & Secrets (never commit)
 SigmaStream/Core/Secrets.swift
+SigmaStream-iOS/Core/Secrets.swift
+**/Secrets.swift
 
 # Xcode
 build/

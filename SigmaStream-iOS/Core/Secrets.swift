@@ -24,9 +24,9 @@ enum Secrets {
     }
     
     // ElevenLabs API Keys (Automatically cycles through keys when quotas expire)
-    static let elevenLabsApiKey1 = "sk_4ad6ba8faf1000de3c0bcebfe6a7f27c99b242ac00222d59"
-    static let elevenLabsApiKey2 = "sk_d41d534f32c19a99f51e20aba7ebab66c12aa98288e82321"
-    static let elevenLabsApiKey3 = "sk_76d674d2a1cf956672bcec008ec56c037e5d18a220282dea"
+    static let elevenLabsApiKey1 = "YOUR_ELEVENLABS_API_KEY_1"
+    static let elevenLabsApiKey2 = "YOUR_ELEVENLABS_API_KEY_2"
+    static let elevenLabsApiKey3 = "YOUR_ELEVENLABS_API_KEY_3"
     
     static var elevenLabsApiKeys: [String] {
         [elevenLabsApiKey1, elevenLabsApiKey2, elevenLabsApiKey3]
